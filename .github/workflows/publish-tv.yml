@@ -1,0 +1,51 @@
+name: Publicar TV automática
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  build_and_publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pegar dados da issue
+        uses: actions-ecosystem/action-get-issue@v1
+        id: issue
+
+      - name: Extrair payload JSON
+        id: parse
+        run: |
+          echo '${{ steps.issue.outputs.body }}' > tv.json
+          cat tv.json
+
+      - name: Clonar repositório
+        uses: actions/checkout@v3
+
+      - name: Criar pasta da TV
+        run: |
+          TV_NAME=$(jq -r '.tv_name' tv.json)
+          mkdir -p "$TV_NAME"
+          cp template/index_base.html "$TV_NAME/index.html"
+
+      - name: Inserir os vídeos no template
+        run: |
+          TV_NAME=$(jq -r '.tv_name' tv.json)
+          VIDEOS=$(jq -r '.videos | @json' tv.json)
+          # Inserir dinamicamente (simples)
+          sed -i "s|__VIDEOS__|$VIDEOS|g" "$TV_NAME/index.html"
+
+      - name: Publicar no GitHub
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Publicada TV ${{ steps.parse.outputs.tv_name }}"
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Comentar link pronto
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            TV publicada com sucesso!
+            URL:
+            https://playtronic.github.io/tv/${{ steps.parse.outputs.tv_name }}/
