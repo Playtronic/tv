@@ -373,14 +373,14 @@
             <div class="custom-controls">
                 <div class="playback-controls">
                     <button class="control-btn" id="rewind10Btn" title="Retroceder 10 segundos">-10s</button>
-                    <button class="control-btn" id="restartBtn" title="Voltar ao início">Início</button>
+                    <button class="control-btn" id="restartBtn" title="Voltar ao início">⏮ Início</button>
                     <button class="control-btn" id="liveBtn" title="Ir para Ao Vivo"><span class="live-dot" id="liveDot"></span> AO VIVO</button>
                 </div>
                 <div class="volume-controls">
-                    <button class="volume-btn" id="volumeBtn">Volume</button>
+                    <button class="volume-btn" id="volumeBtn">🔊</button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
                 </div>
-                <button class="fullscreen-btn" id="fullscreenBtn">Tela Cheia</button>
+                <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
             </div>
         </div>
         
@@ -421,7 +421,7 @@
 
     <script>
         // Configurações da TV
-        const TV_PROGRAMS = [{"id":"program-1764524556155","name":"Z","videos":["Z.mp4"]}];
+        const TV_PROGRAMS = [{"id":"program-1764524556155","name":"Z","videos":["Z.mp4","y.mp4"]}];
         const TV_COMMERCIALS = [];
         const ENABLE_COMMERCIALS = false;
         const COMMERCIALS_PER_BREAK = 2;
@@ -636,7 +636,7 @@
                 if (currentPlayerType === 'html5') {
                     if (video.volume > 0) {
                         video.volume = 0;
-                        volumeBtn.textContent = 'Mudo';
+                        volumeBtn.textContent = '🔇';
                     } else {
                         video.volume = volumeSlider.value;
                         updateVolumeIcon();
@@ -654,11 +654,11 @@
             function updateVolumeIcon() {
                 if (currentPlayerType === 'html5') {
                     if (video.volume === 0) {
-                        volumeBtn.textContent = 'Mudo';
+                        volumeBtn.textContent = '🔇';
                     } else if (video.volume < 0.5) {
-                        volumeBtn.textContent = 'Volume Baixo';
+                        volumeBtn.textContent = '🔈';
                     } else {
-                        volumeBtn.textContent = 'Volume Alto';
+                        volumeBtn.textContent = '🔊';
                     }
                 }
             }
@@ -739,8 +739,15 @@
                 
                 const tempoAtual = calcularTempo();
                 const slotAoVivo = tempoAtual.slot;
+                const percentualSlot = calcularPercentualSlotDecorrido();
+                const percentualVideo = video.currentTime / video.duration;
                 
-                if (currentPlayingSlot !== slotAoVivo) {
+                // Calcular a diferença em minutos
+                const diferencaMinutos = (percentualSlot - percentualVideo) * SLOT_DURATION;
+                
+                // Mostrar botão apenas se a diferença for maior que 1 minuto
+                // OU se estivermos em um slot diferente do atual
+                if (currentPlayingSlot !== slotAoVivo || (diferencaMinutos > 1 && !isNaN(percentualVideo))) {
                     liveBtn.style.display = 'flex';
                     liveDot.classList.add('active');
                 } else {
@@ -774,7 +781,25 @@
                     const tempoAtual = calcularTempo();
                     const slotAoVivo = tempoAtual.slot;
                     
-                    if (currentPlayingSlot !== slotAoVivo) {
+                    // Calcular diferença de slots
+                    let diffSlots = slotAoVivo - currentPlayingSlot;
+                    if (diffSlots < 0) {
+                        diffSlots += TOTAL_SLOTS;
+                    }
+                    
+                    if (diffSlots === 0) {
+                        // Mesmo slot: ajustar a posição
+                        const percentualSlot = calcularPercentualSlotDecorrido();
+                        const tempoAlvo = percentualSlot * video.duration;
+                        
+                        if (tempoAlvo > 0 && tempoAlvo < video.duration) {
+                            video.currentTime = tempoAlvo;
+                        }
+                    } else if (diffSlots === 1) {
+                        // Um slot de diferença: forçar o fim do vídeo atual
+                        video.currentTime = video.duration;
+                    } else {
+                        // Dois ou mais slots de diferença: reiniciar a página
                         location.reload();
                     }
                 }
