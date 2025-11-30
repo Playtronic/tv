@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <title>PlaytronicTV</title>
     <style>
         * {
@@ -353,12 +354,12 @@
             <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiLTQv38Mi9aCtmjh6kXKB9xSZd-4pcWgch-SGTw6FZ0wXqG_g8tvxXTBCjp4eZswrha39PtGF5QqB-_XvjvmwLXZjTWGxVLcRc3jCISEPOQD9E2VO9YG-w3WjrFPlY9cMC_fGQhjukif-Qp6xdr_V-4FlXA1z4ipZbjbg6Q1BgeMC2nE8/s1600/image.png" class="channel-logo" alt="Logo">
             <h1 class="channel-name">PlaytronicTV</h1>
         </div>
-        <p class="subtitle"></p>
+        <p class="subtitle">Play e Pá!</p>
         
         <div class="video-wrapper">
             <div class="loading" id="loadingMessage">Carregando programação...</div>
             <div class="commercial-indicator" id="commercialIndicator" style="display: none;">INTERVALO COMERCIAL</div>
-            
+            <div class="time-display" id="timeDisplay"></div>
             
             <video id="myVideo" playsinline style="display: none;">
                 Seu navegador não suporta a reprodução de vídeos HTML5.
@@ -372,9 +373,9 @@
             
             <div class="custom-controls">
                 <div class="playback-controls">
-                    
-                    
-                    
+                    <button class="control-btn" id="rewind10Btn" title="Retroceder 10 segundos">-10s</button>
+                    <button class="control-btn" id="restartBtn" title="Voltar ao início">⏮ Início</button>
+                    <button class="control-btn" id="liveBtn" title="Ir para Ao Vivo"><span class="live-dot" id="liveDot"></span> AO VIVO</button>
                 </div>
                 <div class="volume-controls">
                     <button class="volume-btn" id="volumeBtn">🔊</button>
@@ -400,6 +401,21 @@
         </div>
         
         
+        <div class="program-info debug-info">
+            <div class="program-item">
+                <div class="program-label">Dias desde a estreia:</div>
+                <div class="program-name" id="debugDays">-</div>
+            </div>
+            <div class="program-item">
+                <div class="program-label">Nº do programa:</div>
+                <div class="program-name" id="debugProgram">-</div>
+            </div>
+            <div class="program-item">
+                <div class="program-label">Data de estreia:</div>
+                <div class="program-name">2025-11-30</div>
+            </div>
+        </div>
+        
         
         <div class="contact-info">Contato: playtronic@mail.com</div>
     </div>
@@ -417,7 +433,7 @@
         const ENABLE_REWIND_10 = true;
         const ENABLE_RESTART = true;
         const ENABLE_LIVE = true;
-        const ENABLE_DEBUG = false;
+        const ENABLE_DEBUG = true;
         
         const RELEASE_DATE = "2025-11-30";
         
@@ -444,13 +460,13 @@
         const autoplayButton = document.getElementById('autoplayButton');
         const loadingMessage = document.getElementById('loadingMessage');
         const customControls = document.querySelector('.custom-controls');
-        
-        
-        
-        
-        
-        
-        
+        const rewind10Btn = document.getElementById("rewind10Btn");
+        const restartBtn = document.getElementById("restartBtn");
+        const liveBtn = document.getElementById("liveBtn");
+        const liveDot = document.getElementById("liveDot");
+        const timeDisplay = document.getElementById("timeDisplay");
+        const debugDays = document.getElementById("debugDays");
+        const debugProgram = document.getElementById("debugProgram");
         
         // Sistema YouTube totalmente reformulado
         function loadYouTubeAPI() {
@@ -673,9 +689,25 @@
             });
             
             
+            rewind10Btn.addEventListener('click', function() {
+                if (currentState === 'program' && currentPlayerType === 'html5' && video.currentTime > 10) {
+                    video.currentTime = Math.max(0, video.currentTime - 10);
+                }
+            });
             
             
             
+            restartBtn.addEventListener('click', function() {
+                if (currentState === 'program' && currentPlayerType === 'html5') {
+                    video.currentTime = 0;
+                }
+            });
+            
+            
+            
+            liveBtn.addEventListener('click', function() {
+                goToLivePosition();
+            });
             
             
             function updateControlButtons() {
@@ -686,11 +718,44 @@
                     playbackControls.style.display = 'flex';
                     
                     
+                    if (currentPlayerType === 'html5') {
+                        rewind10Btn.disabled = video.currentTime <= 10;
+                    } else {
+                        rewind10Btn.disabled = true;
+                    }
                     
+                    
+                    
+                    updateLiveButtonState();
                     
                 }
             }
             
+            
+            function updateLiveButtonState() {
+                if (currentState !== 'program') {
+                    liveBtn.style.display = 'none';
+                    return;
+                }
+                
+                const tempoAtual = calcularTempo();
+                const slotAoVivo = tempoAtual.slot;
+                const percentualSlot = calcularPercentualSlotDecorrido();
+                const percentualVideo = video.currentTime / video.duration;
+                
+                // Calcular a diferença em minutos
+                const diferencaMinutos = (percentualSlot - percentualVideo) * SLOT_DURATION;
+                
+                // Mostrar botão apenas se a diferença for maior que 1 minuto
+                // OU se estivermos em um slot diferente do atual
+                if (currentPlayingSlot !== slotAoVivo || (diferencaMinutos > 1 && !isNaN(percentualVideo))) {
+                    liveBtn.style.display = 'flex';
+                    liveDot.classList.add('active');
+                } else {
+                    liveBtn.style.display = 'none';
+                    liveDot.classList.remove('active');
+                }
+            }
             
             
             function calcularPercentualSlotDecorrido() {
@@ -711,6 +776,35 @@
                 return Math.min(segundosDecorridosNoSlot / totalSegundosSlot, 0.99);
             }
             
+            
+            function goToLivePosition() {
+                if (currentState === 'program') {
+                    const tempoAtual = calcularTempo();
+                    const slotAoVivo = tempoAtual.slot;
+                    
+                    // Calcular diferença de slots
+                    let diffSlots = slotAoVivo - currentPlayingSlot;
+                    if (diffSlots < 0) {
+                        diffSlots += TOTAL_SLOTS;
+                    }
+                    
+                    if (diffSlots === 0) {
+                        // Mesmo slot: ajustar a posição
+                        const percentualSlot = calcularPercentualSlotDecorrido();
+                        const tempoAlvo = percentualSlot * video.duration;
+                        
+                        if (tempoAlvo > 0 && tempoAlvo < video.duration) {
+                            video.currentTime = tempoAlvo;
+                        }
+                    } else if (diffSlots === 1) {
+                        // Um slot de diferença: forçar o fim do vídeo atual
+                        video.currentTime = video.duration;
+                    } else {
+                        // Dois ou mais slots de diferença: reiniciar a página
+                        location.reload();
+                    }
+                }
+            }
             
             
             video.addEventListener('timeupdate', function() {
@@ -782,6 +876,13 @@
             resetControlsTimer();
         }
         
+        
+        function updateTime() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            timeDisplay.textContent = `${hours}:${minutes}`;
+        }
         
         
         function calcularTempo() {
@@ -873,6 +974,9 @@
                 document.getElementById('nextProgram').textContent = nextProgram ? nextProgram.name + ' - EP' + nextEpisodio : '-';
                 document.getElementById('afterNextProgram').textContent = afterNextProgram ? afterNextProgram.name + ' - EP' + afterNextEpisodio : '-';
                 
+                
+                debugDays.textContent = tempo.dia;
+                debugProgram.textContent = currentPlayingSlot;
                 
                 
                 document.getElementById('commercialIndicator').style.display = 'none';
@@ -1039,12 +1143,14 @@
             });
             
             
+            updateTime();
+            setInterval(updateTime, 60000);
+            
             
             const tempo = calcularTempo();
             currentPlayingSlot = tempo.slot;
             playProgram(currentPlayingSlot);
         });
     </script>
-    
 </body>
 </html>
