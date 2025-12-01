@@ -523,13 +523,14 @@
         
         /* CORREÇÃO DA FONTE BRANCA PARA A MENSAGEM DE ERRO */
         .programs-error-message {
-            color: white !important; /* Fonte branca */
+            color: white !important;
             background-color: rgba(231, 76, 60, 0.3);
             padding: 10px;
             border-radius: 8px;
             margin: 10px 0;
             text-align: center;
             font-weight: bold;
+            display: none;
         }
         
         /* CSS DA AUTENTICAÇÃO - CORRIGIDO */
@@ -874,7 +875,7 @@
         <div id="screen3" class="screen">
             <h1>Configure os Programas</h1>
             
-            <!-- CORREÇÃO: MENSAGEM COM FONTE BRANCA -->
+            <!-- CORREÇÃO: MENSAGEM SÓ APARECE QUANDO TENTA PROSSEGUIR -->
             <div id="programsError" class="programs-error-message" style="display: none;">
                 ⚠️ Atenção: É necessário adicionar pelo menos um programa.
             </div>
@@ -948,15 +949,6 @@
                 <!-- Mensagem será preenchida dinamicamente -->
             </div>
             
-            <div id="verificationMessage" class="waiting-message" style="display: none;">
-                <div class="spinner"></div>
-                <h3>Verificando publicação...</h3>
-                <p>Confirmando que seu canal está no ar</p>
-                <div class="progress-container">
-                    <div class="progress-bar" style="width: 75%;"></div>
-                </div>
-            </div>
-            
             <div id="githubResult" class="github-result">
                 <!-- Mensagens de erro serão mostradas aqui -->
             </div>
@@ -969,15 +961,10 @@
                 </button>
             </div>
             
-            <!-- CORREÇÃO: BOTÕES ADICIONAIS PARA QUANDO ESTIVER PRESO NA TELA 5 -->
-            <div id="stuckOptions" class="navigation" style="justify-content: center; margin-top: 30px; display: none;">
-                <button id="retryPublish" class="secondary">Tentar Publicar Novamente</button>
-                <button id="backToHomeFromStuck" class="secondary">Voltar para Início</button>
-            </div>
-            
             <div class="navigation" style="justify-content: center; margin-top: 30px;">
                 <button id="backToScreen4" style="display: none;">Voltar</button>
                 <button id="backToHomeFromSuccess" class="secondary" style="display: none;">Voltar para Início</button>
+                <button id="retryPublish" class="secondary" style="display: none;">Tentar Novamente</button>
             </div>
         </div>
     </div>
@@ -989,8 +976,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
     <script>
-        // Sistema de autenticação Firebase - CORRIGIDO
-        // CONFIG FIREBASE
+        // CONFIGURAÇÃO DO FIREBASE - REVISADA
         const firebaseConfig = {
             apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
             authDomain: "playtronic-tv.firebaseapp.com",
@@ -1011,41 +997,50 @@
 
         let currentUser = null;
         let currentUserData = null;
-        let isOnScreen5 = false; // CORREÇÃO: Flag para controlar se está na tela 5
 
-        // OBSERVADOR DE AUTENTICAÇÃO - CORRIGIDO PARA TELA 5
+        // CORREÇÃO: OBSERVADOR DE AUTENTICAÇÃO REVISADO
         auth.onAuthStateChanged(async (user) => {
+            console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
             currentUser = user;
+            
+            // ATUALIZAÇÃO IMEDIATA DA UI
+            updateAuthUI();
+            
             if (user) {
                 await loadUserData();
+                console.log("Usuário logado:", user.email);
                 
-                // CORREÇÃO: Se estiver na tela 5 e fizer login, tenta publicar automaticamente
-                if (isOnScreen5) {
-                    console.log("Usuário autenticado na tela 5, tentando publicar...");
-                    iniciarPublicacao();
+                // Se estiver na tela 5, tenta publicar novamente
+                if (document.getElementById('screen5').classList.contains('active')) {
+                    console.log("Na tela 5 após login, tentando publicar...");
+                    setTimeout(() => iniciarPublicacao(), 1000);
                 }
             }
-            updateAuthUI();
         });
 
-        // LOGIN - CORRIGIDO
-        document.getElementById('googleLoginBtn').addEventListener('click', () => {
-            const provider = new firebase.auth.GoogleAuthProvider();
-            provider.addScope('profile');
-            provider.addScope('email');
-            
-            auth.signInWithPopup(provider)
-                .then((result) => {
-                    console.log('Login bem-sucedido:', result.user);
-                    document.getElementById('loginOverlay').style.display = 'none';
-                })
-                .catch(err => {
-                    console.error('Erro no login:', err);
-                    alert("Erro no login: " + err.message);
-                });
+        // CORREÇÃO: FUNÇÃO DE LOGIN REVISADA
+        document.getElementById('googleLoginBtn').addEventListener('click', async () => {
+            try {
+                const provider = new firebase.auth.GoogleAuthProvider();
+                provider.addScope('profile');
+                provider.addScope('email');
+                
+                const result = await auth.signInWithPopup(provider);
+                console.log('Login bem-sucedido:', result.user.email);
+                
+                // Fechar modal
+                document.getElementById('loginOverlay').style.display = 'none';
+                
+                // Atualizar UI
+                updateAuthUI();
+                
+            } catch (error) {
+                console.error('Erro no login:', error);
+                alert("Erro no login: " + error.message);
+            }
         });
 
-        // ABRIR/CLOSE LOGIN - CORRIGIDO
+        // ABRIR/CLOSE LOGIN
         document.getElementById('loginButton').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
@@ -1054,12 +1049,13 @@
             document.getElementById('loginOverlay').style.display = 'none';
         });
 
-        // LOGOUT - CORRIGIDO
+        // LOGOUT
         document.getElementById('logoutButton').addEventListener('click', () => {
             auth.signOut()
                 .then(() => {
                     console.log('Logout realizado com sucesso');
                     document.getElementById('userCard').classList.remove('active');
+                    updateAuthUI();
                 })
                 .catch(err => {
                     console.error('Erro no logout:', err);
@@ -1071,7 +1067,7 @@
             document.getElementById('loginOverlay').style.display = 'flex';
         });
 
-        // TOGGLE USER CARD - CORRIGIDO
+        // TOGGLE USER CARD
         document.getElementById('userAvatar').addEventListener('click', (e) => {
             e.stopPropagation();
             document.getElementById('userCard').classList.toggle('active');
@@ -1082,55 +1078,68 @@
             document.getElementById('userCard').classList.remove('active');
         });
 
-        // CARREGAR DADOS EXTRA DO USER - CORRIGIDO
+        // CARREGAR DADOS EXTRA DO USER
         async function loadUserData() {
             if (!currentUser) return;
             
-            const ref = db.collection('users').doc(currentUser.uid);
-            const doc = await ref.get();
-            if (doc.exists) {
-                currentUserData = doc.data();
-            } else {
-                currentUserData = {
-                    name: currentUser.displayName,
-                    email: currentUser.email,
-                    avatar: currentUser.photoURL,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    plan: 'free'
-                };
-                await ref.set(currentUserData);
+            try {
+                const ref = db.collection('users').doc(currentUser.uid);
+                const doc = await ref.get();
+                
+                if (doc.exists) {
+                    currentUserData = doc.data();
+                } else {
+                    currentUserData = {
+                        name: currentUser.displayName,
+                        email: currentUser.email,
+                        avatar: currentUser.photoURL,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        plan: 'free'
+                    };
+                    await ref.set(currentUserData);
+                }
+            } catch (error) {
+                console.error("Erro ao carregar dados do usuário:", error);
             }
         }
 
-        // ATUALIZA UI - CORRIGIDO
+        // CORREÇÃO: FUNÇÃO DE ATUALIZAÇÃO DE UI REVISADA
         function updateAuthUI() {
             const userInfo = document.getElementById('userInfo');
             const loginButton = document.getElementById('loginButton');
             
             if (currentUser) {
-                userInfo.style.display = 'flex';
-                loginButton.style.display = 'none';
+                // Ocultar botão de login
+                if (loginButton) loginButton.style.display = 'none';
                 
-                // Garantir que os elementos existem antes de tentar acessá-los
-                const userAvatar = document.getElementById('userAvatar');
-                const userName = document.getElementById('userName');
-                const userEmail = document.getElementById('userEmail');
-                
-                if (userAvatar && currentUser.photoURL) {
-                    userAvatar.src = currentUser.photoURL;
+                // Mostrar informações do usuário
+                if (userInfo) {
+                    userInfo.style.display = 'flex';
+                    
+                    // Atualizar avatar
+                    const userAvatar = document.getElementById('userAvatar');
+                    if (userAvatar && currentUser.photoURL) {
+                        userAvatar.src = currentUser.photoURL;
+                    }
+                    
+                    // Atualizar nome
+                    const userName = document.getElementById('userName');
+                    if (userName) {
+                        userName.textContent = currentUser.displayName || currentUser.email || 'Usuário';
+                    }
+                    
+                    // Atualizar email
+                    const userEmail = document.getElementById('userEmail');
+                    if (userEmail) {
+                        userEmail.textContent = currentUser.email || '';
+                    }
                 }
-                if (userName && currentUser.displayName) {
-                    userName.textContent = currentUser.displayName;
-                }
-                if (userEmail && currentUser.email) {
-                    userEmail.textContent = currentUser.email;
-                }
-                
-                console.log('Usuário logado:', currentUser.displayName);
             } else {
-                userInfo.style.display = 'none';
-                loginButton.style.display = 'block';
-                console.log('Usuário não logado');
+                // Mostrar botão de login
+                if (loginButton) loginButton.style.display = 'block';
+                
+                // Ocultar informações do usuário
+                if (userInfo) userInfo.style.display = 'none';
             }
         }
 
@@ -1160,7 +1169,6 @@
         };
         
         let totalSlots = 58;
-        // CORREÇÃO: LOGO PADRÃO CORRIGIDA
         const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
         
         // Inicializar elementos DOM quando a página carregar
@@ -1205,7 +1213,7 @@
             const programCount = document.getElementById('programCount');
             const backToScreen2Btn = document.getElementById('backToScreen2');
             const toScreen4Btn = document.getElementById('toScreen4');
-            const programsError = document.getElementById('programsError'); // CORREÇÃO: Elemento da mensagem de erro
+            const programsError = document.getElementById('programsError');
             
             // Elementos da tela 4
             const screen4 = document.getElementById('screen4');
@@ -1222,16 +1230,12 @@
             const publishingStatus = document.getElementById('publishingStatus');
             const processingMessage = document.getElementById('processingMessage');
             const successMessage = document.getElementById('successMessage');
-            const verificationMessage = document.getElementById('verificationMessage');
-            const channelLink = document.getElementById('channelLink');
             const githubResult = document.getElementById('githubResult');
             const authRequiredMessage = document.getElementById('authRequiredMessage');
             const backToScreen4Btn = document.getElementById('backToScreen4');
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
             const loginFromPublishBtn = document.getElementById('loginFromPublish');
-            const stuckOptions = document.getElementById('stuckOptions'); // CORREÇÃO: Botões para quando estiver preso
-            const retryPublish = document.getElementById('retryPublish'); // CORREÇÃO: Botão para tentar novamente
-            const backToHomeFromStuck = document.getElementById('backToHomeFromStuck'); // CORREÇÃO: Botão para voltar ao início
+            const retryPublish = document.getElementById('retryPublish');
             
             // Elementos do indicador de etapas
             const step1 = document.getElementById('step1');
@@ -1240,7 +1244,7 @@
             const step4 = document.getElementById('step4');
             const step5 = document.getElementById('step5');
 
-            // Função para verificar se o nome do canal já existe - CORRIGIDA
+            // Função para verificar se o nome do canal já existe
             async function verificarNomeCanalExistente(nomeCanal, ignorarCanalAtual = false) {
                 // Verificação local
                 const canalExistenteLocal = channels.find(channel => 
@@ -1256,7 +1260,7 @@
                     };
                 }
 
-                // Verificação no servidor - CORRIGIDA
+                // Verificação no servidor
                 try {
                     const nomeArquivo = nomeCanal.toLowerCase()
                         .replace(/[^a-z0-9]/g, '-')
@@ -1264,17 +1268,10 @@
                         
                     const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
                     
-                    console.log('Verificando URL:', urlCanal);
-                    
                     const response = await fetch(urlCanal, { 
-                        method: 'HEAD', // Usar HEAD para verificar apenas o cabeçalho
-                        cache: 'no-cache',
-                        headers: {
-                            'Cache-Control': 'no-cache'
-                        }
+                        method: 'HEAD',
+                        cache: 'no-cache'
                     });
-                    
-                    console.log('Status da resposta:', response.status);
                     
                     if (response.status === 200) {
                         // Se estamos editando e o canal encontrado é o próprio que está sendo editado, não é erro
@@ -1291,54 +1288,12 @@
                         return { existe: false };
                     }
                 } catch (error) {
-                    // Se houver erro na verificação (como CORS), assumimos que não existe para permitir a criação
-                    console.log('Erro na verificação do servidor (pode ser normal):', error);
+                    // Se houver erro na verificação, assumimos que não existe
+                    console.log('Erro na verificação do servidor:', error);
                     return { existe: false };
                 }
 
                 return { existe: false };
-            }
-
-            // Função para verificar se um canal está publicado - CORRIGIDA: NÃO MOSTRA NÚMERO DE TENTATIVAS
-            async function verificarCanalPublicado(nomeCanal, maxTentativas = 10, intervalo = 2000) {
-                const nomeArquivo = nomeCanal.toLowerCase()
-                    .replace(/[^a-z0-9]/g, '-')
-                    .replace(/-+/g, '-') + '.html';
-                    
-                const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
-                
-                for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
-                    try {
-                        console.log(`Tentativa ${tentativa} de verificar:`, urlCanal);
-                        
-                        const response = await fetch(urlCanal, { 
-                            method: 'HEAD',
-                            cache: 'no-cache'
-                        });
-                        
-                        if (response.status === 200) {
-                            console.log('Canal verificado com sucesso');
-                            return { sucesso: true, url: urlCanal };
-                        }
-                        
-                        // Aguardar antes da próxima tentativa
-                        if (tentativa < maxTentativas) {
-                            await new Promise(resolve => setTimeout(resolve, intervalo));
-                        }
-                    } catch (error) {
-                        console.log(`Erro na tentativa ${tentativa}:`, error);
-                        // Aguardar antes da próxima tentativa
-                        if (tentativa < maxTentativas) {
-                            await new Promise(resolve => setTimeout(resolve, intervalo));
-                        }
-                    }
-                }
-                
-                return { 
-                    sucesso: false, 
-                    url: urlCanal,
-                    mensagem: 'Não foi possível verificar se o canal foi publicado.'
-                };
             }
 
             // Função para mostrar erro de nome duplicado
@@ -1356,7 +1311,7 @@
                 tvNameInput.style.background = 'rgba(255, 255, 255, 0.9)';
             }
 
-            // CORREÇÃO: FUNÇÃO PARA GERAR HTML DO CANAL SEGUINDO O MODELO ORIGINAL
+            // FUNÇÃO PARA GERAR HTML DO CANAL SEGUINDO O MODELO ORIGINAL
             function gerarHTMLdoCanal(dados) {
                 // Gerar a grade de programação
                 const GRADE = [];
@@ -1375,8 +1330,8 @@
                 // Determinar data de estreia
                 const releaseDate = dados.release || new Date().toISOString().split('T')[0];
                 
-                // CORREÇÃO: Usar o layout original fornecido
-                return `<!DOCTYPE html>
+                // CORREÇÃO: Gerar HTML seguindo o modelo original fornecido
+                const html = `<!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
@@ -1390,46 +1345,44 @@
         }
         
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, sans-serif;
             background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
             color: white;
+            text-align: center;
             min-height: 100vh;
             padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
         }
         
         .container {
-            max-width: 1200px;
+            max-width: 800px;
             margin: 0 auto;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            width: 100%;
         }
         
         .channel-header {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 20px;
+            gap: 15px;
             margin-bottom: 20px;
         }
         
         .channel-logo {
-            width: 80px;
-            height: 80px;
+            width: 60px;
+            height: 60px;
             border-radius: 10px;
-            object-fit: cover;
         }
         
         .channel-name {
-            font-size: 2.5rem;
+            font-size: 2rem;
             font-weight: bold;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
         
         .subtitle {
-            text-align: center;
             margin-bottom: 30px;
             font-size: 1.2rem;
             opacity: 0.9;
@@ -1503,6 +1456,11 @@
         
         .video-wrapper:hover .custom-controls {
             opacity: 1;
+        }
+        
+        .video-wrapper:fullscreen .custom-controls {
+            opacity: 0;
+            transition: opacity 0.3s;
         }
         
         .video-wrapper:fullscreen:hover .custom-controls {
@@ -1715,19 +1673,12 @@
             color: white;
             width: 100%;
         }
-        
-        .commercial-settings {
-            margin-top: 20px;
-            padding: 15px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="channel-header">
-            <img src="${dados.logo || 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png'}" class="channel-logo" alt="Logo do Canal">
+            <img src="${dados.logo || 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png'}" class="channel-logo" alt="Logo">
             <h1 class="channel-name">${dados.name}</h1>
         </div>
         <p class="subtitle">${dados.slogan}</p>
@@ -1778,19 +1729,18 @@
         
         ${dados.enableDebug ? `
         <div class="debug-info">
-            <h3>Informações de Debug</h3>
-            <p>Dias desde a estreia: <span id="debugDays">-</span></p>
-            <p>Nº do programa atual: <span id="debugProgram">-</span></p>
-            <p>Data de estreia: ${releaseDate}</p>
-            <p>Total de programas: ${dados.programas.length}</p>
-        </div>
-        ` : ''}
-        
-        ${dados.enableCommercials && dados.comerciais && dados.comerciais.length > 0 ? `
-        <div class="commercial-settings">
-            <h3>Configurações de Comerciais</h3>
-            <p>Comerciais por intervalo: ${dados.commercialsPerBreak || 2}</p>
-            <p>Total de comerciais: ${dados.comerciais.length}</p>
+            <div class="program-item">
+                <div class="program-label">Dias desde a estreia:</div>
+                <div class="program-name" id="debugDays">-</div>
+            </div>
+            <div class="program-item">
+                <div class="program-label">Nº do programa:</div>
+                <div class="program-name" id="debugProgram">-</div>
+            </div>
+            <div class="program-item">
+                <div class="program-label">Data de estreia:</div>
+                <div class="program-name">${releaseDate}</div>
+            </div>
         </div>
         ` : ''}
         
@@ -1872,7 +1822,6 @@
                 
                 window.onYouTubeIframeAPIReady = function() {
                     youtubeAPILoaded = true;
-                    console.log('YouTube API carregada e pronta');
                     resolve();
                 };
             });
@@ -1939,8 +1888,6 @@
                             'iv_load_policy': 3
                         };
                         
-                        console.log('Criando YouTube Player com ID:', videoId);
-                        
                         youtubePlayer = new YT.Player('youtubePlayer', {
                             height: '100%',
                             width: '100%',
@@ -1948,7 +1895,6 @@
                             playerVars: playerVars,
                             events: {
                                 'onReady': function(event) {
-                                    console.log('YouTube Player pronto e estável');
                                     loadingMessage.style.display = 'none';
                                     
                                     if (userStartedPlayback) {
@@ -1960,11 +1906,8 @@
                                     resolve(event.target);
                                 },
                                 'onStateChange': function(event) {
-                                    console.log('YouTube Player State:', event.data);
-                                    
                                     switch (event.data) {
                                         case YT.PlayerState.ENDED:
-                                            console.log('YouTube: Vídeo terminou');
                                             handleVideoEnd();
                                             break;
                                         case YT.PlayerState.PLAYING:
@@ -1982,20 +1925,8 @@
                                     }
                                 },
                                 'onError': function(event) {
-                                    console.error('Erro no YouTube Player:', event.data);
-                                    let errorMessage = 'Erro desconhecido';
-                                    switch (event.data) {
-                                        case 2: errorMessage = 'ID do vídeo inválido'; break;
-                                        case 5: errorMessage = 'Erro de HTML5'; break;
-                                        case 100: errorMessage = 'Vídeo não encontrado'; break;
-                                        case 101: 
-                                        case 150: errorMessage = 'Incorporação não permitida'; break;
-                                        case 153: errorMessage = 'Erro de configuração do player'; break;
-                                    }
-                                    console.error('Detalhes do erro:', errorMessage);
-                                    
                                     setTimeout(handleVideoEnd, 3000);
-                                    reject(new Error('YouTube Player Error ' + event.data + ': ' + errorMessage));
+                                    reject(new Error('YouTube Player Error ' + event.data));
                                 }
                             }
                         });
@@ -2120,11 +2051,8 @@
                 const percentualSlot = calcularPercentualSlotDecorrido();
                 const percentualVideo = video.currentTime / video.duration;
                 
-                // Calcular a diferença em minutos
                 const diferencaMinutos = (percentualSlot - percentualVideo) * SLOT_DURATION;
                 
-                // Mostrar botão apenas se a diferença for maior que 1 minuto
-                // OU se estivermos em um slot diferente do atual
                 if (currentPlayingSlot !== slotAoVivo || (diferencaMinutos > 1 && !isNaN(percentualVideo))) {
                     liveBtn.style.display = 'flex';
                     liveDot.classList.add('active');
@@ -2159,14 +2087,12 @@
                     const tempoAtual = calcularTempo();
                     const slotAoVivo = tempoAtual.slot;
                     
-                    // Calcular diferença de slots
                     let diffSlots = slotAoVivo - currentPlayingSlot;
                     if (diffSlots < 0) {
                         diffSlots += TOTAL_SLOTS;
                     }
                     
                     if (diffSlots === 0) {
-                        // Mesmo slot: ajustar a posição
                         const percentualSlot = calcularPercentualSlotDecorrido();
                         const tempoAlvo = percentualSlot * video.duration;
                         
@@ -2174,10 +2100,8 @@
                             video.currentTime = tempoAlvo;
                         }
                     } else if (diffSlots === 1) {
-                        // Um slot de diferença: forçar o fim do vídeo atual
                         video.currentTime = video.duration;
                     } else {
-                        // Dois ou mais slots de diferença: reiniciar a página
                         location.reload();
                     }
                 }
@@ -2363,16 +2287,12 @@
                     const videoId = extractYouTubeId(videoUrl);
                     
                     if (videoId && videoId.length === 11) {
-                        console.log('Iniciando reprodução YouTube:', videoId);
-                        
                         if (!youtubeAPILoaded) {
                             loadingMessage.textContent = 'Carregando YouTube...';
                             await loadYouTubeAPI();
                         }
                         
                         await createYouTubePlayer(videoId);
-                        
-                        console.log('YouTube Player criado com sucesso');
                     } else {
                         throw new Error('ID do YouTube inválido ou não encontrado: ' + videoId);
                     }
@@ -2531,20 +2451,16 @@
     <\/script>
 </body>
 </html>`;
+                
+                return html;
             }
 
-            // Função para publicar canal via Cloudflare Worker - CORRIGIDA
+            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO SIMPLIFICADA E EFICIENTE
             async function publicarCanalGithub(nomeCanal, dadosGerador) {
                 try {
-                    // Verificação final de nome duplicado apenas para novos canais
-                    if (!editingChannel) {
-                        const verificacaoFinal = await verificarNomeCanalExistente(nomeCanal, false);
-                        if (verificacaoFinal.existe) {
-                            throw new Error(verificacaoFinal.mensagem);
-                        }
-                    }
+                    console.log("Iniciando publicação do canal:", nomeCanal);
                     
-                    // Gerar HTML usando o formato original
+                    // Gerar HTML usando o formato correto
                     const htmlCanal = gerarHTMLdoCanal(dadosGerador);
                     
                     const dadosEnvio = {
@@ -2554,21 +2470,29 @@
                         isNewChannel: !editingChannel
                     };
 
-                    console.log('Enviando dados para publicação:', dadosEnvio);
-
+                    console.log("Enviando para o worker...");
+                    
+                    // CORREÇÃO: Timeout maior para garantir a publicação
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos
+                    
                     const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
                         },
-                        body: JSON.stringify(dadosEnvio)
+                        body: JSON.stringify(dadosEnvio),
+                        signal: controller.signal
                     });
 
+                    clearTimeout(timeoutId);
+                    
                     if (!resposta.ok) {
-                        throw new Error(`Erro ao publicar canal: ${resposta.status}`);
+                        throw new Error(`Erro do servidor: ${resposta.status}`);
                     }
 
                     const resultado = await resposta.json();
+                    console.log("Resposta do worker:", resultado);
                     
                     if (resultado.success) {
                         return {
@@ -2579,7 +2503,13 @@
                         throw new Error(resultado.error || "Erro desconhecido do Worker");
                     }
                 } catch (error) {
-                    console.error("Erro na função publicarCanalGithub:", error);
+                    console.error("Erro na publicação:", error);
+                    
+                    // Se for erro de timeout, tentar uma abordagem diferente
+                    if (error.name === 'AbortError') {
+                        throw new Error("Tempo limite excedido. O servidor pode estar ocupado. Tente novamente em alguns instantes.");
+                    }
+                    
                     throw error;
                 }
             }
@@ -2617,7 +2547,6 @@
                 if (screen === 'screen0') {
                     document.querySelector('.step-indicator').style.display = 'none';
                     loadChannels();
-                    isOnScreen5 = false; // CORREÇÃO: Resetar flag quando sair da tela 5
                 } else {
                     document.querySelector('.step-indicator').style.display = 'flex';
                     
@@ -2625,17 +2554,12 @@
                     else if (screen === 'screen2') step2.classList.add('active');
                     else if (screen === 'screen3') {
                         step3.classList.add('active');
-                        // CORREÇÃO: Verificar programas ao entrar na tela 3
-                        if (tvData.programs.length === 0) {
-                            programsError.style.display = 'block';
-                        } else {
-                            programsError.style.display = 'none';
-                        }
+                        // Ocultar mensagem de erro ao entrar na tela
+                        programsError.style.display = 'none';
                     }
                     else if (screen === 'screen4') step4.classList.add('active');
                     else if (screen === 'screen5') {
                         step5.classList.add('active');
-                        isOnScreen5 = true; // CORREÇÃO: Marcar que está na tela 5
                         iniciarPublicacao();
                     }
                 }
@@ -2662,12 +2586,13 @@
                             .replace(/-+/g, '-') + '.html';
                         const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
                         
+                        // CORREÇÃO: Botão com texto "Abrir [Nome do Canal]"
                         channelCard.innerHTML = `
                             ${channel.logo ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
                             <h3>${channel.name}</h3>
                             <p>${channel.slogan || 'Sem slogan'}</p>
                             <div class="channel-actions">
-                                <button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Ver Canal</button>
+                                <button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>
                                 <button class="edit-channel" data-id="${channel.id}">Editar</button>
                                 <button class="delete-channel" data-id="${channel.id}">Apagar</button>
                             </div>
@@ -3237,13 +3162,6 @@
                 });
                 
                 updateCounters();
-                
-                // CORREÇÃO: Mostrar/ocultar mensagem de erro
-                if (tvData.programs.length === 0) {
-                    programsError.style.display = 'block';
-                } else {
-                    programsError.style.display = 'none';
-                }
             }
             
             function updateCounters() {
@@ -3262,12 +3180,17 @@
                 showScreen('screen2');
             });
             
+            // CORREÇÃO: Mostrar mensagem de erro apenas ao tentar prosseguir sem programas
             toScreen4Btn.addEventListener('click', function() {
                 if (tvData.programs.length === 0) {
-                    alert('Por favor, adicione pelo menos um programa com vídeos.');
+                    // Exibir a mensagem de erro
+                    programsError.style.display = 'block';
+                    programsError.scrollIntoView({ behavior: 'smooth' });
                     return;
                 }
                 
+                // Ocultar mensagem se houver programas
+                programsError.style.display = 'none';
                 showScreen('screen4');
             });
             
@@ -3345,44 +3268,33 @@
                 showScreen('screen5');
             });
             
-            // CORREÇÃO: FUNÇÃO PARA TENTAR PUBLICAR NOVAMENTE
             retryPublish.addEventListener('click', function() {
                 iniciarPublicacao();
             });
             
-            // CORREÇÃO: FUNÇÃO PARA VOLTAR AO INÍCIO QUANDO PRESO
-            backToHomeFromStuck.addEventListener('click', function() {
-                showScreen('screen0');
-            });
-            
+            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO SIMPLIFICADA E CONFIÁVEL
             async function iniciarPublicacao() {
-                // CORREÇÃO: Esconder botões de "preso" no início
-                stuckOptions.style.display = 'none';
+                console.log("Iniciando processo de publicação...");
                 
-                // Verificar se o usuário está autenticado
-                if (!currentUser) {
-                    publishingStatus.style.display = 'none';
-                    processingMessage.style.display = 'none';
-                    successMessage.style.display = 'none';
-                    verificationMessage.style.display = 'none';
-                    githubResult.style.display = 'none';
-                    authRequiredMessage.style.display = 'block';
-                    
-                    // CORREÇÃO: Mostrar botões de opção quando não autenticado
-                    stuckOptions.style.display = 'flex';
-                    return;
-                }
-                
-                // Se estiver autenticado, prosseguir com a publicação
-                authRequiredMessage.style.display = 'none';
+                // Resetar UI
                 publishingStatus.style.display = 'block';
                 processingMessage.style.display = 'none';
                 successMessage.style.display = 'none';
-                verificationMessage.style.display = 'none';
                 githubResult.style.display = 'none';
-                stuckOptions.style.display = 'none';
+                authRequiredMessage.style.display = 'none';
+                backToScreen4Btn.style.display = 'none';
+                backToHomeFromSuccess.style.display = 'none';
+                retryPublish.style.display = 'none';
                 
-                // CORREÇÃO: Gerar grade corretamente
+                // Verificar autenticação
+                if (!currentUser) {
+                    console.log("Usuário não autenticado, mostrando mensagem de autenticação");
+                    publishingStatus.style.display = 'none';
+                    authRequiredMessage.style.display = 'block';
+                    return;
+                }
+                
+                // Preparar dados para publicação
                 const GRADE = [];
                 const totalPrograms = tvData.programs.length;
                 
@@ -3400,7 +3312,6 @@
                     ? tvData.releaseDate 
                     : new Date().toISOString().split('T')[0];
                 
-                // CORREÇÃO: Preparar dados para envio no formato correto
                 const dadosParaEnvio = {
                     name: tvData.name,
                     email: tvData.email,
@@ -3424,79 +3335,43 @@
 
                 try {
                     // Pequeno delay para mostrar a mensagem inicial
-                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                     
                     // Fase 2: Processando
                     publishingStatus.style.display = 'none';
                     processingMessage.style.display = 'block';
                     
+                    console.log("Enviando para publicação...");
                     const resultado = await publicarCanalGithub(tvData.name, dadosParaEnvio);
                     
-                    // Se for um canal novo, verificar se foi publicado
-                    if (!editingChannel) {
-                        // Fase 3: Verificando publicação
-                        processingMessage.style.display = 'none';
-                        verificationMessage.style.display = 'block';
-                        
-                        const verificacao = await verificarCanalPublicado(tvData.name);
-                        
-                        if (verificacao.sucesso) {
-                            // Fase 4: Sucesso para canal novo
-                            verificationMessage.style.display = 'none';
-                            successMessage.style.display = 'block';
-                            
-                            // CORREÇÃO: Removido número de tentativas da mensagem
-                            successMessage.innerHTML = `
-                                <h3>Canal Criado com Sucesso!</h3>
-                                <p>Seu novo canal foi publicado e está disponível online.</p>
-                                <a href="${verificacao.url}" class="channel-link" target="_blank">Assistir Meu Canal</a>
-                            `;
-                            
-                            backToHomeFromSuccess.style.display = 'inline-block';
-                            backToScreen4Btn.style.display = 'none';
-                            
-                            salvarCanalLocal(verificacao.url);
-                        } else {
-                            // Erro na verificação para canal novo
-                            verificationMessage.style.display = 'none';
-                            
-                            githubResult.innerHTML = `
-                                <h3>Publicação enviada, mas não verificada</h3>
-                                <p>${verificacao.mensagem}</p>
-                                <p><small>O canal foi salvo localmente. Tente verificar manualmente mais tarde.</small></p>
-                                <a href="${verificacao.url}" class="channel-link" target="_blank" style="margin-top: 15px;">Tentar Acessar Canal</a>
-                            `;
-                            githubResult.className = 'github-result github-error';
-                            githubResult.style.display = 'block';
-                            
-                            backToScreen4Btn.style.display = 'inline-block';
-                            backToHomeFromSuccess.style.display = 'none';
-                            
-                            salvarCanalLocal(verificacao.url);
-                        }
-                    } else {
-                        // Para atualização de canal existente
-                        processingMessage.style.display = 'none';
-                        successMessage.style.display = 'block';
-                        
-                        successMessage.innerHTML = `
-                            <h3>Atualização Enviada com Sucesso!</h3>
-                            <p>As alterações do canal foram enviadas para publicação.</p>
-                            <p><small>O servidor pode demorar alguns minutos para processar a atualização.</small></p>
-                            <a href="${resultado.url}" class="channel-link" target="_blank">Acessar Canal</a>
-                        `;
-                        
-                        backToHomeFromSuccess.style.display = 'inline-block';
-                        backToScreen4Btn.style.display = 'none';
-                        
-                        salvarCanalLocal(resultado.url);
-                    }
+                    // Sucesso!
+                    processingMessage.style.display = 'none';
+                    successMessage.style.display = 'block';
+                    
+                    // Gerar URL do canal
+                    const nomeArquivo = tvData.name.toLowerCase()
+                        .replace(/[^a-z0-9]/g, '-')
+                        .replace(/-+/g, '-') + '.html';
+                    const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
+                    
+                    // CORREÇÃO: Botão com texto "Abrir [Nome do Canal]"
+                    successMessage.innerHTML = `
+                        <h3>${editingChannel ? 'Canal Atualizado' : 'Canal Criado'} com Sucesso!</h3>
+                        <p>Seu canal foi ${editingChannel ? 'atualizado' : 'publicado'} com sucesso.</p>
+                        <a href="${urlCanal}" class="channel-link" target="_blank">Abrir ${tvData.name}</a>
+                    `;
+                    
+                    backToHomeFromSuccess.style.display = 'inline-block';
+                    backToScreen4Btn.style.display = 'none';
+                    
+                    salvarCanalLocal(urlCanal);
                     
                 } catch (error) {
+                    console.error("Erro na publicação:", error);
+                    
                     // Fase de erro
                     publishingStatus.style.display = 'none';
                     processingMessage.style.display = 'none';
-                    verificationMessage.style.display = 'none';
                     
                     githubResult.innerHTML = `
                         <h3>Erro ao publicar canal</h3>
@@ -3507,10 +3382,7 @@
                     githubResult.style.display = 'block';
                     
                     backToScreen4Btn.style.display = 'inline-block';
-                    backToHomeFromSuccess.style.display = 'none';
-                    
-                    // CORREÇÃO: Mostrar botões de opção quando houver erro
-                    stuckOptions.style.display = 'flex';
+                    retryPublish.style.display = 'inline-block';
                     
                     salvarCanalLocal();
                 }
@@ -3554,6 +3426,7 @@
             
             // Inicializar a aplicação
             loadChannels();
+            updateAuthUI(); // Garantir que a UI de autenticação está correta
         });
     </script>
 </body>
