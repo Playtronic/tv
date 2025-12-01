@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -381,7 +382,7 @@
             width: 100%;
         }
         
-        .github-result {
+        .server-result {
             margin-top: 20px;
             padding: 15px;
             border-radius: 8px;
@@ -389,12 +390,12 @@
             display: none;
         }
         
-        .github-success {
+        .server-success {
             background: rgba(46, 204, 113, 0.2);
             border: 1px solid rgba(46, 204, 113, 0.5);
         }
         
-        .github-error {
+        .server-error {
             background: rgba(231, 76, 60, 0.2);
             border: 1px solid rgba(231, 76, 60, 0.5);
         }
@@ -949,7 +950,7 @@
             <div id="verificationMessage" class="waiting-message" style="display: none;">
                 <div class="spinner"></div>
                 <h3>Verificando publicação...</h3>
-                <p>Aguardando o GitHub disponibilizar sua página (pode levar alguns segundos)</p>
+                <p>Aguardando o servidor disponibilizar sua página (pode levar alguns segundos)</p>
                 <div class="progress-container">
                     <div class="progress-bar" style="width: 75%;"></div>
                 </div>
@@ -959,11 +960,11 @@
                 <!-- Mensagem será preenchida dinamicamente -->
             </div>
             
-            <div id="githubResult" class="github-result">
+            <div id="serverResult" class="server-result">
                 <!-- Mensagens de erro serão mostradas aqui -->
             </div>
             
-            <div id="authRequiredMessage" class="github-error" style="display: none; text-align: center; padding: 20px; margin-top: 20px;">
+            <div id="authRequiredMessage" class="server-error" style="display: none; text-align: center; padding: 20px; margin-top: 20px;">
                 <h3>Autenticação Necessária</h3>
                 <p>Para publicar ou atualizar canais, é necessário fazer login com sua conta Google.</p>
                 <button id="loginFromPublish" class="google-login-btn" style="margin-top: 15px;">
@@ -1008,22 +1009,37 @@
         let currentUser = null;
         let currentUserData = null;
 
-        // CORREÇÃO: OBSERVADOR DE AUTENTICAÇÃO REVISADO
+        // CORREÇÃO: OBSERVADOR DE AUTENTICAÇÃO REVISADO - CORREÇÃO DO PONTO 1
         auth.onAuthStateChanged(async (user) => {
             console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
             currentUser = user;
             
-            // ATUALIZAÇÃO IMEDIATA DA UI
+            // ATUALIZAÇÃO IMEDIATA DA UI - CORREÇÃO PARA ATUALIZAR CORRETAMENTE
             updateAuthUI();
             
             if (user) {
                 await loadUserData();
                 console.log("Usuário logado:", user.email);
                 
+                // Esconder mensagem de autenticação necessária se estiver visível
+                const authRequiredMessage = document.getElementById('authRequiredMessage');
+                if (authRequiredMessage) {
+                    authRequiredMessage.style.display = 'none';
+                }
+                
                 // Se estiver na tela 5, tenta publicar novamente
                 if (document.getElementById('screen5').classList.contains('active')) {
                     console.log("Na tela 5 após login, tentando publicar...");
-                    setTimeout(() => iniciarPublicacao(), 1000);
+                    // Pequeno delay para garantir que a UI foi atualizada
+                    setTimeout(() => iniciarPublicacao(), 500);
+                }
+            } else {
+                // Se não estiver logado e estiver na tela 5, mostrar mensagem de autenticação
+                if (document.getElementById('screen5').classList.contains('active')) {
+                    const authRequiredMessage = document.getElementById('authRequiredMessage');
+                    if (authRequiredMessage) {
+                        authRequiredMessage.style.display = 'block';
+                    }
                 }
             }
         });
@@ -1041,7 +1057,7 @@
                 // Fechar modal
                 document.getElementById('loginOverlay').style.display = 'none';
                 
-                // Atualizar UI
+                // Atualizar UI - chamada extra para garantir
                 updateAuthUI();
                 
             } catch (error) {
@@ -1113,7 +1129,7 @@
             }
         }
 
-        // CORREÇÃO: FUNÇÃO DE ATUALIZAÇÃO DE UI REVISADA
+        // CORREÇÃO: FUNÇÃO DE ATUALIZAÇÃO DE UI REVISADA - CORREÇÃO DO PONTO 1
         function updateAuthUI() {
             const userInfo = document.getElementById('userInfo');
             const loginButton = document.getElementById('loginButton');
@@ -1130,6 +1146,8 @@
                     const userAvatar = document.getElementById('userAvatar');
                     if (userAvatar && currentUser.photoURL) {
                         userAvatar.src = currentUser.photoURL;
+                    } else if (userAvatar) {
+                        userAvatar.src = 'https://www.gravatar.com/avatar/?d=mp';
                     }
                     
                     // Atualizar nome
@@ -1144,12 +1162,21 @@
                         userEmail.textContent = currentUser.email || '';
                     }
                 }
+                
+                // Esconder qualquer mensagem de autenticação necessária
+                const authRequiredMessage = document.getElementById('authRequiredMessage');
+                if (authRequiredMessage) {
+                    authRequiredMessage.style.display = 'none';
+                }
             } else {
                 // Mostrar botão de login
                 if (loginButton) loginButton.style.display = 'block';
                 
                 // Ocultar informações do usuário
                 if (userInfo) userInfo.style.display = 'none';
+                
+                // Fechar card de usuário se estiver aberto
+                document.getElementById('userCard').classList.remove('active');
             }
         }
 
@@ -1241,7 +1268,7 @@
             const processingMessage = document.getElementById('processingMessage');
             const verificationMessage = document.getElementById('verificationMessage');
             const successMessage = document.getElementById('successMessage');
-            const githubResult = document.getElementById('githubResult');
+            const serverResult = document.getElementById('serverResult');
             const authRequiredMessage = document.getElementById('authRequiredMessage');
             const backToScreen4Btn = document.getElementById('backToScreen4');
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
@@ -2664,7 +2691,7 @@
                         
                         // CORREÇÃO: Botão com texto "Abrir [Nome do Canal]"
                         channelCard.innerHTML = `
-                            ${channel.logo ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
+                            ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
                             <h3>${channel.name}</h3>
                             <p>${channel.slogan || 'Sem slogan'}</p>
                             <div class="channel-actions">
@@ -2728,7 +2755,16 @@
                     tvEmailInput.value = tvData.email;
                     tvNameInput.value = tvData.name;
                     tvSloganInput.value = tvData.slogan;
-                    tvLogoInput.value = tvData.logo;
+                    
+                    // CORREÇÃO DO PONTO 4: Limpar campo de logo se for a padrão
+                    if (tvData.logo === DEFAULT_LOGO || !tvData.logo) {
+                        tvLogoInput.value = '';
+                        logoPreview.src = DEFAULT_LOGO;
+                    } else {
+                        tvLogoInput.value = tvData.logo;
+                        logoPreview.src = tvData.logo;
+                    }
+                    
                     showTimeCheckbox.checked = tvData.showTime;
                     enableRewind10Checkbox.checked = tvData.enableRewind10;
                     enableRestartCheckbox.checked = tvData.enableRestart;
@@ -2974,7 +3010,7 @@
                     };
                 } else {
                     logoPreview.src = DEFAULT_LOGO;
-                    tvData.logo = DEFAULT_LOGO;
+                    tvData.logo = '';
                     logoError.style.display = 'none';
                 }
             }
@@ -3034,7 +3070,7 @@
                     logoError.style.display = 'block';
                     hasError = true;
                 } else {
-                    tvData.logo = logoUrl || DEFAULT_LOGO;
+                    tvData.logo = logoUrl || '';
                 }
                 
                 tvData.slogan = tvSloganInput.value;
@@ -3348,7 +3384,7 @@
                 iniciarPublicacao();
             });
             
-            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO COM VERIFICAÇÃO DE DISPONIBILIDADE
+            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO COM VERIFICAÇÃO DE DISPONIBILIDADE E CORREÇÕES
             async function iniciarPublicacao() {
                 console.log("Iniciando processo de publicação...");
                 
@@ -3357,18 +3393,21 @@
                 processingMessage.style.display = 'none';
                 verificationMessage.style.display = 'none';
                 successMessage.style.display = 'none';
-                githubResult.style.display = 'none';
+                serverResult.style.display = 'none';
                 authRequiredMessage.style.display = 'none';
                 backToScreen4Btn.style.display = 'none';
                 backToHomeFromSuccess.style.display = 'none';
                 retryPublish.style.display = 'none';
                 
-                // Verificar autenticação
+                // Verificar autenticação - CORREÇÃO DO PONTO 1
                 if (!currentUser) {
                     console.log("Usuário não autenticado, mostrando mensagem de autenticação");
                     publishingStatus.style.display = 'none';
                     authRequiredMessage.style.display = 'block';
                     return;
+                } else {
+                    // Se estiver autenticado, esconder mensagem de autenticação
+                    authRequiredMessage.style.display = 'none';
                 }
                 
                 // Preparar dados para publicação
@@ -3429,21 +3468,20 @@
                     const verificacao = await verificarUrlDisponivel(resultado.url, 30, 2000);
                     
                     if (!verificacao.sucesso) {
-                        throw new Error("A página não ficou disponível após várias tentativas. O GitHub pode estar demorando mais que o normal.");
+                        throw new Error("A página não ficou disponível após várias tentativas. O servidor pode estar demorando mais que o normal.");
                     }
                     
-                    // Sucesso!
+                    // Sucesso! - CORREÇÃO DO PONTO 3 e 5
                     verificationMessage.style.display = 'none';
                     successMessage.style.display = 'block';
                     
-                    // CORREÇÃO: Mensagem diferente para canal novo vs atualização
+                    // CORREÇÃO: Mensagens mais concisas
                     const mensagemSucesso = editingChannel 
                         ? `Canal Atualizado com Sucesso!<br><small>Talvez demore alguns minutos para o servidor disponibilizar as mudanças.</small>`
-                        : `Canal Criado com Sucesso!<br><small>Seu canal está disponível online.</small>`;
+                        : `Seu canal já está no ar!`;
                     
                     successMessage.innerHTML = `
                         <h3>${mensagemSucesso}</h3>
-                        <p>Seu canal foi ${editingChannel ? 'atualizado' : 'publicado'} com sucesso.</p>
                         <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${tvData.name}</a>
                     `;
                     
@@ -3460,13 +3498,13 @@
                     processingMessage.style.display = 'none';
                     verificationMessage.style.display = 'none';
                     
-                    githubResult.innerHTML = `
+                    serverResult.innerHTML = `
                         <h3>Erro ao publicar canal</h3>
                         <p>${error.message}</p>
                         <p><small>O canal foi salvo localmente. Tente novamente mais tarde.</small></p>
                     `;
-                    githubResult.className = 'github-result github-error';
-                    githubResult.style.display = 'block';
+                    serverResult.className = 'server-result server-error';
+                    serverResult.style.display = 'block';
                     
                     backToScreen4Btn.style.display = 'inline-block';
                     retryPublish.style.display = 'inline-block';
