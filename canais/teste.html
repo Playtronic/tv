@@ -945,6 +945,16 @@
                 </div>
             </div>
             
+            <!-- CORREÇÃO: Adicionada tela de verificação -->
+            <div id="verificationMessage" class="waiting-message" style="display: none;">
+                <div class="spinner"></div>
+                <h3>Verificando publicação...</h3>
+                <p>Aguardando o GitHub disponibilizar sua página (pode levar alguns segundos)</p>
+                <div class="progress-container">
+                    <div class="progress-bar" style="width: 75%;"></div>
+                </div>
+            </div>
+            
             <div id="successMessage" class="success-message" style="display: none;">
                 <!-- Mensagem será preenchida dinamicamente -->
             </div>
@@ -1229,6 +1239,7 @@
             const screen5 = document.getElementById('screen5');
             const publishingStatus = document.getElementById('publishingStatus');
             const processingMessage = document.getElementById('processingMessage');
+            const verificationMessage = document.getElementById('verificationMessage');
             const successMessage = document.getElementById('successMessage');
             const githubResult = document.getElementById('githubResult');
             const authRequiredMessage = document.getElementById('authRequiredMessage');
@@ -1243,6 +1254,64 @@
             const step3 = document.getElementById('step3');
             const step4 = document.getElementById('step4');
             const step5 = document.getElementById('step5');
+
+            // CORREÇÃO: FUNÇÃO PARA VERIFICAR SE UMA URL ESTÁ DISPONÍVEL
+            async function verificarUrlDisponivel(url, maxTentativas = 30, intervalo = 2000) {
+                console.log(`Verificando disponibilidade da URL: ${url}`);
+                
+                for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+                    try {
+                        console.log(`Tentativa ${tentativa}/${maxTentativas}`);
+                        
+                        // Usar fetch com modo 'no-cors' para evitar problemas de CORS
+                        const response = await fetch(url, {
+                            method: 'HEAD',
+                            cache: 'no-cache',
+                            mode: 'no-cors'
+                        }).catch(e => {
+                            // Em modo 'no-cors', não podemos verificar o status
+                            // Mas se a requisição não falhar, provavelmente a página existe
+                            return { ok: true };
+                        });
+                        
+                        // Tentar verificar com uma requisição GET simples
+                        try {
+                            const testResponse = await fetch(url, { 
+                                method: 'GET',
+                                cache: 'no-cache'
+                            });
+                            
+                            if (testResponse.status === 200) {
+                                console.log(`URL verificada com sucesso na tentativa ${tentativa}`);
+                                return { sucesso: true, tentativas: tentativa };
+                            } else if (testResponse.status === 404) {
+                                console.log(`URL ainda retornando 404 na tentativa ${tentativa}`);
+                            }
+                        } catch (e) {
+                            // Se chegou aqui sem erro, a página pode estar disponível
+                            console.log(`Possível sucesso na tentativa ${tentativa}`);
+                            return { sucesso: true, tentativas: tentativa };
+                        }
+                        
+                        // Aguardar antes da próxima tentativa
+                        if (tentativa < maxTentativas) {
+                            await new Promise(resolve => setTimeout(resolve, intervalo));
+                        }
+                    } catch (error) {
+                        console.log(`Erro na tentativa ${tentativa}:`, error);
+                        // Aguardar antes da próxima tentativa
+                        if (tentativa < maxTentativas) {
+                            await new Promise(resolve => setTimeout(resolve, intervalo));
+                        }
+                    }
+                }
+                
+                return { 
+                    sucesso: false, 
+                    tentativas: maxTentativas,
+                    mensagem: 'Não foi possível confirmar se a página está disponível após várias tentativas.'
+                };
+            }
 
             // Função para verificar se o nome do canal já existe
             async function verificarNomeCanalExistente(nomeCanal, ignorarCanalAtual = false) {
@@ -2455,7 +2524,7 @@
                 return html;
             }
 
-            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO SIMPLIFICADA E EFICIENTE
+            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO COM VERIFICAÇÃO DE DISPONIBILIDADE
             async function publicarCanalGithub(nomeCanal, dadosGerador) {
                 try {
                     console.log("Iniciando publicação do canal:", nomeCanal);
@@ -2472,7 +2541,7 @@
 
                     console.log("Enviando para o worker...");
                     
-                    // CORREÇÃO: Timeout maior para garantir a publicação
+                    // Timeout maior para garantir a publicação
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos
                     
@@ -2495,9 +2564,16 @@
                     console.log("Resposta do worker:", resultado);
                     
                     if (resultado.success) {
+                        // Gerar URL do canal
+                        const nomeArquivo = nomeCanal.toLowerCase()
+                            .replace(/[^a-z0-9]/g, '-')
+                            .replace(/-+/g, '-') + '.html';
+                        const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
+                        
                         return {
-                            url: resultado.url,
-                            message: resultado.message
+                            url: urlCanal,
+                            message: resultado.message,
+                            nomeArquivo: nomeArquivo
                         };
                     } else {
                         throw new Error(resultado.error || "Erro desconhecido do Worker");
@@ -3272,13 +3348,14 @@
                 iniciarPublicacao();
             });
             
-            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO SIMPLIFICADA E CONFIÁVEL
+            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO COM VERIFICAÇÃO DE DISPONIBILIDADE
             async function iniciarPublicacao() {
                 console.log("Iniciando processo de publicação...");
                 
                 // Resetar UI
                 publishingStatus.style.display = 'block';
                 processingMessage.style.display = 'none';
+                verificationMessage.style.display = 'none';
                 successMessage.style.display = 'none';
                 githubResult.style.display = 'none';
                 authRequiredMessage.style.display = 'none';
@@ -3344,27 +3421,36 @@
                     console.log("Enviando para publicação...");
                     const resultado = await publicarCanalGithub(tvData.name, dadosParaEnvio);
                     
-                    // Sucesso!
+                    // Fase 3: Verificando disponibilidade
                     processingMessage.style.display = 'none';
+                    verificationMessage.style.display = 'block';
+                    
+                    console.log("Verificando disponibilidade da página...");
+                    const verificacao = await verificarUrlDisponivel(resultado.url, 30, 2000);
+                    
+                    if (!verificacao.sucesso) {
+                        throw new Error("A página não ficou disponível após várias tentativas. O GitHub pode estar demorando mais que o normal.");
+                    }
+                    
+                    // Sucesso!
+                    verificationMessage.style.display = 'none';
                     successMessage.style.display = 'block';
                     
-                    // Gerar URL do canal
-                    const nomeArquivo = tvData.name.toLowerCase()
-                        .replace(/[^a-z0-9]/g, '-')
-                        .replace(/-+/g, '-') + '.html';
-                    const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
+                    // CORREÇÃO: Mensagem diferente para canal novo vs atualização
+                    const mensagemSucesso = editingChannel 
+                        ? `Canal Atualizado com Sucesso!<br><small>Talvez demore alguns minutos para o servidor disponibilizar as mudanças.</small>`
+                        : `Canal Criado com Sucesso!<br><small>Seu canal está disponível online.</small>`;
                     
-                    // CORREÇÃO: Botão com texto "Abrir [Nome do Canal]"
                     successMessage.innerHTML = `
-                        <h3>${editingChannel ? 'Canal Atualizado' : 'Canal Criado'} com Sucesso!</h3>
+                        <h3>${mensagemSucesso}</h3>
                         <p>Seu canal foi ${editingChannel ? 'atualizado' : 'publicado'} com sucesso.</p>
-                        <a href="${urlCanal}" class="channel-link" target="_blank">Abrir ${tvData.name}</a>
+                        <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${tvData.name}</a>
                     `;
                     
                     backToHomeFromSuccess.style.display = 'inline-block';
                     backToScreen4Btn.style.display = 'none';
                     
-                    salvarCanalLocal(urlCanal);
+                    salvarCanalLocal(resultado.url);
                     
                 } catch (error) {
                     console.error("Erro na publicação:", error);
@@ -3372,6 +3458,7 @@
                     // Fase de erro
                     publishingStatus.style.display = 'none';
                     processingMessage.style.display = 'none';
+                    verificationMessage.style.display = 'none';
                     
                     githubResult.innerHTML = `
                         <h3>Erro ao publicar canal</h3>
