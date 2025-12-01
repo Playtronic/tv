@@ -694,7 +694,7 @@
     </style>
 </head>
 <body>
-    <!-- Elementos de autenticação - MELHORADOS -->
+    <!-- Elementos de autenticação -->
     <button id="loginButton" class="login-button">Entrar</button>
 
     <div id="userInfo" class="user-info" style="display: none;">
@@ -886,6 +886,11 @@
             <button class="back-to-home-small" id="backToHomeScreen3">← Voltar ao Início</button>
             <h1>Configure os Programas</h1>
             
+            <!-- Mensagem de erro para a tela 3 -->
+            <div id="screen3Error" style="display: none; background: rgba(231, 76, 60, 0.3); color: #ff6b6b; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+                <strong>⚠️ Atenção:</strong> <span id="screen3ErrorMessage">É necessário adicionar pelo menos um programa com um vídeo.</span>
+            </div>
+            
             <div class="programs-container" id="programsContainer">
                 <!-- Os programas serão adicionados aqui dinamicamente -->
             </div>
@@ -894,6 +899,7 @@
             
             <div class="program-info">
                 <div>Programas criados: <span id="programCount" class="program-count">0</span> de 58</div>
+                <div>Total de vídeos: <span id="videoCount" class="program-count">0</span></div>
             </div>
             
             <div class="navigation">
@@ -991,8 +997,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
     <script>
-        // Sistema de autenticação Firebase - MELHORADO
-        // CONFIG FIREBASE
+        // Sistema de autenticação Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
             authDomain: "playtronic-tv.firebaseapp.com",
@@ -1014,7 +1019,7 @@
         let currentUser = null;
         let currentUserData = null;
 
-        // OBSERVADOR DE AUTENTICAÇÃO - MELHORADO
+        // OBSERVADOR DE AUTENTICAÇÃO
         auth.onAuthStateChanged(async (user) => {
             currentUser = user;
             if (user) {
@@ -1023,7 +1028,7 @@
             updateAuthUI();
         });
 
-        // LOGIN - MELHORADO
+        // LOGIN
         document.getElementById('googleLoginBtn').addEventListener('click', () => {
             const provider = new firebase.auth.GoogleAuthProvider();
             provider.addScope('profile');
@@ -1040,7 +1045,7 @@
                 });
         });
 
-        // ABRIR/CLOSE LOGIN - MELHORADO
+        // ABRIR/CLOSE LOGIN
         document.getElementById('loginButton').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
@@ -1049,7 +1054,7 @@
             document.getElementById('loginOverlay').style.display = 'none';
         });
 
-        // LOGOUT - MELHORADO
+        // LOGOUT
         document.getElementById('logoutButton').addEventListener('click', () => {
             auth.signOut()
                 .then(() => {
@@ -1062,22 +1067,24 @@
         });
 
         // BOTÃO DE LOGIN NA TELA DE PUBLICAÇÃO
-        document.getElementById('loginFromPublish').addEventListener('click', () => {
+        document.getElementById('loginFromPublish')?.addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
 
-        // TOGGLE USER CARD - MELHORADO
-        document.getElementById('userAvatar').addEventListener('click', (e) => {
+        // TOGGLE USER CARD
+        document.getElementById('userAvatar')?.addEventListener('click', (e) => {
             e.stopPropagation();
             document.getElementById('userCard').classList.toggle('active');
         });
 
         // FECHAR USER CARD AO CLICAR FORA
         document.addEventListener('click', () => {
-            document.getElementById('userCard').classList.remove('active');
+            if (document.getElementById('userCard')) {
+                document.getElementById('userCard').classList.remove('active');
+            }
         });
 
-        // CARREGAR DADOS EXTRA DO USER - MELHORADO
+        // CARREGAR DADOS EXTRA DO USER
         async function loadUserData() {
             if (!currentUser) return;
             
@@ -1097,16 +1104,15 @@
             }
         }
 
-        // ATUALIZA UI - MELHORADO
+        // ATUALIZA UI
         function updateAuthUI() {
             const userInfo = document.getElementById('userInfo');
             const loginButton = document.getElementById('loginButton');
             
             if (currentUser) {
-                userInfo.style.display = 'flex';
-                loginButton.style.display = 'none';
+                if (userInfo) userInfo.style.display = 'flex';
+                if (loginButton) loginButton.style.display = 'none';
                 
-                // Garantir que os elementos existem antes de tentar acessá-los
                 const userAvatar = document.getElementById('userAvatar');
                 const userName = document.getElementById('userName');
                 const userEmail = document.getElementById('userEmail');
@@ -1123,8 +1129,8 @@
                 
                 console.log('Usuário logado:', currentUser.displayName);
             } else {
-                userInfo.style.display = 'none';
-                loginButton.style.display = 'block';
+                if (userInfo) userInfo.style.display = 'none';
+                if (loginButton) loginButton.style.display = 'block';
                 console.log('Usuário não logado');
             }
         }
@@ -1157,354 +1163,215 @@
         let totalSlots = 58;
         const DEFAULT_LOGO = "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiLTQv38Mi9aCtmjh6kXKB9xSZd-4pcWgch-SGTw6FZ0wXqG_g8tvxXTBCjp4eZswrha39PtGF5QqB-_XvjvmwLXZjTWGxVLcRc3jCISEPOQD9E2VO9YG-w3WjrFPlY9cMC_fGQhjukif-Qp6xdr_V-4FlXA1z4ipZbjbg6Q1BgeMC2nE8/s1600/image.png";
         
-        // Inicializar elementos DOM quando a página carregar
-        document.addEventListener('DOMContentLoaded', function() {
-            // Elementos da tela 0
-            const screen0 = document.getElementById('screen0');
-            const channelsList = document.getElementById('channelsList');
-            const emptyState = document.getElementById('emptyState');
-            const createNewChannelBtn = document.getElementById('createNewChannel');
+        // Função para verificar se o nome do canal já existe - CORRIGIDA
+        async function verificarNomeCanalExistente(nomeCanal, ignorarCanalAtual = false) {
+            // Verificação local
+            const canalExistenteLocal = channels.find(channel => 
+                channel.name.toLowerCase() === nomeCanal.toLowerCase() &&
+                (ignorarCanalAtual ? channel.id !== currentChannelId : true)
+            );
             
-            // Elementos da tela 1
-            const screen1 = document.getElementById('screen1');
-            const tvEmailInput = document.getElementById('tvEmail');
-            const tvNameInput = document.getElementById('tvName');
-            const tvSloganInput = document.getElementById('tvSlogan');
-            const tvLogoInput = document.getElementById('tvLogo');
-            const logoPreview = document.getElementById('logoPreview');
-            const emailError = document.getElementById('emailError');
-            const nameError = document.getElementById('nameError');
-            const nameDuplicateError = document.getElementById('nameDuplicateError');
-            const logoError = document.getElementById('logoError');
-            const toScreen2Btn = document.getElementById('toScreen2');
-            const backToHomeBtn = document.getElementById('backToHome');
-            const backToHomeScreen1 = document.getElementById('backToHomeScreen1');
-            
-            // Elementos da tela 2
-            const screen2 = document.getElementById('screen2');
-            const showTimeCheckbox = document.getElementById('showTime');
-            const enableRewind10Checkbox = document.getElementById('enableRewind10');
-            const enableRestartCheckbox = document.getElementById('enableRestart');
-            const enableLiveCheckbox = document.getElementById('enableLive');
-            const enableDebugCheckbox = document.getElementById('enableDebug');
-            const customReleaseDateCheckbox = document.getElementById('customReleaseDate');
-            const releaseDateContainer = document.getElementById('releaseDateContainer');
-            const releaseDateInput = document.getElementById('releaseDate');
-            const backToScreen1Btn = document.getElementById('backToScreen1');
-            const toScreen3Btn = document.getElementById('toScreen3');
-            const backToHomeScreen2 = document.getElementById('backToHomeScreen2');
-            
-            // Elementos da tela 3
-            const screen3 = document.getElementById('screen3');
-            const programsContainer = document.getElementById('programsContainer');
-            const addProgramBtn = document.getElementById('addProgram');
-            const programCount = document.getElementById('programCount');
-            const backToScreen2Btn = document.getElementById('backToScreen2');
-            const toScreen4Btn = document.getElementById('toScreen4');
-            const backToHomeScreen3 = document.getElementById('backToHomeScreen3');
-            
-            // Elementos da tela 4
-            const screen4 = document.getElementById('screen4');
-            const enableCommercialsCheckbox = document.getElementById('enableCommercials');
-            const commercialSettings = document.getElementById('commercialSettings');
-            const commercialsPerBreakInput = document.getElementById('commercialsPerBreak');
-            const commercialsContainer = document.getElementById('commercialsContainer');
-            const addCommercialBtn = document.getElementById('addCommercial');
-            const backToScreen3Btn = document.getElementById('backToScreen3');
-            const toScreen5Btn = document.getElementById('toScreen5');
-            const backToHomeScreen4 = document.getElementById('backToHomeScreen4');
-            
-            // Elementos da tela 5
-            const screen5 = document.getElementById('screen5');
-            const publishingStatus = document.getElementById('publishingStatus');
-            const processingMessage = document.getElementById('processingMessage');
-            const successMessage = document.getElementById('successMessage');
-            const verificationMessage = document.getElementById('verificationMessage');
-            const channelLink = document.getElementById('channelLink');
-            const githubResult = document.getElementById('githubResult');
-            const authRequiredMessage = document.getElementById('authRequiredMessage');
-            const backToScreen4Btn = document.getElementById('backToScreen4');
-            const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
-            const loginFromPublishBtn = document.getElementById('loginFromPublish');
-            
-            // Elementos do indicador de etapas
-            const step1 = document.getElementById('step1');
-            const step2 = document.getElementById('step2');
-            const step3 = document.getElementById('step3');
-            const step4 = document.getElementById('step4');
-            const step5 = document.getElementById('step5');
-
-            // CORREÇÃO 3: Adicionar event listeners para os botões "Voltar ao Início"
-            backToHomeScreen1.addEventListener('click', () => showScreen('screen0'));
-            backToHomeScreen2.addEventListener('click', () => showScreen('screen0'));
-            backToHomeScreen3.addEventListener('click', () => showScreen('screen0'));
-            backToHomeScreen4.addEventListener('click', () => showScreen('screen0'));
-
-            // Função para verificar se o nome do canal já existe - MELHORADA
-            async function verificarNomeCanalExistente(nomeCanal, ignorarCanalAtual = false) {
-                // Verificação local
-                const canalExistenteLocal = channels.find(channel => 
-                    channel.name.toLowerCase() === nomeCanal.toLowerCase() &&
-                    (ignorarCanalAtual ? channel.id !== currentChannelId : true)
-                );
-                
-                if (canalExistenteLocal) {
-                    return {
-                        existe: true,
-                        tipo: 'local',
-                        mensagem: 'Já existe um canal com este nome no seu sistema local. Por favor, escolha outro nome.'
-                    };
-                }
-
-                // Verificação no servidor - MELHORADA
-                try {
-                    const nomeArquivo = nomeCanal.toLowerCase()
-                        .replace(/[^a-z0-9]/g, '-')
-                        .replace(/-+/g, '-') + '.html';
-                        
-                    const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
-                    
-                    console.log('Verificando URL:', urlCanal);
-                    
-                    const response = await fetch(urlCanal, { 
-                        method: 'HEAD', // Usando HEAD para verificar sem carregar todo o conteúdo
-                        cache: 'no-cache',
-                        headers: {
-                            'Cache-Control': 'no-cache'
-                        }
-                    });
-                    
-                    console.log('Status da resposta:', response.status);
-                    
-                    if (response.status === 200) {
-                        // Se estamos editando e o canal encontrado é o próprio que está sendo editado, não é erro
-                        if (editingChannel && originalChannelName.toLowerCase() === nomeCanal.toLowerCase()) {
-                            return { existe: false };
-                        }
-                        
-                        return {
-                            existe: true,
-                            tipo: 'servidor',
-                            mensagem: 'Já existe um canal com este nome publicado. Por favor, escolha outro nome.'
-                        };
-                    } else if (response.status === 404) {
-                        return { existe: false };
-                    }
-                } catch (error) {
-                    // Se houver erro na verificação (como CORS), assumimos que não existe para permitir a criação
-                    console.log('Erro na verificação do servidor (pode ser normal):', error);
-                    return { existe: false };
-                }
-
-                return { existe: false };
+            if (canalExistenteLocal) {
+                return {
+                    existe: true,
+                    tipo: 'local',
+                    mensagem: 'Já existe um canal com este nome no seu sistema local.'
+                };
             }
 
-            // Função para verificar se um canal está publicado - MELHORADA (SEM TIMEOUT)
-            async function verificarCanalPublicado(nomeCanal, maxTentativas = 60, intervalo = 2000) {
+            // Verificação no GitHub - CORRIGIDA
+            try {
                 const nomeArquivo = nomeCanal.toLowerCase()
                     .replace(/[^a-z0-9]/g, '-')
                     .replace(/-+/g, '-') + '.html';
                     
                 const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
                 
-                for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
-                    try {
-                        console.log(`Tentativa ${tentativa} de verificar:`, urlCanal);
-                        
-                        const response = await fetch(urlCanal, { 
-                            method: 'HEAD', // Usando HEAD para verificar sem carregar todo o conteúdo
-                            cache: 'no-cache'
-                        });
-                        
-                        if (response.status === 200) {
-                            console.log('Canal verificado com sucesso na tentativa', tentativa);
-                            return { sucesso: true, url: urlCanal, tentativas: tentativa };
-                        }
-                        
-                        // Aguardar antes da próxima tentativa
-                        if (tentativa < maxTentativas) {
-                            console.log(`Aguardando ${intervalo/1000} segundos antes da próxima tentativa...`);
-                            await new Promise(resolve => setTimeout(resolve, intervalo));
-                        }
-                    } catch (error) {
-                        console.log(`Erro na tentativa ${tentativa}:`, error);
-                        // Aguardar antes da próxima tentativa
-                        if (tentativa < maxTentativas) {
-                            await new Promise(resolve => setTimeout(resolve, intervalo));
-                        }
-                    }
+                console.log('Verificando URL:', urlCanal);
+                
+                // Usando fetch com método HEAD
+                const response = await fetch(urlCanal, { 
+                    method: 'HEAD',
+                    cache: 'no-cache',
+                    mode: 'no-cors'
+                });
+                
+                // Se estamos editando e é o mesmo canal, não é erro
+                if (editingChannel && originalChannelName.toLowerCase() === nomeCanal.toLowerCase()) {
+                    return { existe: false };
                 }
                 
+                // Com no-cors não podemos ler o status, mas se a requisição não falhou,
+                // assumimos que o arquivo pode existir
+                // Vamos tentar uma segunda abordagem: fazer uma requisição GET normal
+                try {
+                    const checkResponse = await fetch(urlCanal, { 
+                        method: 'GET',
+                        cache: 'no-cache'
+                    });
+                    
+                    if (checkResponse.status === 200) {
+                        return {
+                            existe: true,
+                            tipo: 'servidor',
+                            mensagem: 'Já existe um canal com este nome publicado no GitHub.'
+                        };
+                    }
+                } catch (fetchError) {
+                    // Se falhar, não bloqueamos o usuário
+                    console.log('Não foi possível verificar no GitHub:', fetchError);
+                }
+                
+                return { existe: false };
+            } catch (error) {
+                console.log('Erro na verificação do servidor:', error);
                 return { 
-                    sucesso: false, 
-                    url: urlCanal, 
-                    tentativas: maxTentativas,
-                    mensagem: 'Não foi possível verificar se o canal foi publicado após várias tentativas.'
+                    existe: false,
+                    aviso: 'Não foi possível verificar disponibilidade remota.'
                 };
             }
+        }
 
-            // Função para mostrar erro de nome duplicado
-            function mostrarErroNomeDuplicado(mensagem) {
+        // Função para mostrar erro de nome duplicado
+        function mostrarErroNomeDuplicado(mensagem) {
+            const nameDuplicateError = document.getElementById('nameDuplicateError');
+            const tvNameInput = document.getElementById('tvName');
+            
+            if (nameDuplicateError && tvNameInput) {
                 nameDuplicateError.textContent = mensagem;
                 nameDuplicateError.style.display = 'block';
                 tvNameInput.style.border = '2px solid #ff6b6b';
                 tvNameInput.style.background = 'rgba(255, 107, 107, 0.1)';
             }
+        }
 
-            // Função para limpar erro de nome duplicado
-            function limparErroNomeDuplicado() {
+        // Função para limpar erro de nome duplicado
+        function limparErroNomeDuplicado() {
+            const nameDuplicateError = document.getElementById('nameDuplicateError');
+            const tvNameInput = document.getElementById('tvName');
+            
+            if (nameDuplicateError && tvNameInput) {
                 nameDuplicateError.style.display = 'none';
                 tvNameInput.style.border = 'none';
                 tvNameInput.style.background = 'rgba(255, 255, 255, 0.9)';
             }
+        }
 
-            // Função para gerar HTML do canal
-            function gerarHTMLdoCanal(dados) {
-                // ... (código mantido igual por ser muito extenso)
-                // Apenas ajustado para refletir as mudanças de nomenclatura
-                return `<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${dados.name}</title>
-    <!-- ... resto do código HTML do canal ... -->
-</body>
-</html>`;
+        // Função para validar se há programas e vídeos - NOVA E SIMPLIFICADA
+        function validarProgramacao() {
+            const screen3Error = document.getElementById('screen3Error');
+            const errorMessage = document.getElementById('screen3ErrorMessage');
+            
+            // Esconder mensagem de erro inicialmente
+            if (screen3Error) {
+                screen3Error.style.display = 'none';
             }
-
-            // Função para publicar canal via Cloudflare Worker - MELHORADA
-            async function publicarCanalGithub(nomeCanal, dadosGerador) {
-                try {
-                    // Verificação final de nome duplicado apenas para novos canais
-                    if (!editingChannel) {
-                        const verificacaoFinal = await verificarNomeCanalExistente(nomeCanal, false);
-                        if (verificacaoFinal.existe) {
-                            throw new Error(verificacaoFinal.mensagem);
-                        }
-                    }
-                    
-                    // Gerar HTML usando seu formato original
-                    const htmlCanal = gerarHTMLdoCanal(dadosGerador);
-                    
-                    const dadosEnvio = {
-                        nomeCanal: nomeCanal,
-                        htmlContent: htmlCanal,
-                        dadosConfig: dadosGerador,
-                        isNewChannel: !editingChannel // Informar se é um canal novo
-                    };
-
-                    console.log('Enviando dados para publicação:', dadosEnvio);
-
-                    const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify(dadosEnvio)
-                    });
-
-                    if (!resposta.ok) {
-                        throw new Error(`Erro ao publicar canal: ${resposta.status}`);
-                    }
-
-                    const resultado = await resposta.json();
-                    
-                    if (resultado.success) {
-                        return {
-                            url: resultado.url,
-                            message: resultado.message
-                        };
-                    } else {
-                        throw new Error(resultado.error || "Erro desconhecido do Worker");
-                    }
-                } catch (error) {
-                    console.error("Erro na função publicarCanalGithub:", error);
-                    throw error;
+            
+            // Verificar se há programas
+            if (tvData.programs.length === 0) {
+                if (screen3Error && errorMessage) {
+                    errorMessage.textContent = 'É necessário adicionar pelo menos um programa.';
+                    screen3Error.style.display = 'block';
                 }
+                return false;
             }
-
-            // Função para apagar canal do servidor
-            async function apagarCanalGithub(nomeCanal) {
-                try {
-                    const nomeArquivo = nomeCanal.toLowerCase()
-                        .replace(/[^a-z0-9]/g, '-')
-                        .replace(/-+/g, '-') + '.html';
-
-                    const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
-                        method: "DELETE",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({ nomeArquivo: nomeArquivo })
-                    });
-
-                    const resultado = await resposta.json();
-                    return resultado.success;
-                } catch (error) {
-                    console.error("Erro ao apagar canal do servidor:", error);
-                    return false;
-                }
-            }
-
-            // Funções de navegação
-            function showScreen(screen) {
-                document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-                document.getElementById(screen).classList.add('active');
-                
-                document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
-                
-                if (screen === 'screen0') {
-                    document.querySelector('.step-indicator').style.display = 'none';
-                    loadChannels();
-                } else {
-                    document.querySelector('.step-indicator').style.display = 'flex';
-                    
-                    if (screen === 'screen1') step1.classList.add('active');
-                    else if (screen === 'screen2') step2.classList.add('active');
-                    else if (screen === 'screen3') step3.classList.add('active');
-                    else if (screen === 'screen4') step4.classList.add('active');
-                    else if (screen === 'screen5') {
-                        step5.classList.add('active');
-                        iniciarPublicacao();
-                    }
+            
+            // Verificar se há pelo menos um vídeo em qualquer programa
+            let totalVideos = 0;
+            for (let i = 0; i < tvData.programs.length; i++) {
+                const program = tvData.programs[i];
+                if (program.videos && program.videos.length > 0) {
+                    totalVideos += program.videos.length;
                 }
             }
             
-            // Tela 0: Gerenciamento de Canais
-            function loadChannels() {
-                channels = JSON.parse(localStorage.getItem('tvChannels')) || [];
-                channelsList.innerHTML = '';
+            if (totalVideos === 0) {
+                if (screen3Error && errorMessage) {
+                    errorMessage.textContent = 'É necessário adicionar pelo menos um vídeo em um dos programas.';
+                    screen3Error.style.display = 'block';
+                }
+                return false;
+            }
+            
+            // Verificar se todos os programas têm nome
+            for (let i = 0; i < tvData.programs.length; i++) {
+                if (!tvData.programs[i].name || tvData.programs[i].name.trim() === '') {
+                    if (screen3Error && errorMessage) {
+                        errorMessage.textContent = 'Todos os programas devem ter um nome.';
+                        screen3Error.style.display = 'block';
+                    }
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+
+        // Função para mostrar/esconder tela
+        function showScreen(screen) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screen).classList.add('active');
+            
+            document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+            
+            if (screen === 'screen0') {
+                document.querySelector('.step-indicator').style.display = 'none';
+                loadChannels();
+            } else {
+                document.querySelector('.step-indicator').style.display = 'flex';
                 
-                if (channels.length === 0) {
-                    emptyState.style.display = 'block';
-                    channelsList.style.display = 'none';
-                } else {
-                    emptyState.style.display = 'none';
-                    channelsList.style.display = 'grid';
+                if (screen === 'screen1') document.getElementById('step1').classList.add('active');
+                else if (screen === 'screen2') document.getElementById('step2').classList.add('active');
+                else if (screen === 'screen3') document.getElementById('step3').classList.add('active');
+                else if (screen === 'screen4') document.getElementById('step4').classList.add('active');
+                else if (screen === 'screen5') {
+                    document.getElementById('step5').classList.add('active');
+                    iniciarPublicacao();
+                }
+            }
+        }
+        
+        // Função para carregar canais
+        function loadChannels() {
+            channels = JSON.parse(localStorage.getItem('tvChannels')) || [];
+            const channelsList = document.getElementById('channelsList');
+            const emptyState = document.getElementById('emptyState');
+            
+            if (!channelsList || !emptyState) return;
+            
+            channelsList.innerHTML = '';
+            
+            if (channels.length === 0) {
+                emptyState.style.display = 'block';
+                channelsList.style.display = 'none';
+            } else {
+                emptyState.style.display = 'none';
+                channelsList.style.display = 'grid';
+                
+                channels.forEach(channel => {
+                    const channelCard = document.createElement('div');
+                    channelCard.className = 'channel-card';
                     
-                    channels.forEach(channel => {
-                        const channelCard = document.createElement('div');
-                        channelCard.className = 'channel-card';
-                        
-                        const nomeArquivo = channel.name.toLowerCase()
-                            .replace(/[^a-z0-9]/g, '-')
-                            .replace(/-+/g, '-') + '.html';
-                        const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
-                        
-                        channelCard.innerHTML = `
-                            ${channel.logo ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
-                            <h3>${channel.name}</h3>
-                            <p>${channel.slogan || 'Sem slogan'}</p>
-                            <div class="channel-actions">
-                                <button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Ver Canal</button>
-                                <button class="edit-channel" data-id="${channel.id}">Editar</button>
-                                <button class="delete-channel" data-id="${channel.id}">Apagar</button>
-                            </div>
-                        `;
-                        channelsList.appendChild(channelCard);
-                    });
+                    const nomeArquivo = channel.name.toLowerCase()
+                        .replace(/[^a-z0-9]/g, '-')
+                        .replace(/-+/g, '-') + '.html';
+                    const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
                     
+                    channelCard.innerHTML = `
+                        ${channel.logo ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
+                        <h3>${channel.name}</h3>
+                        <p>${channel.slogan || 'Sem slogan'}</p>
+                        <div class="channel-actions">
+                            <button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Ver Canal</button>
+                            <button class="edit-channel" data-id="${channel.id}">Editar</button>
+                            <button class="delete-channel" data-id="${channel.id}">Apagar</button>
+                        </div>
+                    `;
+                    channelsList.appendChild(channelCard);
+                });
+                
+                // Adicionar event listeners para os botões dos canais
+                setTimeout(() => {
                     document.querySelectorAll('.watch-channel').forEach(btn => {
                         btn.addEventListener('click', function() {
                             const channelUrl = this.getAttribute('data-url');
@@ -1525,265 +1392,532 @@
                             deleteChannel(channelId);
                         });
                     });
-                }
+                }, 100);
             }
-            
-            function editChannel(channelId) {
-                const channel = channels.find(c => c.id == channelId);
-                if (channel) {
-                    tvData = { 
-                        ...channel.data,
-                        email: channel.data.email || '',
-                        name: channel.data.name || '',
-                        slogan: channel.data.slogan || '',
-                        logo: channel.data.logo || '',
-                        showTime: channel.data.showTime !== undefined ? channel.data.showTime : true,
-                        enableRewind10: channel.data.enableRewind10 !== undefined ? channel.data.enableRewind10 : true,
-                        enableRestart: channel.data.enableRestart !== undefined ? channel.data.enableRestart : true,
-                        enableLive: channel.data.enableLive !== undefined ? channel.data.enableLive : true,
-                        enableDebug: channel.data.enableDebug !== undefined ? channel.data.enableDebug : false,
-                        customReleaseDate: channel.data.customReleaseDate !== undefined ? channel.data.customReleaseDate : false,
-                        releaseDate: channel.data.releaseDate || '',
-                        programs: channel.data.programs || [],
-                        commercials: channel.data.commercials || [],
-                        enableCommercials: channel.data.enableCommercials !== undefined ? channel.data.enableCommercials : false,
-                        commercialsPerBreak: channel.data.commercialsPerBreak || 2
-                    };
-                    
-                    currentChannelId = channelId;
-                    editingChannel = true;
-                    originalChannelName = channel.name;
-                    
-                    tvEmailInput.value = tvData.email;
-                    tvNameInput.value = tvData.name;
-                    tvSloganInput.value = tvData.slogan;
-                    
-                    // MELHORIA 7: Limpar campo da logo padrão
-                    if (tvData.logo === DEFAULT_LOGO) {
-                        tvLogoInput.value = '';
-                    } else {
-                        tvLogoInput.value = tvData.logo;
-                    }
-                    
-                    showTimeCheckbox.checked = tvData.showTime;
-                    enableRewind10Checkbox.checked = tvData.enableRewind10;
-                    enableRestartCheckbox.checked = tvData.enableRestart;
-                    enableLiveCheckbox.checked = tvData.enableLive;
-                    enableDebugCheckbox.checked = tvData.enableDebug;
-                    customReleaseDateCheckbox.checked = tvData.customReleaseDate;
-                    
-                    // Desabilitar edição do nome em canais já publicados
-                    tvNameInput.disabled = true;
-                    tvNameInput.classList.add('name-disabled');
-                    
-                    if (tvData.customReleaseDate && tvData.releaseDate) {
-                        releaseDateInput.value = tvData.releaseDate;
-                        releaseDateContainer.style.display = 'block';
-                    } else {
-                        releaseDateContainer.style.display = 'none';
-                    }
-                    
-                    updateLogoPreview();
-                    
-                    programsContainer.innerHTML = '';
-                    tvData.programs.forEach((program, index) => {
-                        addProgramCard(program, index);
-                    });
-                    
-                    commercialsContainer.innerHTML = '';
-                    tvData.commercials.forEach((commercial, index) => {
-                        addCommercialCard(commercial, index);
-                    });
-                    
-                    enableCommercialsCheckbox.checked = tvData.enableCommercials;
-                    commercialsPerBreakInput.value = tvData.commercialsPerBreak;
-                    
-                    if (tvData.enableCommercials) {
-                        commercialSettings.style.display = 'block';
-                        addCommercialBtn.style.display = 'inline-block';
-                    } else {
-                        commercialSettings.style.display = 'none';
-                        addCommercialBtn.style.display = 'none';
-                    }
-                    
-                    updateCounters();
-                    
-                    showScreen('screen1');
-                }
-            }
-            
-            async function deleteChannel(channelId) {
-                const channel = channels.find(c => c.id == channelId);
-                if (!channel) return;
+        }
+        
+        // Função para editar canal
+        function editChannel(channelId) {
+            const channel = channels.find(c => c.id == channelId);
+            if (channel) {
+                tvData = { 
+                    ...channel.data,
+                    email: channel.data.email || '',
+                    name: channel.data.name || '',
+                    slogan: channel.data.slogan || '',
+                    logo: channel.data.logo || '',
+                    showTime: channel.data.showTime !== undefined ? channel.data.showTime : true,
+                    enableRewind10: channel.data.enableRewind10 !== undefined ? channel.data.enableRewind10 : true,
+                    enableRestart: channel.data.enableRestart !== undefined ? channel.data.enableRestart : true,
+                    enableLive: channel.data.enableLive !== undefined ? channel.data.enableLive : true,
+                    enableDebug: channel.data.enableDebug !== undefined ? channel.data.enableDebug : false,
+                    customReleaseDate: channel.data.customReleaseDate !== undefined ? channel.data.customReleaseDate : false,
+                    releaseDate: channel.data.releaseDate || '',
+                    programs: channel.data.programs || [],
+                    commercials: channel.data.commercials || [],
+                    enableCommercials: channel.data.enableCommercials !== undefined ? channel.data.enableCommercials : false,
+                    commercialsPerBreak: channel.data.commercialsPerBreak || 2
+                };
                 
-                if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal tanto localmente quanto do servidor.')) {
-                    // Primeiro apagar do servidor
-                    const apagadoDoServidor = await apagarCanalGithub(channel.name);
-                    
-                    if (!apagadoDoServidor) {
-                        if (!confirm('Não foi possível apagar o canal do servidor. Deseja apagar apenas localmente?')) {
+                currentChannelId = channelId;
+                editingChannel = true;
+                originalChannelName = channel.name;
+                
+                // Preencher campos da tela 1
+                document.getElementById('tvEmail').value = tvData.email;
+                document.getElementById('tvName').value = tvData.name;
+                document.getElementById('tvSlogan').value = tvData.slogan;
+                
+                if (tvData.logo === DEFAULT_LOGO) {
+                    document.getElementById('tvLogo').value = '';
+                } else {
+                    document.getElementById('tvLogo').value = tvData.logo;
+                }
+                
+                // Preencher campos da tela 2
+                document.getElementById('showTime').checked = tvData.showTime;
+                document.getElementById('enableRewind10').checked = tvData.enableRewind10;
+                document.getElementById('enableRestart').checked = tvData.enableRestart;
+                document.getElementById('enableLive').checked = tvData.enableLive;
+                document.getElementById('enableDebug').checked = tvData.enableDebug;
+                document.getElementById('customReleaseDate').checked = tvData.customReleaseDate;
+                
+                document.getElementById('tvName').disabled = true;
+                document.getElementById('tvName').classList.add('name-disabled');
+                
+                if (tvData.customReleaseDate && tvData.releaseDate) {
+                    document.getElementById('releaseDate').value = tvData.releaseDate;
+                    document.getElementById('releaseDateContainer').style.display = 'block';
+                } else {
+                    document.getElementById('releaseDateContainer').style.display = 'none';
+                }
+                
+                updateLogoPreview();
+                
+                // Limpar e preencher programas
+                const programsContainer = document.getElementById('programsContainer');
+                programsContainer.innerHTML = '';
+                tvData.programs.forEach((program, index) => {
+                    criarProgramaUI(program, index);
+                });
+                
+                // Limpar e preencher comerciais
+                const commercialsContainer = document.getElementById('commercialsContainer');
+                commercialsContainer.innerHTML = '';
+                tvData.commercials.forEach((commercial, index) => {
+                    criarComercialUI(commercial, index);
+                });
+                
+                // Configurar comerciais
+                document.getElementById('enableCommercials').checked = tvData.enableCommercials;
+                document.getElementById('commercialsPerBreak').value = tvData.commercialsPerBreak;
+                
+                if (tvData.enableCommercials) {
+                    document.getElementById('commercialSettings').style.display = 'block';
+                    document.getElementById('addCommercial').style.display = 'inline-block';
+                } else {
+                    document.getElementById('commercialSettings').style.display = 'none';
+                    document.getElementById('addCommercial').style.display = 'none';
+                }
+                
+                atualizarContadores();
+                
+                showScreen('screen1');
+            }
+        }
+        
+        // Função para deletar canal
+        async function deleteChannel(channelId) {
+            const channel = channels.find(c => c.id == channelId);
+            if (!channel) return;
+            
+            if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal tanto localmente quanto do servidor.')) {
+                // Tentar apagar do servidor
+                let apagadoDoServidor = false;
+                try {
+                    const nomeArquivo = channel.name.toLowerCase()
+                        .replace(/[^a-z0-9]/g, '-')
+                        .replace(/-+/g, '-') + '.html';
+
+                    const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
+                        method: "DELETE",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({ nomeArquivo: nomeArquivo })
+                    });
+
+                    const resultado = await resposta.json();
+                    apagadoDoServidor = resultado.success;
+                } catch (error) {
+                    console.error("Erro ao apagar canal do servidor:", error);
+                }
+                
+                if (!apagadoDoServidor) {
+                    if (!confirm('Não foi possível apagar o canal do servidor. Deseja apagar apenas localmente?')) {
+                        return;
+                    }
+                }
+                
+                channels = channels.filter(c => c.id != channelId);
+                localStorage.setItem('tvChannels', JSON.stringify(channels));
+                loadChannels();
+                
+                alert('Canal apagado com sucesso!');
+            }
+        }
+
+        // Função para criar a UI de um programa
+        function criarProgramaUI(program, index) {
+            const programsContainer = document.getElementById('programsContainer');
+            if (!programsContainer) return;
+            
+            const programId = program.id || `program-${Date.now()}-${index}`;
+            const programCard = document.createElement('div');
+            programCard.className = 'program-card';
+            programCard.id = programId;
+            
+            const programNumber = programsContainer.children.length + 1;
+            
+            programCard.innerHTML = `
+                <div class="program-header">
+                    <h3>Programa ${programNumber}</h3>
+                    <button type="button" class="remove-program" data-program="${programId}">Remover</button>
+                </div>
+                <div class="form-group">
+                    <label for="${programId}-name">Nome do Programa:</label>
+                    <input type="text" id="${programId}-name" value="${program.name || ''}" placeholder="Ex: Jornal da Manhã">
+                </div>
+                <div class="form-group">
+                    <label>Episódios (Dias):</label>
+                    <ul class="video-list" id="${programId}-videos"></ul>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <input type="url" id="${programId}-new-video" placeholder="https://exemplo.com/video.mp4" style="flex: 1;">
+                        <button type="button" class="add-video" data-program="${programId}">Adicionar</button>
+                    </div>
+                </div>
+            `;
+            
+            programsContainer.appendChild(programCard);
+            
+            // Preencher vídeos existentes
+            const videoList = document.getElementById(`${programId}-videos`);
+            if (videoList && program.videos && program.videos.length > 0) {
+                program.videos.forEach((videoUrl, videoIndex) => {
+                    adicionarItemVideo(videoList, videoUrl, videoIndex + 1);
+                });
+            }
+            
+            // Configurar event listeners
+            setTimeout(() => {
+                // Botão para adicionar vídeo
+                const addVideoBtn = document.querySelector(`#${programId} .add-video`);
+                if (addVideoBtn) {
+                    addVideoBtn.addEventListener('click', function() {
+                        const programId = this.getAttribute('data-program');
+                        const videoUrlInput = document.getElementById(`${programId}-new-video`);
+                        const videoUrl = videoUrlInput.value.trim();
+                        
+                        if (!videoUrl) {
+                            alert('Por favor, digite uma URL para o vídeo.');
                             return;
                         }
-                    }
-                    
-                    // Apagar localmente
-                    channels = channels.filter(c => c.id != channelId);
-                    localStorage.setItem('tvChannels', JSON.stringify(channels));
-                    loadChannels();
-                    
-                    alert('Canal apagado com sucesso!');
-                }
-            }
-
-            // CORREÇÃO 2: Função auxiliar para adicionar cartão de programa - NUMERAÇÃO CORRIGIDA
-            function addProgramCard(program, index) {
-                const programId = program.id || `program-${Date.now()}-${index}`;
-                const programCard = document.createElement('div');
-                programCard.className = 'program-card';
-                programCard.id = programId;
-                
-                // CORREÇÃO: Usar o índice correto para o título do programa
-                const programNumber = programsContainer.children.length + 1;
-                
-                programCard.innerHTML = `
-                    <div class="program-header">
-                        <h3>Programa ${programNumber}</h3>
-                        <button type="button" class="remove-program" data-program="${programId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="${programId}-name">Nome do Programa:</label>
-                        <input type="text" id="${programId}-name" value="${program.name || ''}" placeholder="Ex: Jornal da Manhã">
-                    </div>
-                    <div class="form-group">
-                        <label>Episódios (Dias):</label>
-                        <ul class="video-list" id="${programId}-videos"></ul>
-                        <input type="url" id="${programId}-new-video" placeholder="URL do vídeo">
-                        <button type="button" class="add-video" data-program="${programId}">Adicionar Episódio</button>
-                    </div>
-                `;
-                
-                programsContainer.appendChild(programCard);
-                
-                const videoList = document.getElementById(`${programId}-videos`);
-                if (program.videos && program.videos.length > 0) {
-                    program.videos.forEach((videoUrl, videoIndex) => {
-                        const videoItem = document.createElement('li');
-                        videoItem.innerHTML = `
-                            <span>Vídeo - Dia ${videoIndex + 1}: ${videoUrl}</span>
-                            <button type="button" class="remove-video">Remover</button>
-                        `;
-                        videoList.appendChild(videoItem);
+                        
+                        if (!isValidUrl(videoUrl)) {
+                            alert('Por favor, digite uma URL válida (deve começar com http:// ou https://).');
+                            return;
+                        }
+                        
+                        const videoList = document.getElementById(`${programId}-videos`);
+                        if (videoList) {
+                            const dayNumber = videoList.children.length + 1;
+                            adicionarItemVideo(videoList, videoUrl, dayNumber);
+                            videoUrlInput.value = '';
+                            
+                            // Atualizar programas
+                            atualizarProgramas();
+                        }
                     });
                 }
                 
-                document.querySelector(`#${programId} .add-video`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    const videoUrlInput = document.getElementById(`${programId}-new-video`);
-                    const videoUrl = videoUrlInput.value;
-                    
-                    if (videoUrl) {
-                        const videoList = document.getElementById(`${programId}-videos`);
-                        const videoItem = document.createElement('li');
-                        const dayNumber = videoList.children.length + 1;
-                        videoItem.innerHTML = `
-                            <span>Vídeo - Dia ${dayNumber}: ${videoUrl}</span>
-                            <button type="button" class="remove-video">Remover</button>
-                        `;
-                        videoList.appendChild(videoItem);
-                        videoUrlInput.value = '';
-                        updatePrograms();
-                    }
-                });
-                
-                document.querySelector(`#${programId} .remove-program`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    document.getElementById(programId).remove();
-                    updatePrograms();
-                });
-                
-                programCard.addEventListener('click', function(e) {
-                    if (e.target.classList.contains('remove-video')) {
-                        e.target.parentElement.remove();
-                        const videoList = e.target.parentElement.parentElement;
-                        Array.from(videoList.children).forEach((item, index) => {
-                            const span = item.querySelector('span');
-                            span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
-                        });
-                        updatePrograms();
-                    }
-                });
-                
-                document.getElementById(`${programId}-name`).addEventListener('input', updatePrograms);
-            }
-
-            // Função auxiliar para adicionar cartão de comercial
-            function addCommercialCard(commercialUrl, index) {
-                const commercialId = 'commercial-' + Date.now() + '-' + index;
-                const commercialCard = document.createElement('div');
-                commercialCard.className = 'commercial-card';
-                commercialCard.id = commercialId;
-                
-                commercialCard.innerHTML = `
-                    <div class="commercial-header">
-                        <h4>Comercial ${index + 1}</h4>
-                        <button type="button" class="remove-commercial" data-commercial="${commercialId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <input type="url" id="${commercialId}-url" value="${commercialUrl}" placeholder="URL do comercial">
-                    </div>
-                `;
-                
-                commercialsContainer.appendChild(commercialCard);
-                
-                document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
-                    const commercialId = this.getAttribute('data-commercial');
-                    document.getElementById(commercialId).remove();
-                    updateCommercials();
-                });
-                
-                document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
-            }
-
-            // MELHORIA 6: Função para salvar progresso automaticamente
-            function salvarProgresso() {
-                // Atualizar dados da tela atual
-                if (screen1.classList.contains('active')) {
-                    tvData.email = tvEmailInput.value;
-                    tvData.name = tvNameInput.value;
-                    tvData.slogan = tvSloganInput.value;
-                    
-                    // MELHORIA 7: Limpar campo da logo padrão
-                    if (tvLogoInput.value === DEFAULT_LOGO) {
-                        tvData.logo = '';
-                    } else {
-                        tvData.logo = tvLogoInput.value;
-                    }
-                } else if (screen2.classList.contains('active')) {
-                    tvData.showTime = showTimeCheckbox.checked;
-                    tvData.enableRewind10 = enableRewind10Checkbox.checked;
-                    tvData.enableRestart = enableRestartCheckbox.checked;
-                    tvData.enableLive = enableLiveCheckbox.checked;
-                    tvData.enableDebug = enableDebugCheckbox.checked;
-                    tvData.customReleaseDate = customReleaseDateCheckbox.checked;
-                    tvData.releaseDate = releaseDateInput.value;
-                } else if (screen3.classList.contains('active')) {
-                    updatePrograms();
-                } else if (screen4.classList.contains('active')) {
-                    tvData.enableCommercials = enableCommercialsCheckbox.checked;
-                    tvData.commercialsPerBreak = parseInt(commercialsPerBreakInput.value);
-                    updateCommercials();
+                // Permitir adicionar vídeo com Enter
+                const videoUrlInput = document.getElementById(`${programId}-new-video`);
+                if (videoUrlInput) {
+                    videoUrlInput.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter') {
+                            const addVideoBtn = document.querySelector(`#${programId} .add-video`);
+                            if (addVideoBtn) addVideoBtn.click();
+                        }
+                    });
                 }
                 
-                // Salvar rascunho
-                localStorage.setItem('tvChannelDraft', JSON.stringify({
-                    data: tvData,
-                    currentChannelId: currentChannelId,
-                    editingChannel: editingChannel,
-                    originalChannelName: originalChannelName
-                }));
-            }
+                // Botão para remover programa
+                const removeProgramBtn = document.querySelector(`#${programId} .remove-program`);
+                if (removeProgramBtn) {
+                    removeProgramBtn.addEventListener('click', function() {
+                        if (confirm('Tem certeza que deseja remover este programa?')) {
+                            const programId = this.getAttribute('data-program');
+                            const programElement = document.getElementById(programId);
+                            if (programElement) {
+                                programElement.remove();
+                                atualizarProgramas();
+                            }
+                        }
+                    });
+                }
+                
+                // Event listener para o nome do programa
+                const nameInput = document.getElementById(`${programId}-name`);
+                if (nameInput) {
+                    nameInput.addEventListener('input', atualizarProgramas);
+                }
+            }, 100);
+        }
 
-            createNewChannelBtn.addEventListener('click', function() {
+        // Função para adicionar item de vídeo à lista
+        function adicionarItemVideo(videoList, videoUrl, dayNumber) {
+            const videoItem = document.createElement('li');
+            videoItem.innerHTML = `
+                <span>Vídeo - Dia ${dayNumber}: ${videoUrl}</span>
+                <button type="button" class="remove-video">Remover</button>
+            `;
+            videoList.appendChild(videoItem);
+            
+            // Configurar evento para remover vídeo
+            const removeBtn = videoItem.querySelector('.remove-video');
+            if (removeBtn) {
+                removeBtn.addEventListener('click', function() {
+                    videoItem.remove();
+                    
+                    // Renumerar os vídeos restantes
+                    const items = videoList.querySelectorAll('li');
+                    items.forEach((item, index) => {
+                        const span = item.querySelector('span');
+                        if (span) {
+                            const text = span.textContent;
+                            const colonIndex = text.indexOf(': ');
+                            if (colonIndex !== -1) {
+                                const url = text.substring(colonIndex + 2);
+                                span.textContent = `Vídeo - Dia ${index + 1}: ${url}`;
+                            }
+                        }
+                    });
+                    
+                    atualizarProgramas();
+                });
+            }
+        }
+
+        // Função para criar a UI de um comercial
+        function criarComercialUI(commercialUrl, index) {
+            const commercialsContainer = document.getElementById('commercialsContainer');
+            if (!commercialsContainer) return;
+            
+            const commercialId = 'commercial-' + Date.now() + '-' + index;
+            const commercialCard = document.createElement('div');
+            commercialCard.className = 'commercial-card';
+            commercialCard.id = commercialId;
+            
+            commercialCard.innerHTML = `
+                <div class="commercial-header">
+                    <h4>Comercial ${index + 1}</h4>
+                    <button type="button" class="remove-commercial" data-commercial="${commercialId}">Remover</button>
+                </div>
+                <div class="form-group">
+                    <input type="url" id="${commercialId}-url" value="${commercialUrl}" placeholder="URL do comercial">
+                </div>
+            `;
+            
+            commercialsContainer.appendChild(commercialCard);
+            
+            // Adicionar event listeners
+            setTimeout(() => {
+                const removeCommercialBtn = document.querySelector(`#${commercialId} .remove-commercial`);
+                if (removeCommercialBtn) {
+                    removeCommercialBtn.addEventListener('click', function() {
+                        const commercialId = this.getAttribute('data-commercial');
+                        const commercialElement = document.getElementById(commercialId);
+                        if (commercialElement) {
+                            commercialElement.remove();
+                            atualizarComerciais();
+                        }
+                    });
+                }
+                
+                const urlInput = document.getElementById(`${commercialId}-url`);
+                if (urlInput) {
+                    urlInput.addEventListener('input', atualizarComerciais);
+                }
+            }, 100);
+        }
+
+        // Função para atualizar programas a partir da UI
+        function atualizarProgramas() {
+            tvData.programs = [];
+            const programElements = document.querySelectorAll('.program-card');
+            let totalVideos = 0;
+            
+            programElements.forEach(programElement => {
+                const programId = programElement.id;
+                const nameInput = programElement.querySelector('input[type="text"]');
+                const name = nameInput ? nameInput.value.trim() : '';
+                const videoList = programElement.querySelector('.video-list');
+                const videos = [];
+                
+                if (videoList) {
+                    const videoItems = videoList.querySelectorAll('li');
+                    videoItems.forEach(item => {
+                        const span = item.querySelector('span');
+                        if (span) {
+                            // Extrai a URL do texto (remove o prefixo "Vídeo - Dia X: ")
+                            const text = span.textContent;
+                            const colonIndex = text.indexOf(': ');
+                            if (colonIndex !== -1) {
+                                const videoUrl = text.substring(colonIndex + 2).trim();
+                                if (videoUrl && isValidUrl(videoUrl)) {
+                                    videos.push(videoUrl);
+                                    totalVideos++;
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                // Só adiciona o programa se tiver nome
+                if (name) {
+                    tvData.programs.push({
+                        id: programId,
+                        name: name,
+                        videos: videos
+                    });
+                }
+            });
+            
+            atualizarContadores();
+            salvarProgresso();
+            
+            // Atualizar contador de vídeos na tela
+            const videoCount = document.getElementById('videoCount');
+            if (videoCount) {
+                videoCount.textContent = totalVideos;
+            }
+            
+            return totalVideos;
+        }
+
+        // Função para atualizar comerciais
+        function atualizarComerciais() {
+            tvData.commercials = [];
+            const commercialElements = document.querySelectorAll('.commercial-card');
+            
+            commercialElements.forEach(commercialElement => {
+                const commercialId = commercialElement.id;
+                const urlInput = document.getElementById(`${commercialId}-url`);
+                const url = urlInput ? urlInput.value.trim() : '';
+                
+                if (url && isValidUrl(url)) {
+                    tvData.commercials.push(url);
+                }
+            });
+            salvarProgresso();
+        }
+
+        // Função para atualizar contadores
+        function atualizarContadores() {
+            const programCount = document.getElementById('programCount');
+            const addProgramBtn = document.getElementById('addProgram');
+            
+            if (programCount) {
+                programCount.textContent = tvData.programs.length;
+            }
+            
+            if (addProgramBtn) {
+                if (tvData.programs.length >= totalSlots) {
+                    addProgramBtn.disabled = true;
+                    addProgramBtn.textContent = "Limite de 58 programas atingido";
+                } else {
+                    addProgramBtn.disabled = false;
+                    addProgramBtn.textContent = "+ Adicionar Novo Programa";
+                }
+            }
+        }
+
+        // Função para atualizar preview da logo
+        function updateLogoPreview() {
+            const tvLogoInput = document.getElementById('tvLogo');
+            const logoPreview = document.getElementById('logoPreview');
+            const logoError = document.getElementById('logoError');
+            
+            if (!tvLogoInput || !logoPreview) return;
+            
+            const logoUrl = tvLogoInput.value.trim();
+            if (logoUrl) {
+                logoPreview.src = logoUrl;
+                tvData.logo = logoUrl;
+                if (logoError) logoError.style.display = 'none';
+                
+                logoPreview.onerror = function() {
+                    logoPreview.src = DEFAULT_LOGO;
+                    if (logoError) {
+                        logoError.textContent = 'Não foi possível carregar a imagem. Verifique a URL.';
+                        logoError.style.display = 'block';
+                    }
+                };
+                
+                logoPreview.onload = function() {
+                    if (logoError) logoError.style.display = 'none';
+                };
+            } else {
+                logoPreview.src = DEFAULT_LOGO;
+                tvData.logo = DEFAULT_LOGO;
+                if (logoError) logoError.style.display = 'none';
+            }
+        }
+
+        // Funções de validação
+        function isValidEmail(email) {
+            const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+            return re.test(String(email).toLowerCase());
+        }
+
+        function isValidUrl(string) {
+            if (!string) return false;
+            
+            // Verifica se começa com http:// ou https://
+            if (!string.startsWith('http://') && !string.startsWith('https://')) {
+                return false;
+            }
+            
+            try {
+                new URL(string);
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        // Função para salvar progresso
+        function salvarProgresso() {
+            // Salvar dados básicos da tela 1
+            const tvEmailInput = document.getElementById('tvEmail');
+            const tvNameInput = document.getElementById('tvName');
+            const tvSloganInput = document.getElementById('tvSlogan');
+            const tvLogoInput = document.getElementById('tvLogo');
+            
+            if (tvEmailInput) tvData.email = tvEmailInput.value;
+            if (tvNameInput) tvData.name = tvNameInput.value;
+            if (tvSloganInput) tvData.slogan = tvSloganInput.value;
+            
+            if (tvLogoInput) {
+                if (tvLogoInput.value === DEFAULT_LOGO) {
+                    tvData.logo = '';
+                } else {
+                    tvData.logo = tvLogoInput.value;
+                }
+            }
+            
+            // Salvar dados da tela 2
+            const showTimeCheckbox = document.getElementById('showTime');
+            const enableRewind10Checkbox = document.getElementById('enableRewind10');
+            const enableRestartCheckbox = document.getElementById('enableRestart');
+            const enableLiveCheckbox = document.getElementById('enableLive');
+            const enableDebugCheckbox = document.getElementById('enableDebug');
+            const customReleaseDateCheckbox = document.getElementById('customReleaseDate');
+            const releaseDateInput = document.getElementById('releaseDate');
+            
+            if (showTimeCheckbox) tvData.showTime = showTimeCheckbox.checked;
+            if (enableRewind10Checkbox) tvData.enableRewind10 = enableRewind10Checkbox.checked;
+            if (enableRestartCheckbox) tvData.enableRestart = enableRestartCheckbox.checked;
+            if (enableLiveCheckbox) tvData.enableLive = enableLiveCheckbox.checked;
+            if (enableDebugCheckbox) tvData.enableDebug = enableDebugCheckbox.checked;
+            if (customReleaseDateCheckbox) tvData.customReleaseDate = customReleaseDateCheckbox.checked;
+            if (releaseDateInput) tvData.releaseDate = releaseDateInput.value;
+            
+            // Salvar dados da tela 4
+            const enableCommercialsCheckbox = document.getElementById('enableCommercials');
+            const commercialsPerBreakInput = document.getElementById('commercialsPerBreak');
+            
+            if (enableCommercialsCheckbox) tvData.enableCommercials = enableCommercialsCheckbox.checked;
+            if (commercialsPerBreakInput) tvData.commercialsPerBreak = parseInt(commercialsPerBreakInput.value);
+            
+            localStorage.setItem('tvChannelDraft', JSON.stringify({
+                data: tvData,
+                currentChannelId: currentChannelId,
+                editingChannel: editingChannel,
+                originalChannelName: originalChannelName
+            }));
+        }
+
+        // Inicializar a aplicação
+        document.addEventListener('DOMContentLoaded', function() {
+            // Configurar event listeners para os botões de navegação
+            document.getElementById('backToHomeScreen1').addEventListener('click', () => showScreen('screen0'));
+            document.getElementById('backToHomeScreen2').addEventListener('click', () => showScreen('screen0'));
+            document.getElementById('backToHomeScreen3').addEventListener('click', () => showScreen('screen0'));
+            document.getElementById('backToHomeScreen4').addEventListener('click', () => showScreen('screen0'));
+            
+            // Botão criar novo canal
+            document.getElementById('createNewChannel').addEventListener('click', function() {
                 tvData = {
                     email: '',
                     name: '',
@@ -1805,86 +1939,63 @@
                 editingChannel = false;
                 originalChannelName = '';
                 
-                tvEmailInput.value = '';
-                tvNameInput.value = '';
-                tvSloganInput.value = '';
-                tvLogoInput.value = '';
-                showTimeCheckbox.checked = true;
-                enableRewind10Checkbox.checked = true;
-                enableRestartCheckbox.checked = true;
-                enableLiveCheckbox.checked = true;
-                enableDebugCheckbox.checked = false;
-                customReleaseDateCheckbox.checked = false;
-                releaseDateInput.value = '';
-                releaseDateContainer.style.display = 'none';
-                logoPreview.src = DEFAULT_LOGO;
-                programsContainer.innerHTML = '';
-                commercialsContainer.innerHTML = '';
-                enableCommercialsCheckbox.checked = false;
-                commercialSettings.style.display = 'none';
-                addCommercialBtn.style.display = 'none';
+                // Limpar campos da tela 1
+                document.getElementById('tvEmail').value = '';
+                document.getElementById('tvName').value = '';
+                document.getElementById('tvSlogan').value = '';
+                document.getElementById('tvLogo').value = '';
+                document.getElementById('tvName').disabled = false;
+                document.getElementById('tvName').classList.remove('name-disabled');
                 
-                // Habilitar edição do nome para novos canais
-                tvNameInput.disabled = false;
-                tvNameInput.classList.remove('name-disabled');
+                // Limpar campos da tela 2
+                document.getElementById('showTime').checked = true;
+                document.getElementById('enableRewind10').checked = true;
+                document.getElementById('enableRestart').checked = true;
+                document.getElementById('enableLive').checked = true;
+                document.getElementById('enableDebug').checked = false;
+                document.getElementById('customReleaseDate').checked = false;
+                document.getElementById('releaseDate').value = '';
+                document.getElementById('releaseDateContainer').style.display = 'none';
+                
+                updateLogoPreview();
+                
+                // Limpar programas e comerciais
+                document.getElementById('programsContainer').innerHTML = '';
+                document.getElementById('commercialsContainer').innerHTML = '';
+                document.getElementById('enableCommercials').checked = false;
+                document.getElementById('commercialSettings').style.display = 'none';
+                document.getElementById('addCommercial').style.display = 'none';
+                
                 limparErroNomeDuplicado();
+                document.getElementById('screen3Error').style.display = 'none';
                 
-                updateCounters();
+                atualizarContadores();
                 
                 showScreen('screen1');
             });
-
-            function updateLogoPreview() {
-                const logoUrl = tvLogoInput.value;
-                if (logoUrl) {
-                    logoPreview.src = logoUrl;
-                    tvData.logo = logoUrl;
-                    logoError.style.display = 'none';
-                    
-                    logoPreview.onerror = function() {
-                        logoPreview.src = DEFAULT_LOGO;
-                        logoError.textContent = 'Não foi possível carregar a imagem. Verifique a URL.';
-                        logoError.style.display = 'block';
-                    };
-                    
-                    logoPreview.onload = function() {
-                        logoError.style.display = 'none';
-                    };
-                } else {
-                    logoPreview.src = DEFAULT_LOGO;
-                    tvData.logo = DEFAULT_LOGO;
-                    logoError.style.display = 'none';
-                }
-            }
             
-            tvLogoInput.addEventListener('input', updateLogoPreview);
-            tvLogoInput.addEventListener('change', updateLogoPreview);
+            // Logo preview
+            document.getElementById('tvLogo').addEventListener('input', updateLogoPreview);
+            document.getElementById('tvLogo').addEventListener('change', updateLogoPreview);
             
-            function isValidEmail(email) {
-                const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-                return re.test(String(email).toLowerCase());
-            }
-            
-            function isValidUrl(string) {
-                try {
-                    new URL(string);
-                    return true;
-                } catch (_) {
-                    return false;
-                }
-            }
-            
-            // CORREÇÃO 4: Verificação de nome duplicado na tela 1 - CORRIGIDA
-            toScreen2Btn.addEventListener('click', async function() {
+            // Botão para ir para a tela 2 (com validação de nome)
+            document.getElementById('toScreen2').addEventListener('click', async function() {
+                const tvEmailInput = document.getElementById('tvEmail');
+                const tvNameInput = document.getElementById('tvName');
+                const tvSloganInput = document.getElementById('tvSlogan');
+                const tvLogoInput = document.getElementById('tvLogo');
+                const emailError = document.getElementById('emailError');
+                const nameError = document.getElementById('nameError');
+                const logoError = document.getElementById('logoError');
+                
                 let hasError = false;
                 
-                // Limpar erros anteriores
                 limparErroNomeDuplicado();
                 emailError.style.display = 'none';
                 nameError.style.display = 'none';
                 logoError.style.display = 'none';
                 
-                // Validar e-mail
+                // Validar email
                 if (!tvEmailInput.value.trim()) {
                     emailError.textContent = 'Por favor, insira um e-mail para o canal.';
                     emailError.style.display = 'block';
@@ -1913,7 +2024,6 @@
                     logoError.style.display = 'block';
                     hasError = true;
                 } else {
-                    // MELHORIA 7: Limpar campo da logo padrão
                     if (logoUrl === DEFAULT_LOGO) {
                         tvData.logo = '';
                     } else {
@@ -1921,15 +2031,16 @@
                     }
                 }
                 
-                tvData.slogan = tvSloganInput.value;
+                if (tvSloganInput) tvData.slogan = tvSloganInput.value;
                 
                 if (hasError) {
                     return;
                 }
                 
-                // CORREÇÃO: Verificação de nome duplicado para TODOS os canais (novos e edição)
-                // Para edição, apenas verificamos se o nome foi alterado
+                // Verificar nome duplicado (apenas para novos canais ou se o nome mudou)
                 if (!editingChannel || (editingChannel && nomeCanal !== originalChannelName)) {
+                    const toScreen2Btn = document.getElementById('toScreen2');
+                    
                     toScreen2Btn.disabled = true;
                     toScreen2Btn.textContent = 'Verificando nome...';
                     tvNameInput.classList.add('name-checking');
@@ -1953,15 +2064,13 @@
                     }
                 }
                 
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
-                
                 showScreen('screen2');
             });
             
-            // Verificação em tempo real (apenas para novos canais)
+            // Verificação em tempo real do nome (apenas para novos canais)
             let timeoutVerificacao;
-            tvNameInput.addEventListener('input', function() {
+            document.getElementById('tvName').addEventListener('input', function() {
                 if (editingChannel) return;
                 
                 limparErroNomeDuplicado();
@@ -1979,7 +2088,8 @@
                 }
             });
             
-            backToHomeBtn.addEventListener('click', function() {
+            // Botão voltar para início da tela 1
+            document.getElementById('backToHome').addEventListener('click', function() {
                 if (editingChannel) {
                     if (confirm('Deseja descartar as alterações?')) {
                         showScreen('screen0');
@@ -1989,38 +2099,37 @@
                 }
             });
             
-            showTimeCheckbox.addEventListener('change', function() {
+            // Configurações da tela 2
+            document.getElementById('showTime').addEventListener('change', function() {
                 tvData.showTime = this.checked;
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            enableRewind10Checkbox.addEventListener('change', function() {
+            document.getElementById('enableRewind10').addEventListener('change', function() {
                 tvData.enableRewind10 = this.checked;
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            enableRestartCheckbox.addEventListener('change', function() {
+            document.getElementById('enableRestart').addEventListener('change', function() {
                 tvData.enableRestart = this.checked;
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            enableLiveCheckbox.addEventListener('change', function() {
+            document.getElementById('enableLive').addEventListener('change', function() {
                 tvData.enableLive = this.checked;
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            enableDebugCheckbox.addEventListener('change', function() {
+            document.getElementById('enableDebug').addEventListener('change', function() {
                 tvData.enableDebug = this.checked;
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            customReleaseDateCheckbox.addEventListener('change', function() {
+            document.getElementById('customReleaseDate').addEventListener('change', function() {
                 tvData.customReleaseDate = this.checked;
+                const releaseDateContainer = document.getElementById('releaseDateContainer');
+                const releaseDateInput = document.getElementById('releaseDate');
+                
                 if (this.checked) {
                     releaseDateContainer.style.display = 'block';
                     const today = new Date().toISOString().split('T')[0];
@@ -2030,169 +2139,58 @@
                     releaseDateContainer.style.display = 'none';
                     tvData.releaseDate = '';
                 }
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            releaseDateInput.addEventListener('change', function() {
+            document.getElementById('releaseDate').addEventListener('change', function() {
                 tvData.releaseDate = this.value;
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            backToScreen1Btn.addEventListener('click', function() {
+            // Navegação tela 2
+            document.getElementById('backToScreen1').addEventListener('click', function() {
                 showScreen('screen1');
             });
             
-            toScreen3Btn.addEventListener('click', function() {
-                // MELHORIA 6: Salvar progresso automaticamente
+            document.getElementById('toScreen3').addEventListener('click', function() {
                 salvarProgresso();
                 showScreen('screen3');
             });
             
-            addProgramBtn.addEventListener('click', function() {
+            // Adicionar programa
+            document.getElementById('addProgram').addEventListener('click', function() {
                 if (tvData.programs.length >= totalSlots) {
                     alert('Você já atingiu o limite máximo de 58 programas.');
                     return;
                 }
                 
-                const programId = 'program-' + Date.now();
-                const programCard = document.createElement('div');
-                programCard.className = 'program-card';
-                programCard.id = programId;
-                
-                // CORREÇÃO 2: Usar o índice correto para o título do programa
-                const programNumber = programsContainer.children.length + 1;
-                
-                programCard.innerHTML = `
-                    <div class="program-header">
-                        <h3>Programa ${programNumber}</h3>
-                        <button type="button" class="remove-program" data-program="${programId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="${programId}-name">Nome do Programa:</label>
-                        <input type="text" id="${programId}-name" placeholder="Ex: Jornal da Manhã">
-                    </div>
-                    <div class="form-group">
-                        <label>Episódios (Dias):</label>
-                        <ul class="video-list" id="${programId}-videos"></ul>
-                        <input type="url" id="${programId}-new-video" placeholder="URL do vídeo">
-                        <button type="button" class="add-video" data-program="${programId}">Adicionar Episódio</button>
-                    </div>
-                `;
-                
-                programsContainer.appendChild(programCard);
-                
-                document.querySelector(`#${programId} .add-video`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    const videoUrlInput = document.getElementById(`${programId}-new-video`);
-                    const videoUrl = videoUrlInput.value;
-                    
-                    if (videoUrl) {
-                        const videoList = document.getElementById(`${programId}-videos`);
-                        const videoItem = document.createElement('li');
-                        const dayNumber = videoList.children.length + 1;
-                        videoItem.innerHTML = `
-                            <span>Vídeo - Dia ${dayNumber}: ${videoUrl}</span>
-                            <button type="button" class="remove-video">Remover</button>
-                        `;
-                        videoList.appendChild(videoItem);
-                        videoUrlInput.value = '';
-                        updatePrograms();
-                    }
-                });
-                
-                document.querySelector(`#${programId} .remove-program`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    document.getElementById(programId).remove();
-                    updatePrograms();
-                });
-                
-                programCard.addEventListener('click', function(e) {
-                    if (e.target.classList.contains('remove-video')) {
-                        e.target.parentElement.remove();
-                        const videoList = e.target.parentElement.parentElement;
-                        Array.from(videoList.children).forEach((item, index) => {
-                            const span = item.querySelector('span');
-                            span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
-                        });
-                        updatePrograms();
-                    }
-                });
-                
-                document.getElementById(`${programId}-name`).addEventListener('input', updatePrograms);
-                
-                updatePrograms();
+                criarProgramaUI({ name: '', videos: [] }, tvData.programs.length);
+                atualizarProgramas();
             });
             
-            function updatePrograms() {
-                tvData.programs = [];
-                const programElements = document.querySelectorAll('.program-card');
-                
-                programElements.forEach(programElement => {
-                    const programId = programElement.id;
-                    const name = document.getElementById(`${programId}-name`).value;
-                    const videoList = document.getElementById(`${programId}-videos`);
-                    const videos = Array.from(videoList.children).map(li => li.querySelector('span').textContent.replace(/Vídeo - Dia \d+:\s*/, ''));
-                    
-                    if (name && videos.length > 0) {
-                        tvData.programs.push({
-                            id: programId,
-                            name: name,
-                            videos: videos
-                        });
-                    }
-                });
-                
-                updateCounters();
-                // MELHORIA 6: Salvar progresso automaticamente
-                salvarProgresso();
-            }
-            
-            function updateCounters() {
-                programCount.textContent = tvData.programs.length;
-                
-                if (tvData.programs.length >= totalSlots) {
-                    addProgramBtn.disabled = true;
-                    addProgramBtn.textContent = "Limite de 58 programas atingido";
-                } else {
-                    addProgramBtn.disabled = false;
-                    addProgramBtn.textContent = "+ Adicionar Novo Programa";
-                }
-            }
-            
-            backToScreen2Btn.addEventListener('click', function() {
+            // Navegação tela 3
+            document.getElementById('backToScreen2').addEventListener('click', function() {
                 showScreen('screen2');
             });
             
-            // CORREÇÃO 1: Validação de programas e vídeos - CORRIGIDA
-            toScreen4Btn.addEventListener('click', function() {
-                // Atualizar programas antes de validar
-                updatePrograms();
+            // Botão para ir para a tela 4 - COM VALIDAÇÃO CORRIGIDA
+            document.getElementById('toScreen4').addEventListener('click', function() {
+                console.log('Botão "Continuar para Comerciais" clicado');
                 
-                // Verificar se há pelo menos um programa
-                if (tvData.programs.length === 0) {
-                    alert('Por favor, adicione pelo menos um programa com vídeos.');
-                    return;
+                if (validarProgramacao()) {
+                    console.log('Validação passou, indo para tela 4');
+                    salvarProgresso();
+                    showScreen('screen4');
+                } else {
+                    console.log('Validação falhou, permanecendo na tela 3');
                 }
-                
-                // Verificar se todos os programas têm pelo menos um vídeo
-                const programasSemVideos = tvData.programs.filter(program => 
-                    !program.videos || program.videos.length === 0
-                );
-                
-                if (programasSemVideos.length > 0) {
-                    alert('Por favor, adicione pelo menos um vídeo para cada programa.');
-                    return;
-                }
-                
-                // MELHORIA 6: Salvar progresso automaticamente
-                salvarProgresso();
-                showScreen('screen4');
             });
             
-            enableCommercialsCheckbox.addEventListener('change', function() {
+            // Configurações comerciais
+            document.getElementById('enableCommercials').addEventListener('change', function() {
                 tvData.enableCommercials = this.checked;
+                const commercialSettings = document.getElementById('commercialSettings');
+                const addCommercialBtn = document.getElementById('addCommercial');
                 
                 if (this.checked) {
                     commercialSettings.style.display = 'block';
@@ -2201,17 +2199,16 @@
                     commercialSettings.style.display = 'none';
                     addCommercialBtn.style.display = 'none';
                 }
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            commercialsPerBreakInput.addEventListener('input', function() {
+            document.getElementById('commercialsPerBreak').addEventListener('input', function() {
                 tvData.commercialsPerBreak = parseInt(this.value);
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
             });
             
-            addCommercialBtn.addEventListener('click', function() {
+            // Adicionar comercial
+            document.getElementById('addCommercial').addEventListener('click', function() {
                 const commercialId = 'commercial-' + Date.now();
                 const commercialCard = document.createElement('div');
                 commercialCard.className = 'commercial-card';
@@ -2227,235 +2224,57 @@
                     </div>
                 `;
                 
-                commercialsContainer.appendChild(commercialCard);
-                
-                document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
-                    const commercialId = this.getAttribute('data-commercial');
-                    document.getElementById(commercialId).remove();
-                    updateCommercials();
-                });
-                
-                document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
+                const commercialsContainer = document.getElementById('commercialsContainer');
+                if (commercialsContainer) {
+                    commercialsContainer.appendChild(commercialCard);
+                    
+                    // Adicionar event listeners
+                    setTimeout(() => {
+                        const removeCommercialBtn = document.querySelector(`#${commercialId} .remove-commercial`);
+                        if (removeCommercialBtn) {
+                            removeCommercialBtn.addEventListener('click', function() {
+                                const commercialId = this.getAttribute('data-commercial');
+                                const commercialElement = document.getElementById(commercialId);
+                                if (commercialElement) {
+                                    commercialElement.remove();
+                                    atualizarComerciais();
+                                }
+                            });
+                        }
+                        
+                        const urlInput = document.getElementById(`${commercialId}-url`);
+                        if (urlInput) {
+                            urlInput.addEventListener('input', atualizarComerciais);
+                        }
+                    }, 100);
+                }
             });
             
-            function updateCommercials() {
-                tvData.commercials = [];
-                const commercialElements = document.querySelectorAll('.commercial-card');
-                
-                commercialElements.forEach(commercialElement => {
-                    const commercialId = commercialElement.id;
-                    const url = document.getElementById(`${commercialId}-url`).value;
-                    
-                    if (url) {
-                        tvData.commercials.push(url);
-                    }
-                });
-                // MELHORIA 6: Salvar progresso automaticamente
-                salvarProgresso();
-            }
-            
-            backToScreen3Btn.addEventListener('click', function() {
+            // Navegação tela 4
+            document.getElementById('backToScreen3').addEventListener('click', function() {
                 showScreen('screen3');
             });
             
-            toScreen5Btn.addEventListener('click', function() {
+            document.getElementById('toScreen5').addEventListener('click', function() {
                 if (tvData.enableCommercials && tvData.commercials.length === 0) {
                     alert('Por favor, adicione pelo menos um comercial ou desabilite a opção de comerciais.');
                     return;
                 }
                 
-                // Atualizar dados antes de publicar
-                updatePrograms();
-                updateCommercials();
+                atualizarProgramas();
+                atualizarComerciais();
                 
-                // MELHORIA 6: Salvar progresso automaticamente
                 salvarProgresso();
                 
                 showScreen('screen5');
             });
             
-            async function iniciarPublicacao() {
-                // Verificar se o usuário está autenticado
-                if (!currentUser) {
-                    publishingStatus.style.display = 'none';
-                    processingMessage.style.display = 'none';
-                    successMessage.style.display = 'none';
-                    verificationMessage.style.display = 'none';
-                    githubResult.style.display = 'none';
-                    authRequiredMessage.style.display = 'block';
-                    return;
-                }
-                
-                // Se estiver autenticado, prosseguir com a publicação
-                authRequiredMessage.style.display = 'none';
-                publishingStatus.style.display = 'block';
-                processingMessage.style.display = 'none';
-                successMessage.style.display = 'none';
-                verificationMessage.style.display = 'none';
-                githubResult.style.display = 'none';
-                
-                const GRADE = [];
-                for (let i = 0; i < totalSlots; i++) {
-                    GRADE.push(i % tvData.programs.length);
-                }
-                
-                const releaseDate = tvData.customReleaseDate && tvData.releaseDate 
-                    ? tvData.releaseDate 
-                    : new Date().toISOString().split('T')[0];
-                
-                const dadosParaEnvio = {
-                    name: tvData.name,
-                    email: tvData.email,
-                    slogan: tvData.slogan,
-                    logo: tvData.logo,
-                    programas: tvData.programs,
-                    grade: GRADE,
-                    comerciais: tvData.comerciais,
-                    release: releaseDate,
-                    showTime: tvData.showTime,
-                    enableRewind10: tvData.enableRewind10,
-                    enableRestart: tvData.enableRestart,
-                    enableLive: tvData.enableLive,
-                    enableDebug: tvData.enableDebug,
-                    enableCommercials: tvData.enableCommercials,
-                    commercialsPerBreak: tvData.commercialsPerBreak
-                };
-
-                try {
-                    // Pequeno delay para mostrar a mensagem inicial
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                    
-                    // Fase 2: Processando
-                    publishingStatus.style.display = 'none';
-                    processingMessage.style.display = 'block';
-                    
-                    const resultado = await publicarCanalGithub(tvData.name, dadosParaEnvio);
-                    
-                    // Se for um canal novo, verificar se foi publicado
-                    if (!editingChannel) {
-                        // Fase 3: Verificando publicação
-                        processingMessage.style.display = 'none';
-                        verificationMessage.style.display = 'block';
-                        
-                        // MELHORIA 1: Verificação sem timeout
-                        const verificacao = await verificarCanalPublicado(tvData.name);
-                        
-                        if (verificacao.sucesso) {
-                            // Fase 4: Sucesso para canal novo
-                            verificationMessage.style.display = 'none';
-                            successMessage.style.display = 'block';
-                            
-                            // MELHORIA 4: Mensagem televisiva
-                            // MELHORIA 5: Botão com nome do canal
-                            successMessage.innerHTML = `
-                                <h3>Seu Canal está no Ar!</h3>
-                                <p>Seu novo canal foi publicado e está disponível online.</p>
-                                <p><small>Verificado em ${verificacao.tentativas} tentativa(s)</small></p>
-                                <a href="${verificacao.url}" class="channel-link" target="_blank">Assistir ${tvData.name}</a>
-                            `;
-                            
-                            backToHomeFromSuccess.style.display = 'inline-block';
-                            backToScreen4Btn.style.display = 'none';
-                            
-                            salvarCanalLocal(verificacao.url);
-                        } else {
-                            // Erro na verificação para canal novo
-                            verificationMessage.style.display = 'none';
-                            
-                            githubResult.innerHTML = `
-                                <h3>Publicação enviada, mas não verificada</h3>
-                                <p>${verificacao.mensagem}</p>
-                                <p><small>O canal foi salvo localmente. Tente verificar manualmente mais tarde.</small></p>
-                                <a href="${verificacao.url}" class="channel-link" target="_blank" style="margin-top: 15px;">Tentar Acessar Canal</a>
-                            `;
-                            githubResult.className = 'github-result github-error';
-                            githubResult.style.display = 'block';
-                            
-                            // MELHORIA 3: Em caso de erro, mostrar botão "Voltar ao Início"
-                            backToScreen4Btn.style.display = 'none';
-                            backToHomeFromSuccess.style.display = 'inline-block';
-                            
-                            salvarCanalLocal(verificacao.url);
-                        }
-                    } else {
-                        // Para atualização de canal existente
-                        processingMessage.style.display = 'none';
-                        successMessage.style.display = 'block';
-                        
-                        // MELHORIA 4: Mensagem televisiva
-                        // MELHORIA 5: Botão com nome do canal
-                        successMessage.innerHTML = `
-                            <h3>Seu Canal está no Ar!</h3>
-                            <p>As alterações do canal foram enviadas para publicação.</p>
-                            <p><small>O servidor pode demorar alguns minutos para processar a atualização.</small></p>
-                            <a href="${resultado.url}" class="channel-link" target="_blank">Assistir ${tvData.name}</a>
-                        `;
-                        
-                        backToHomeFromSuccess.style.display = 'inline-block';
-                        backToScreen4Btn.style.display = 'none';
-                        
-                        salvarCanalLocal(resultado.url);
-                    }
-                    
-                } catch (error) {
-                    // Fase de erro
-                    publishingStatus.style.display = 'none';
-                    processingMessage.style.display = 'none';
-                    verificationMessage.style.display = 'none';
-                    
-                    githubResult.innerHTML = `
-                        <h3>Erro ao publicar canal</h3>
-                        <p>${error.message}</p>
-                        <p><small>O canal foi salvo localmente. Tente novamente mais tarde.</small></p>
-                    `;
-                    githubResult.className = 'github-result github-error';
-                    githubResult.style.display = 'block';
-                    
-                    // MELHORIA 3: Em caso de erro, mostrar botão "Voltar ao Início"
-                    backToScreen4Btn.style.display = 'none';
-                    backToHomeFromSuccess.style.display = 'inline-block';
-                    
-                    salvarCanalLocal();
-                }
-            }
-            
-            function salvarCanalLocal(urlCanal = '') {
-                // MELHORIA 2: Não salvar múltiplos canais com o mesmo nome
-                // Remover canais com o mesmo nome
-                channels = channels.filter(c => c.name !== tvData.name);
-                
-                const channel = {
-                    id: currentChannelId || Date.now(),
-                    email: tvData.email,
-                    name: tvData.name,
-                    slogan: tvData.slogan,
-                    logo: tvData.logo,
-                    data: { ...tvData },
-                    url: urlCanal,
-                    createdAt: currentChannelId ? 
-                        (channels.find(c => c.id == currentChannelId)?.createdAt || new Date().toISOString()) : 
-                        new Date().toISOString()
-                };
-                
-                if (editingChannel) {
-                    const index = channels.findIndex(c => c.id == currentChannelId);
-                    if (index !== -1) {
-                        channels[index] = channel;
-                    } else {
-                        channels.push(channel);
-                    }
-                } else {
-                    channels.push(channel);
-                }
-                
-                localStorage.setItem('tvChannels', JSON.stringify(channels));
-            }
-            
-            backToScreen4Btn.addEventListener('click', function() {
+            // Navegação tela 5
+            document.getElementById('backToScreen4').addEventListener('click', function() {
                 showScreen('screen4');
             });
             
-            backToHomeFromSuccess.addEventListener('click', function() {
+            document.getElementById('backToHomeFromSuccess').addEventListener('click', function() {
                 showScreen('screen0');
             });
             
@@ -2472,16 +2291,21 @@
                     editingChannel = draftData.editingChannel;
                     originalChannelName = draftData.originalChannelName;
                     
-                    // Preencher campos da tela 1 se estiver no rascunho
-                    tvEmailInput.value = tvData.email;
-                    tvNameInput.value = tvData.name;
-                    tvSloganInput.value = tvData.slogan;
+                    const tvEmailInput = document.getElementById('tvEmail');
+                    const tvNameInput = document.getElementById('tvName');
+                    const tvSloganInput = document.getElementById('tvSlogan');
+                    const tvLogoInput = document.getElementById('tvLogo');
                     
-                    // MELHORIA 7: Limpar campo da logo padrão
-                    if (tvData.logo === DEFAULT_LOGO) {
-                        tvLogoInput.value = '';
-                    } else {
-                        tvLogoInput.value = tvData.logo;
+                    if (tvEmailInput) tvEmailInput.value = tvData.email;
+                    if (tvNameInput) tvNameInput.value = tvData.name;
+                    if (tvSloganInput) tvSloganInput.value = tvData.slogan;
+                    
+                    if (tvLogoInput) {
+                        if (tvData.logo === DEFAULT_LOGO) {
+                            tvLogoInput.value = '';
+                        } else {
+                            tvLogoInput.value = tvData.logo;
+                        }
                     }
                     
                     updateLogoPreview();
@@ -2490,6 +2314,334 @@
                 }
             }
         });
+
+        // Função para iniciar publicação
+        async function iniciarPublicacao() {
+            if (!currentUser) {
+                document.getElementById('publishingStatus').style.display = 'none';
+                document.getElementById('processingMessage').style.display = 'none';
+                document.getElementById('successMessage').style.display = 'none';
+                document.getElementById('verificationMessage').style.display = 'none';
+                document.getElementById('githubResult').style.display = 'none';
+                document.getElementById('authRequiredMessage').style.display = 'block';
+                return;
+            }
+            
+            document.getElementById('authRequiredMessage').style.display = 'none';
+            document.getElementById('publishingStatus').style.display = 'block';
+            document.getElementById('processingMessage').style.display = 'none';
+            document.getElementById('successMessage').style.display = 'none';
+            document.getElementById('verificationMessage').style.display = 'none';
+            document.getElementById('githubResult').style.display = 'none';
+            
+            // Criar grade de programação
+            const GRADE = [];
+            for (let i = 0; i < totalSlots; i++) {
+                GRADE.push(i % tvData.programs.length);
+            }
+            
+            const releaseDate = tvData.customReleaseDate && tvData.releaseDate 
+                ? tvData.releaseDate 
+                : new Date().toISOString().split('T')[0];
+            
+            const dadosParaEnvio = {
+                name: tvData.name,
+                email: tvData.email,
+                slogan: tvData.slogan,
+                logo: tvData.logo,
+                programas: tvData.programs,
+                grade: GRADE,
+                comerciais: tvData.commercials,
+                release: releaseDate,
+                showTime: tvData.showTime,
+                enableRewind10: tvData.enableRewind10,
+                enableRestart: tvData.enableRestart,
+                enableLive: tvData.enableLive,
+                enableDebug: tvData.enableDebug,
+                enableCommercials: tvData.enableCommercials,
+                commercialsPerBreak: tvData.commercialsPerBreak
+            };
+
+            try {
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                
+                document.getElementById('publishingStatus').style.display = 'none';
+                document.getElementById('processingMessage').style.display = 'block';
+                
+                // Função para publicar canal
+                const resultado = await publicarCanalGithub(tvData.name, dadosParaEnvio);
+                
+                if (!editingChannel) {
+                    document.getElementById('processingMessage').style.display = 'none';
+                    document.getElementById('verificationMessage').style.display = 'block';
+                    
+                    // Verificar se o canal foi publicado
+                    const verificacao = await verificarCanalPublicado(tvData.name);
+                    
+                    if (verificacao.sucesso) {
+                        document.getElementById('verificationMessage').style.display = 'none';
+                        document.getElementById('successMessage').style.display = 'block';
+                        
+                        document.getElementById('successMessage').innerHTML = `
+                            <h3>Seu Canal está no Ar!</h3>
+                            <p>Seu novo canal foi publicado e está disponível online.</p>
+                            <p><small>Verificado em ${verificacao.tentativas} tentativa(s)</small></p>
+                            <a href="${verificacao.url}" class="channel-link" target="_blank">Assistir ${tvData.name}</a>
+                        `;
+                        
+                        document.getElementById('backToHomeFromSuccess').style.display = 'inline-block';
+                        document.getElementById('backToScreen4').style.display = 'none';
+                        
+                        salvarCanalLocal(verificacao.url);
+                    } else {
+                        document.getElementById('verificationMessage').style.display = 'none';
+                        
+                        document.getElementById('githubResult').innerHTML = `
+                            <h3>Publicação enviada, mas não verificada</h3>
+                            <p>${verificacao.mensagem}</p>
+                            <p><small>O canal foi salvo localmente. Tente verificar manualmente mais tarde.</small></p>
+                            <a href="${verificacao.url}" class="channel-link" target="_blank" style="margin-top: 15px;">Tentar Acessar Canal</a>
+                        `;
+                        document.getElementById('githubResult').className = 'github-result github-error';
+                        document.getElementById('githubResult').style.display = 'block';
+                        
+                        document.getElementById('backToScreen4').style.display = 'none';
+                        document.getElementById('backToHomeFromSuccess').style.display = 'inline-block';
+                        
+                        salvarCanalLocal(verificacao.url);
+                    }
+                } else {
+                    document.getElementById('processingMessage').style.display = 'none';
+                    document.getElementById('successMessage').style.display = 'block';
+                    
+                    document.getElementById('successMessage').innerHTML = `
+                        <h3>Seu Canal está no Ar!</h3>
+                        <p>As alterações do canal foram enviadas para publicação.</p>
+                        <p><small>O servidor pode demorar alguns minutos para processar a atualização.</small></p>
+                        <a href="${resultado.url}" class="channel-link" target="_blank">Assistir ${tvData.name}</a>
+                    `;
+                    
+                    document.getElementById('backToHomeFromSuccess').style.display = 'inline-block';
+                    document.getElementById('backToScreen4').style.display = 'none';
+                    
+                    salvarCanalLocal(resultado.url);
+                }
+                
+            } catch (error) {
+                console.error('Erro na publicação:', error);
+                
+                document.getElementById('publishingStatus').style.display = 'none';
+                document.getElementById('processingMessage').style.display = 'none';
+                document.getElementById('verificationMessage').style.display = 'none';
+                
+                document.getElementById('githubResult').innerHTML = `
+                    <h3>Erro ao publicar canal</h3>
+                    <p>${error.message}</p>
+                    <p><small>O canal foi salvo localmente. Tente novamente mais tarde.</small></p>
+                `;
+                document.getElementById('githubResult').className = 'github-result github-error';
+                document.getElementById('githubResult').style.display = 'block';
+                
+                document.getElementById('backToScreen4').style.display = 'none';
+                document.getElementById('backToHomeFromSuccess').style.display = 'inline-block';
+                
+                salvarCanalLocal();
+            }
+        }
+        
+        // Função para publicar canal no GitHub
+        async function publicarCanalGithub(nomeCanal, dadosGerador) {
+            try {
+                if (!editingChannel) {
+                    const verificacaoFinal = await verificarNomeCanalExistente(nomeCanal, false);
+                    if (verificacaoFinal.existe) {
+                        throw new Error(verificacaoFinal.mensagem);
+                    }
+                }
+                
+                // Gerar HTML do canal
+                const htmlCanal = gerarHTMLdoCanal(dadosGerador);
+                
+                const dadosEnvio = {
+                    nomeCanal: nomeCanal,
+                    htmlContent: htmlCanal,
+                    dadosConfig: dadosGerador,
+                    isNewChannel: !editingChannel
+                };
+
+                console.log('Enviando dados para publicação:', dadosEnvio);
+
+                const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(dadosEnvio)
+                });
+
+                if (!resposta.ok) {
+                    throw new Error(`Erro ao publicar canal: ${resposta.status}`);
+                }
+
+                const resultado = await resposta.json();
+                
+                if (resultado.success) {
+                    return {
+                        url: resultado.url,
+                        message: resultado.message
+                    };
+                } else {
+                    throw new Error(resultado.error || "Erro desconhecido do Worker");
+                }
+            } catch (error) {
+                console.error("Erro na função publicarCanalGithub:", error);
+                throw error;
+            }
+        }
+        
+        // Função para verificar se um canal está publicado
+        async function verificarCanalPublicado(nomeCanal, maxTentativas = 60, intervalo = 2000) {
+            const nomeArquivo = nomeCanal.toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-') + '.html';
+                
+            const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
+            
+            for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+                try {
+                    console.log(`Tentativa ${tentativa} de verificar:`, urlCanal);
+                    
+                    const response = await fetch(urlCanal, { 
+                        method: 'HEAD',
+                        cache: 'no-cache'
+                    });
+                    
+                    if (response.status === 200) {
+                        console.log('Canal verificado com sucesso na tentativa', tentativa);
+                        return { sucesso: true, url: urlCanal, tentativas: tentativa };
+                    }
+                    
+                    if (tentativa < maxTentativas) {
+                        console.log(`Aguardando ${intervalo/1000} segundos antes da próxima tentativa...`);
+                        await new Promise(resolve => setTimeout(resolve, intervalo));
+                    }
+                } catch (error) {
+                    console.log(`Erro na tentativa ${tentativa}:`, error);
+                    if (tentativa < maxTentativas) {
+                        await new Promise(resolve => setTimeout(resolve, intervalo));
+                    }
+                }
+            }
+            
+            return { 
+                sucesso: false, 
+                url: urlCanal, 
+                tentativas: maxTentativas,
+                mensagem: 'Não foi possível verificar se o canal foi publicado após várias tentativas.'
+            };
+        }
+        
+        // Função para gerar HTML do canal
+        function gerarHTMLdoCanal(dados) {
+            return `<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${dados.name || 'TV Online'}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            max-width: 200px;
+            margin: 0 auto 20px;
+        }
+        h1 {
+            color: #fdbb2d;
+        }
+        .player-container {
+            background: #000;
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+        video {
+            width: 100%;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="${dados.logo || DEFAULT_LOGO}" alt="Logo" class="logo">
+            <h1>${dados.name || 'TV Online'}</h1>
+            <p>${dados.slogan || 'Programação 24 horas'}</p>
+        </div>
+        
+        <div class="player-container">
+            <video controls>
+                <source src="" type="video/mp4">
+                Seu navegador não suporta a tag de vídeo.
+            </video>
+        </div>
+        
+        <div class="info">
+            <p>Email: ${dados.email || 'Não informado'}</p>
+            <p>Canal criado com Gerador de TV Online</p>
+        </div>
+    </div>
+</body>
+</html>`;
+        }
+        
+        // Função para salvar canal localmente
+        function salvarCanalLocal(urlCanal = '') {
+            // Remover canal antigo com o mesmo nome
+            channels = channels.filter(c => c.name !== tvData.name);
+            
+            const channel = {
+                id: currentChannelId || Date.now(),
+                email: tvData.email,
+                name: tvData.name,
+                slogan: tvData.slogan,
+                logo: tvData.logo,
+                data: { ...tvData },
+                url: urlCanal,
+                createdAt: currentChannelId ? 
+                    (channels.find(c => c.id == currentChannelId)?.createdAt || new Date().toISOString()) : 
+                    new Date().toISOString()
+            };
+            
+            if (editingChannel) {
+                const index = channels.findIndex(c => c.id == currentChannelId);
+                if (index !== -1) {
+                    channels[index] = channel;
+                } else {
+                    channels.push(channel);
+                }
+            } else {
+                channels.push(channel);
+            }
+            
+            localStorage.setItem('tvChannels', JSON.stringify(channels));
+            
+            // Limpar rascunho
+            localStorage.removeItem('tvChannelDraft');
+        }
     </script>
 </body>
 </html>
