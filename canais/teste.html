@@ -283,6 +283,7 @@
             padding: 20px;
             text-align: center;
             transition: transform 0.3s, background 0.3s;
+            position: relative;
         }
         
         .channel-card:hover {
@@ -756,6 +757,47 @@
             opacity: 0.8;
             margin-top: 5px;
         }
+        
+        /* NOVO: Emoji de visibilidade no card do canal */
+        .channel-visibility-emoji {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 1.5rem;
+        }
+        
+        .channel-name-with-emoji {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .channel-name-with-emoji h3 {
+            margin: 0;
+        }
+        
+        /* Checkbox de visibilidade */
+        .visibility-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        
+        .visibility-checkbox input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+        }
+        
+        .visibility-checkbox label {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1rem;
+        }
     </style>
 </head>
 <body>
@@ -875,17 +917,18 @@
                 <img id="logoPreview" class="logo-preview" src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png" alt="Preview da Logo">
             </div>
             
+            <!-- CORREÇÃO: Checkbox para visibilidade -->
             <div class="visibility-control">
                 <h3>Visibilidade do Canal</h3>
-                <div class="visibility-option">
-                    <input type="radio" id="visibilityWorld" name="visibility" value="world" checked>
-                    <label for="visibilityWorld">Mundo Todo - Seu canal será acessível de qualquer país</label>
+                <div class="visibility-checkbox">
+                    <input type="checkbox" id="visibilityBrazilCheckbox">
+                    <label for="visibilityBrazilCheckbox">
+                        <span id="visibilityEmoji">🌎</span> Apenas Brasil
+                    </label>
                 </div>
-                <div class="visibility-option">
-                    <input type="radio" id="visibilityBrazil" name="visibility" value="brazil">
-                    <label for="visibilityBrazil">Apenas Brasil - Seu canal só será acessível no Brasil</label>
+                <div class="visibility-info" id="visibilityInfo">
+                    Seu canal será acessível de qualquer país (Mundo Todo)
                 </div>
-               
             </div>
             
             <div class="navigation">
@@ -1102,7 +1145,8 @@
         let publicationStarted = false;
         let urlVerificationActive = false;
         let isOnScreen5 = false;
-        let pendingPublication = false; // Flag para controle de publicação pendente
+        let pendingPublication = false;
+        let publicationRestarted = false; // Nova flag para controle de reinício
 
         // Observador de autenticação - CORREÇÃO CRÍTICA
         auth.onAuthStateChanged(async (user) => {
@@ -1116,9 +1160,9 @@
                 await loadUserData();
                 console.log("Usuário logado:", user.email);
                 
-                // CORREÇÃO CRÍTICA: Se estiver na tela 5 e houver publicação pendente, iniciar publicação
-                if (isOnScreen5 && pendingPublication) {
-                    console.log("Usuário fez login na tela 5 com publicação pendente. Iniciando publicação...");
+                // CORREÇÃO CRÍTICA 1: Reiniciar publicação sempre que usuário logar na tela 5
+                if (isOnScreen5) {
+                    console.log("Usuário autenticado na tela 5. Reiniciando publicação...");
                     pendingPublication = false;
                     
                     // Esconder mensagem de autenticação
@@ -1130,16 +1174,21 @@
                     // Resetar UI de publicação
                     resetPublishingUI();
                     
-                    // Iniciar publicação imediatamente
+                    // Forçar reinício da publicação
+                    publicationRestarted = true;
+                    publicationStarted = false;
+                    
+                    // Pequeno delay para garantir que a UI foi resetada
                     setTimeout(() => {
                         iniciarPublicacao();
-                    }, 100);
+                    }, 500);
                 }
             } else {
                 // Se o usuário deslogou e está na tela 5, mostrar mensagem de autenticação
-                if (isOnScreen5 && !pendingPublication) {
+                if (isOnScreen5) {
                     console.log("Usuário deslogou na tela 5. Mostrando mensagem de autenticação.");
                     mostrarMensagemAutenticacao();
+                    publicationStarted = false;
                 }
             }
         });
@@ -1168,6 +1217,7 @@
             
             publicationStarted = false;
             urlVerificationActive = false;
+            publicationRestarted = false;
         }
 
         // Função de login
@@ -1183,7 +1233,7 @@
                 // Fechar modal
                 document.getElementById('loginOverlay').style.display = 'none';
                 
-                // Se estava na tela 5, marcar publicação pendente
+                // Marcar publicação pendente se estiver na tela 5
                 if (isOnScreen5) {
                     pendingPublication = true;
                 }
@@ -1261,14 +1311,11 @@
             const loginButton = document.getElementById('loginButton');
             
             if (currentUser) {
-                // Ocultar botão de login
                 if (loginButton) loginButton.style.display = 'none';
                 
-                // Mostrar informações do usuário
                 if (userInfo) {
                     userInfo.style.display = 'flex';
                     
-                    // Atualizar avatar
                     const userAvatar = document.getElementById('userAvatar');
                     if (userAvatar && currentUser.photoURL) {
                         userAvatar.src = currentUser.photoURL;
@@ -1276,26 +1323,21 @@
                         userAvatar.src = 'https://www.gravatar.com/avatar/?d=mp';
                     }
                     
-                    // Atualizar nome
                     const userName = document.getElementById('userName');
                     if (userName) {
                         userName.textContent = currentUser.displayName || currentUser.email || 'Usuário';
                     }
                     
-                    // Atualizar email
                     const userEmail = document.getElementById('userEmail');
                     if (userEmail) {
                         userEmail.textContent = currentUser.email || '';
                     }
                 }
             } else {
-                // Mostrar botão de login
                 if (loginButton) loginButton.style.display = 'block';
                 
-                // Ocultar informações do usuário
                 if (userInfo) userInfo.style.display = 'none';
                 
-                // Fechar card de usuário
                 const userCard = document.getElementById('userCard');
                 if (userCard) userCard.classList.remove('active');
             }
@@ -1325,7 +1367,7 @@
             commercials: [],
             enableCommercials: false,
             commercialsPerBreak: 2,
-            isOffline: false // Novo campo para controle de canal "fora do ar"
+            isOffline: false
         };
         
         let totalSlots = 58;
@@ -1351,8 +1393,9 @@
             const nameError = document.getElementById('nameError');
             const nameDuplicateError = document.getElementById('nameDuplicateError');
             const logoError = document.getElementById('logoError');
-            const visibilityWorld = document.getElementById('visibilityWorld');
-            const visibilityBrazil = document.getElementById('visibilityBrazil');
+            const visibilityCheckbox = document.getElementById('visibilityBrazilCheckbox');
+            const visibilityEmoji = document.getElementById('visibilityEmoji');
+            const visibilityInfo = document.getElementById('visibilityInfo');
             const toScreen2Btn = document.getElementById('toScreen2');
             const backToHomeBtn = document.getElementById('backToHome');
             
@@ -1412,11 +1455,25 @@
             const step4 = document.getElementById('step4');
             const step5 = document.getElementById('step5');
 
+            // Configurar checkbox de visibilidade
+            visibilityCheckbox.addEventListener('change', function() {
+                if (this.checked) {
+                    tvData.visibility = 'brazil';
+                    visibilityEmoji.textContent = '🇧🇷';
+                    visibilityInfo.textContent = 'Seu canal só será acessível no Brasil';
+                } else {
+                    tvData.visibility = 'world';
+                    visibilityEmoji.textContent = '🌎';
+                    visibilityInfo.textContent = 'Seu canal será acessível de qualquer país (Mundo Todo)';
+                }
+            });
+
             // Função para resetar UI de publicação
             function resetPublishingUI() {
                 console.log("Resetando UI de publicação...");
                 publicationStarted = false;
                 urlVerificationActive = false;
+                publicationRestarted = false;
                 
                 // Mostrar status inicial
                 if (publishingStatus) publishingStatus.style.display = 'block';
@@ -1560,7 +1617,7 @@
                 tvNameInput.style.background = 'rgba(255, 255, 255, 0.9)';
             }
 
-            // Função para gerar HTML do canal
+            // CORREÇÃO CRÍTICA 2: Função para gerar HTML do canal corrigida
             function gerarHTMLdoCanal(dados) {
                 // Se o canal estiver offline, substituir o player pela imagem
                 const isOffline = dados.isOffline || false;
@@ -1590,7 +1647,15 @@
                 const showPlayer = !isOffline;
                 const showProgramInfo = showPlayer && visibility === 'world';
                 
-                // Gerar HTML
+                // CORREÇÃO: HTML corrigido para opção "Apenas Brasil"
+                const countryRestrictionSection = visibility === 'brazil' ? `
+                <div class="country-restriction" id="countryRestrictionMessage" style="display: none;">
+                    <h3>Conteúdo Disponível Apenas no Brasil</h3>
+                    <p>Este canal só pode ser acessado de dentro do território brasileiro.</p>
+                </div>
+                <img src="${OFFLINE_IMAGE}" class="offline-image" id="countryRestrictionImage" style="display: none;" alt="Conteúdo restrito">` : '';
+                
+                // Gerar HTML corrigido
                 const html = `<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -1983,13 +2048,7 @@
                 <p>Tente novamente mais tarde.</p>
             </div>
             ` : `
-            ${visibility === 'brazil' ? `
-            <div class="offline-message" id="countryRestrictionMessage" style="display: none;">
-                <h3>Conteúdo Disponível Apenas no Brasil</h3>
-                <p>Este canal só pode ser acessado de dentro do território brasileiro.</p>
-            </div>
-            <img src="${OFFLINE_IMAGE}" class="offline-image" id="countryRestrictionImage" style="display: none;" alt="Conteúdo restrito">
-            ` : ''}
+            ${countryRestrictionSection}
             
             <div class="loading" id="loadingMessage">Carregando programação...</div>
             <div class="commercial-indicator" id="commercialIndicator" style="display: none;">INTERVALO COMERCIAL</div>
@@ -2908,15 +2967,20 @@
                     else if (screen === 'screen5') {
                         step5.classList.add('active');
                         
-                        // Verificar autenticação quando a tela 5 é aberta
+                        // CORREÇÃO CRÍTICA 1: Verificar autenticação e iniciar publicação
+                        console.log("Abrindo tela 5. Verificando autenticação...");
                         if (currentUser) {
-                            // Usuário já está autenticado, iniciar publicação
-                            console.log("Usuário autenticado na tela 5. Iniciando publicação...");
+                            // Usuário já está autenticado, resetar e iniciar publicação
+                            console.log("Usuário autenticado. Reiniciando UI e iniciando publicação...");
                             resetPublishingUI();
-                            iniciarPublicacao();
+                            
+                            // Pequeno delay para garantir que a UI foi resetada
+                            setTimeout(() => {
+                                iniciarPublicacao();
+                            }, 500);
                         } else {
                             // Usuário não autenticado, mostrar mensagem
-                            console.log("Usuário não autenticado na tela 5. Mostrando mensagem de autenticação...");
+                            console.log("Usuário não autenticado. Mostrando mensagem de autenticação...");
                             mostrarMensagemAutenticacao();
                             pendingPublication = true;
                         }
@@ -2924,7 +2988,7 @@
                 }
             }
             
-            // Carregar canais
+            // Carregar canais com emojis de visibilidade
             function loadChannels() {
                 channels = JSON.parse(localStorage.getItem('tvChannels')) || [];
                 
@@ -2962,14 +3026,19 @@
                         // Determinar status do canal
                         const isOffline = channel.data.isOffline || false;
                         const visibility = channel.data.visibility || 'world';
+                        
+                        // MELHORIA 3: Usar emojis para visibilidade
+                        const visibilityEmoji = visibility === 'brazil' ? '🇧🇷' : '🌎';
                         const statusText = isOffline ? 'Fora do ar' : (visibility === 'brazil' ? 'Apenas Brasil' : 'Mundo todo');
                         const statusClass = isOffline ? 'offline' : (visibility === 'brazil' ? 'brasil-only' : 'worldwide');
                         
                         channelCard.innerHTML = `
                             ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
-                            <h3>${channel.name}</h3>
+                            <div class="channel-name-with-emoji">
+                                <h3>${channel.name}</h3>
+                                <span class="channel-visibility-emoji" title="${statusText}">${visibilityEmoji}</span>
+                            </div>
                             <p>${channel.slogan || 'Sem slogan'}</p>
-                            <div class="channel-status ${statusClass}">${statusText}</div>
                             <div class="channel-actions">
                                 <button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>
                                 <button class="edit-channel" data-id="${channel.id}">Editar</button>
@@ -3093,11 +3162,14 @@
                         logoPreview.src = tvData.logo;
                     }
                     
-                    // Configurar visibilidade
+                    // Configurar visibilidade (checkbox)
+                    visibilityCheckbox.checked = (tvData.visibility === 'brazil');
                     if (tvData.visibility === 'brazil') {
-                        visibilityBrazil.checked = true;
+                        visibilityEmoji.textContent = '🇧🇷';
+                        visibilityInfo.textContent = 'Seu canal só será acessível no Brasil';
                     } else {
-                        visibilityWorld.checked = true;
+                        visibilityEmoji.textContent = '🌎';
+                        visibilityInfo.textContent = 'Seu canal será acessível de qualquer país (Mundo Todo)';
                     }
                     
                     showTimeCheckbox.checked = tvData.showTime;
@@ -3303,7 +3375,9 @@
                 tvNameInput.value = '';
                 tvSloganInput.value = '';
                 tvLogoInput.value = '';
-                visibilityWorld.checked = true;
+                visibilityCheckbox.checked = false;
+                visibilityEmoji.textContent = '🌎';
+                visibilityInfo.textContent = 'Seu canal será acessível de qualquer país (Mundo Todo)';
                 showTimeCheckbox.checked = true;
                 enableRewind10Checkbox.checked = true;
                 enableRestartCheckbox.checked = true;
@@ -3413,7 +3487,7 @@
                 }
                 
                 tvData.slogan = tvSloganInput.value;
-                tvData.visibility = visibilityBrazil.checked ? 'brazil' : 'world';
+                // Visibilidade já está configurada pelo checkbox
                 
                 if (hasError) {
                     return;
@@ -3760,18 +3834,19 @@
                 iniciarPublicacao();
             });
             
-            // FUNÇÃO PRINCIPAL DE PUBLICAÇÃO - CORREÇÃO CRÍTICA
+            // FUNÇÃO PRINCIPAL DE PUBLICAÇÃO - CORREÇÃO CRÍTICA 1
             async function iniciarPublicacao() {
                 console.log("Iniciando processo de publicação...");
                 
-                // Evitar múltiplas inicializações
-                if (publicationStarted) {
+                // Verificar se já está em publicação
+                if (publicationStarted && !publicationRestarted) {
                     console.log("Publicação já está em andamento. Ignorando nova chamada.");
                     return;
                 }
                 
                 publicationStarted = true;
-                pendingPublication = false; // Resetar flag de publicação pendente
+                pendingPublication = false;
+                publicationRestarted = false;
                 
                 // Resetar UI
                 resetPublishingUI();
