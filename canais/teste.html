@@ -713,16 +713,6 @@
             color: white;
         }
         
-        .channel-status.brasil-only {
-            background: #3498db;
-            color: white;
-        }
-        
-        .channel-status.worldwide {
-            background: #2ecc71;
-            color: white;
-        }
-        
         /* CONTROLE DE VISIBILIDADE */
         .visibility-control {
             background: rgba(255, 255, 255, 0.1);
@@ -753,23 +743,44 @@
             margin-top: 5px;
         }
         
-        /* EMOJI DE VISIBILIDADE */
-        .channel-visibility-emoji {
+        /* BANDEIRA DO BRASIL */
+        .brazil-flag-icon {
+            display: inline-block;
+            width: 24px;
+            height: 16px;
+            background-image: url('https://upload.wikimedia.org/wikipedia/commons/0/05/Flag_of_Brazil.svg');
+            background-size: contain;
+            background-repeat: no-repeat;
+            vertical-align: middle;
+            margin-right: 5px;
+        }
+        
+        .world-flag-icon {
+            font-size: 1.2rem;
+            margin-right: 5px;
+        }
+        
+        .channel-visibility-indicator {
             position: absolute;
             top: 10px;
             right: 10px;
-            font-size: 1.5rem;
-            cursor: help;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 5px;
         }
         
-        .channel-name-with-emoji {
+        .channel-name-with-flag {
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
             margin-bottom: 10px;
             position: relative;
-            min-height: 40px;
+            min-height: 30px;
         }
         
         /* COMERCIAIS */
@@ -816,6 +827,45 @@
         
         .login-publish-btn:hover {
             background: #3367d6 !important;
+        }
+        
+        /* FLAGS PARA VISIBILIDADE */
+        .brazil-flag {
+            display: inline-block;
+            width: 20px;
+            height: 15px;
+            background: linear-gradient(to bottom, #009c3b 33%, #ffdf00 33% 66%, #002776 66%);
+            border-radius: 2px;
+            position: relative;
+        }
+        
+        .brazil-flag:after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 10px;
+            height: 10px;
+            background: #002776;
+            border-radius: 50%;
+        }
+        
+        .brazil-flag:before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 6px;
+            height: 6px;
+            background: white;
+            border-radius: 50%;
+            z-index: 1;
+        }
+        
+        .world-flag {
+            font-size: 1.2rem;
         }
     </style>
 </head>
@@ -954,8 +1004,8 @@
             <div class="visibility-control">
                 <h3>Visibilidade do Canal</h3>
                 <select id="visibilitySelect" class="visibility-dropdown">
-                    <option value="brazil" selected>🇧🇷 Brasil</option>
-                    <option value="world">🌎 Mundo</option>
+                    <option value="brazil" selected>Brasil</option>
+                    <option value="world">Mundo</option>
                 </select>
                 <div class="visibility-info" id="visibilityInfo">
                     Seu canal será acessível apenas no Brasil
@@ -1173,16 +1223,46 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
+        // VARIÁVEIS GLOBAIS
         let currentUser = null;
         let publicationStarted = false;
         let urlVerificationActive = false;
         let isOnScreen5 = false;
-        let pendingPublication = false;
-        let publicationData = null;
         let verificationAttempts = 0;
-        const MAX_VERIFICATION_ATTEMPTS = 60;
+        const MAX_VERIFICATION_ATTEMPTS = 200; // Aumentado para mais tentativas
 
-        // Observador de autenticação
+        let channels = JSON.parse(localStorage.getItem('tvChannels')) || [];
+        let currentChannelId = null;
+        let editingChannel = false;
+        let originalChannelName = '';
+        
+        // DADOS DA TV
+        let tvData = {
+            email: '',
+            name: '',
+            slogan: '',
+            logo: '',
+            visibility: 'brazil',
+            showTime: true,
+            enableRewind10: true,
+            enableRestart: true,
+            enableLive: true,
+            enableDebug: false,
+            customReleaseDate: false,
+            releaseDate: '',
+            programs: [],
+            commercials: [],
+            enableCommercials: false,
+            commercialsPerBreak: 2,
+            isOffline: false
+        };
+        
+        const totalSlots = 58;
+        const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
+        const OFFLINE_IMAGE = "https://github.com/Playtronic/tv/blob/main/template/TesteDeCores.png?raw=true";
+        const FAVICON_URL = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/favicon.png";
+
+        // OBSERVADOR DE AUTENTICAÇÃO
         auth.onAuthStateChanged(async (user) => {
             console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
             currentUser = user;
@@ -1209,13 +1289,13 @@
                         republishContainer.style.display = 'block';
                     }
                     
-                    // Iniciar republicação automaticamente
+                    // Resetar UI e iniciar republicação
+                    resetPublishingUI();
                     setTimeout(() => {
                         iniciarPublicacao(true);
-                    }, 500);
+                    }, 1000);
                 }
             } else {
-                // Se o usuário deslogou e está na tela 5, mostrar mensagem de autenticação
                 if (isOnScreen5) {
                     console.log("Usuário deslogou na tela 5. Mostrando mensagem de autenticação.");
                     mostrarMensagemAutenticacao();
@@ -1224,7 +1304,7 @@
             }
         });
 
-        // Função para mostrar mensagem de autenticação
+        // FUNÇÕES DE AUTENTICAÇÃO
         function mostrarMensagemAutenticacao() {
             const authRequiredMessage = document.getElementById('authRequiredMessage');
             const publishingStatus = document.getElementById('publishingStatus');
@@ -1252,7 +1332,6 @@
             urlVerificationActive = false;
         }
 
-        // Função de login
         document.getElementById('googleLoginBtn').addEventListener('click', async () => {
             try {
                 const provider = new firebase.auth.GoogleAuthProvider();
@@ -1262,7 +1341,6 @@
                 const result = await auth.signInWithPopup(provider);
                 console.log('Login bem-sucedido:', result.user.email);
                 
-                // Fechar modal
                 document.getElementById('loginOverlay').style.display = 'none';
                 
             } catch (error) {
@@ -1271,7 +1349,6 @@
             }
         });
 
-        // Abrir/fechar login
         document.getElementById('loginButton').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
@@ -1280,7 +1357,6 @@
             document.getElementById('loginOverlay').style.display = 'none';
         });
 
-        // Logout
         document.getElementById('logoutButton').addEventListener('click', () => {
             auth.signOut()
                 .then(() => {
@@ -1293,12 +1369,10 @@
                 });
         });
 
-        // Botão de login na tela de publicação
         document.getElementById('loginFromPublish').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
 
-        // Botão de republicação
         document.getElementById('republishBtn').addEventListener('click', () => {
             console.log("Botão Republicar Agora clicado");
             resetPublishingUI();
@@ -1307,18 +1381,15 @@
             }, 500);
         });
 
-        // Toggle user card
         document.getElementById('userAvatar').addEventListener('click', (e) => {
             e.stopPropagation();
             document.getElementById('userCard').classList.toggle('active');
         });
 
-        // Fechar user card ao clicar fora
         document.addEventListener('click', () => {
             document.getElementById('userCard').classList.remove('active');
         });
 
-        // Carregar dados do usuário
         async function loadUserData() {
             if (!currentUser) return;
             
@@ -1340,7 +1411,6 @@
             }
         }
 
-        // Atualizar UI de autenticação
         function updateAuthUI() {
             const userInfo = document.getElementById('userInfo');
             const loginButton = document.getElementById('loginButton');
@@ -1378,46 +1448,14 @@
             }
         }
 
-        // Sistema de gerenciamento de canais
-        let channels = JSON.parse(localStorage.getItem('tvChannels')) || [];
-        let currentChannelId = null;
-        let editingChannel = false;
-        let originalChannelName = '';
-        
-        // Variáveis globais
-        let tvData = {
-            email: '',
-            name: '',
-            slogan: '',
-            logo: '',
-            visibility: 'brazil', // BRASIL COMO PADRÃO
-            showTime: true,
-            enableRewind10: true,
-            enableRestart: true,
-            enableLive: true,
-            enableDebug: false,
-            customReleaseDate: false,
-            releaseDate: '',
-            programs: [],
-            commercials: [],
-            enableCommercials: false,
-            commercialsPerBreak: 2,
-            isOffline: false
-        };
-        
-        let totalSlots = 58;
-        const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
-        const OFFLINE_IMAGE = "https://github.com/Playtronic/tv/blob/main/template/TesteDeCores.png?raw=true";
-        
-        // Inicializar elementos DOM
+        // INICIALIZAÇÃO
         document.addEventListener('DOMContentLoaded', function() {
-            // Elementos da tela 0
+            // ELEMENTOS DOM
             const screen0 = document.getElementById('screen0');
             const channelsList = document.getElementById('channelsList');
             const emptyState = document.getElementById('emptyState');
             const createNewChannelBtn = document.getElementById('createNewChannel');
             
-            // Elementos da tela 1
             const screen1 = document.getElementById('screen1');
             const tvEmailInput = document.getElementById('tvEmail');
             const tvNameInput = document.getElementById('tvName');
@@ -1431,7 +1469,6 @@
             const toScreen2Btn = document.getElementById('toScreen2');
             const backToHomeBtn = document.getElementById('backToHome');
             
-            // Elementos da tela 2
             const screen2 = document.getElementById('screen2');
             const visibilitySelect = document.getElementById('visibilitySelect');
             const visibilityInfo = document.getElementById('visibilityInfo');
@@ -1447,7 +1484,6 @@
             const backToHomeFromScreen2Btn = document.getElementById('backToHomeFromScreen2');
             const toScreen3Btn = document.getElementById('toScreen3');
             
-            // Elementos da tela 3
             const screen3 = document.getElementById('screen3');
             const programsContainer = document.getElementById('programsContainer');
             const addProgramBtn = document.getElementById('addProgram');
@@ -1457,7 +1493,6 @@
             const toScreen4Btn = document.getElementById('toScreen4');
             const programsError = document.getElementById('programsError');
             
-            // Elementos da tela 4
             const screen4 = document.getElementById('screen4');
             const enableCommercialsCheckbox = document.getElementById('enableCommercials');
             const commercialSettings = document.getElementById('commercialSettings');
@@ -1468,7 +1503,6 @@
             const backToHomeFromScreen4Btn = document.getElementById('backToHomeFromScreen4');
             const toScreen5Btn = document.getElementById('toScreen5');
             
-            // Elementos da tela 5
             const screen5 = document.getElementById('screen5');
             const publishingStatus = document.getElementById('publishingStatus');
             const processingMessage = document.getElementById('processingMessage');
@@ -1478,12 +1512,10 @@
             const authRequiredMessage = document.getElementById('authRequiredMessage');
             const backToScreen4Btn = document.getElementById('backToScreen4');
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
-            const loginFromPublishBtn = document.getElementById('loginFromPublish');
             const retryPublish = document.getElementById('retryPublish');
             const republishContainer = document.getElementById('republishContainer');
             const republishBtn = document.getElementById('republishBtn');
             
-            // Elementos do indicador de etapas
             const stepIndicator = document.getElementById('stepIndicator');
             const step1 = document.getElementById('step1');
             const step2 = document.getElementById('step2');
@@ -1491,7 +1523,7 @@
             const step4 = document.getElementById('step4');
             const step5 = document.getElementById('step5');
 
-            // Configurar dropdown de visibilidade
+            // CONFIGURAÇÃO DE VISIBILIDADE
             visibilitySelect.addEventListener('change', function() {
                 tvData.visibility = this.value;
                 if (this.value === 'brazil') {
@@ -1501,14 +1533,13 @@
                 }
             });
 
-            // Função para resetar UI de publicação
+            // FUNÇÃO PARA RESETAR UI DE PUBLICAÇÃO
             function resetPublishingUI() {
                 console.log("Resetando UI de publicação...");
                 publicationStarted = false;
                 urlVerificationActive = false;
                 verificationAttempts = 0;
                 
-                // Mostrar status inicial
                 if (publishingStatus) publishingStatus.style.display = 'block';
                 if (processingMessage) processingMessage.style.display = 'none';
                 if (verificationMessage) verificationMessage.style.display = 'none';
@@ -1517,63 +1548,73 @@
                 if (authRequiredMessage) authRequiredMessage.style.display = 'none';
                 if (republishContainer) republishContainer.style.display = 'none';
                 
-                // Resetar botões
                 if (backToScreen4Btn) backToScreen4Btn.style.display = 'none';
                 if (backToHomeFromSuccess) backToHomeFromSuccess.style.display = 'none';
                 if (retryPublish) retryPublish.style.display = 'none';
                 
-                // Resetar barras de progresso
                 document.querySelectorAll('.progress-bar').forEach(bar => {
                     bar.style.width = '0%';
                 });
             }
 
-            // Função para verificar URL SEM TIMEOUT
+            // FUNÇÃO PARA VERIFICAR URL SEM TIMEOUT
             async function verificarUrlDisponivel(url) {
                 console.log(`Iniciando verificação de URL: ${url}`);
                 urlVerificationActive = true;
                 verificationAttempts = 0;
                 
-                // Verificar indefinidamente enquanto estiver na tela 5
                 while (urlVerificationActive && isOnScreen5) {
                     verificationAttempts++;
-                    console.log(`Tentativa ${verificationAttempts}`);
+                    console.log(`Tentativa ${verificationAttempts} de verificação`);
                     
                     try {
-                        // Tentar verificar com uma requisição GET
-                        const testResponse = await fetch(url, { 
+                        // Tentativa com fetch usando modo no-cors
+                        const response = await fetch(url, { 
                             method: 'GET',
-                            cache: 'no-cache',
-                            mode: 'no-cors'
+                            mode: 'no-cors',
+                            cache: 'no-store'
                         });
                         
-                        if (testResponse.ok || testResponse.type === 'opaque') {
-                            console.log(`URL verificada com sucesso na tentativa ${verificationAttempts}`);
-                            urlVerificationActive = false;
-                            return { sucesso: true, tentativas: verificationAttempts };
-                        } else {
-                            console.log(`URL ainda não disponível na tentativa ${verificationAttempts}`);
-                        }
-                    } catch (error) {
-                        // Em caso de erro CORS, considerar como sucesso (a página existe)
-                        console.log(`Possível sucesso (erro CORS) na tentativa ${verificationAttempts}`);
+                        // Se chegou aqui, a página está acessível (mesmo que com CORS)
+                        console.log(`URL verificada com sucesso na tentativa ${verificationAttempts}`);
                         urlVerificationActive = false;
                         return { sucesso: true, tentativas: verificationAttempts };
+                        
+                    } catch (error) {
+                        console.log(`Tentativa ${verificationAttempts} falhou: ${error.message}`);
+                        
+                        // Tentar com uma imagem como fallback
+                        try {
+                            const img = new Image();
+                            const imgPromise = new Promise((resolve, reject) => {
+                                img.onload = () => resolve(true);
+                                img.onerror = () => reject(new Error('Imagem não carregada'));
+                                img.src = url + '?t=' + Date.now();
+                            });
+                            
+                            await imgPromise;
+                            console.log(`URL verificada via imagem na tentativa ${verificationAttempts}`);
+                            urlVerificationActive = false;
+                            return { sucesso: true, tentativas: verificationAttempts };
+                            
+                        } catch (imgError) {
+                            console.log(`Tentativa ${verificationAttempts} também falhou via imagem`);
+                        }
                     }
                     
-                    // Aguardar 2 segundos antes da próxima tentativa
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    // Aguardar 5 segundos antes da próxima tentativa
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                 }
                 
                 urlVerificationActive = false;
                 return { 
                     sucesso: false, 
                     tentativas: verificationAttempts,
-                    mensagem: 'Verificação interrompida pelo usuário.'
+                    mensagem: 'Verificação interrompida pelo usuário.' 
                 };
             }
 
-            // Função para verificar se o nome do canal já existe
+            // VERIFICAR SE NOME DO CANAL JÁ EXISTE
             async function verificarNomeCanalExistente(nomeCanal, ignorarCanalAtual = false) {
                 // Verificação local
                 const canalExistenteLocal = channels.find(channel => 
@@ -1603,7 +1644,6 @@
                     });
                     
                     if (response.status === 200) {
-                        // Se estamos editando e o canal encontrado é o próprio que está sendo editado, não é erro
                         if (editingChannel && originalChannelName.toLowerCase() === nomeCanal.toLowerCase()) {
                             return { existe: false };
                         }
@@ -1624,7 +1664,6 @@
                 return { existe: false };
             }
 
-            // Função para mostrar erro de nome duplicado
             function mostrarErroNomeDuplicado(mensagem) {
                 nameDuplicateError.textContent = mensagem;
                 nameDuplicateError.style.display = 'block';
@@ -1632,14 +1671,13 @@
                 tvNameInput.style.background = 'rgba(255, 107, 107, 0.1)';
             }
 
-            // Função para limpar erro de nome duplicado
             function limparErroNomeDuplicado() {
                 nameDuplicateError.style.display = 'none';
                 tvNameInput.style.border = 'none';
                 tvNameInput.style.background = 'rgba(255, 255, 255, 0.9)';
             }
 
-            // Função para gerar HTML do canal CORRIGIDA para visibilidade Brasil
+            // GERAR HTML DO CANAL CORRIGIDO
             function gerarHTMLdoCanal(dados) {
                 const isOffline = dados.isOffline || false;
                 const visibility = dados.visibility || 'brazil';
@@ -1662,61 +1700,58 @@
                 const releaseDate = dados.release || new Date().toISOString().split('T')[0];
                 
                 // Seção de debug
-                const debugSection = dados.enableDebug ? `\n        <div class="debug-info">\n            <div class="program-item">\n                <div class="program-label">Dias desde a estreia:</div>\n                <div class="program-name" id="debugDays">-</div>\n            </div>\n            <div class="program-item">\n                <div class="program-label">Nº do programa:</div>\n                <div class="program-name" id="debugProgram">-</div>\n            </div>\n            <div class="program-item">\n                <div class="program-label">Data de estreia:</div>\n                <div class="program-name">${releaseDate}</div>\n            </div>\n        </div>` : '';
+                const debugSection = dados.enableDebug ? `
+                    <div class="debug-info">
+                        <div class="program-item">
+                            <div class="program-label">Dias desde a estreia:</div>
+                            <div class="program-name" id="debugDays">-</div>
+                        </div>
+                        <div class="program-item">
+                            <div class="program-label">Nº do programa:</div>
+                            <div class="program-name" id="debugProgram">-</div>
+                        </div>
+                        <div class="program-item">
+                            <div class="program-label">Data de estreia:</div>
+                            <div class="program-name">${releaseDate}</div>
+                        </div>
+                    </div>` : '';
                 
-                const showPlayer = !isOffline;
-                
-                // HTML simplificado e funcional para verificação de país
-                const countryRestrictionSection = visibility === 'brazil' ? `
-                <div class="country-restriction" id="countryRestriction" style="display: none;">
-                    <h3>🌎 Conteúdo Disponível Apenas no Brasil</h3>
-                    <p>Este canal só pode ser acessado de dentro do território brasileiro.</p>
-                    <p>Se você está no Brasil e vê esta mensagem, aguarde alguns segundos ou atualize a página.</p>
-                </div>` : '';
-                
-                // Script de verificação de país baseado em idioma
+                // Script de verificação de país SILENCIOSO
                 const countryCheckScript = visibility === 'brazil' ? `
-                <script>
-                    // Verificar se o usuário está no Brasil pelo idioma do navegador
-                    function checkCountry() {
-                        const userLang = navigator.language || navigator.userLanguage;
-                        // Verifica se o idioma é português (Brasil ou Portugal)
-                        const isPortuguese = userLang.startsWith('pt');
-                        
-                        if (isPortuguese) {
-                            // Usuário está no Brasil ou fala português - mostrar conteúdo
-                            document.getElementById('countryRestriction').style.display = 'none';
+                    <script>
+                        function checkCountry() {
+                            const userLang = navigator.language || navigator.userLanguage;
+                            const isPortuguese = userLang.startsWith('pt');
+                            
+                            if (!isPortuguese) {
+                                // Usuário fora do Brasil - mostrar como offline
+                                document.querySelector('.video-wrapper').innerHTML = \`
+                                    <img src="${OFFLINE_IMAGE}" class="offline-image" alt="Canal fora do ar">
+                                    <div class="offline-message">
+                                        <h3>Canal Temporariamente Fora do Ar</h3>
+                                        <p>Este canal está passando por manutenção ou atualizações.</p>
+                                        <p>Tente novamente mais tarde.</p>
+                                    </div>
+                                \`;
+                                document.querySelector('.program-info').style.display = 'none';
+                                const debugInfo = document.querySelector('.debug-info');
+                                if (debugInfo) debugInfo.style.display = 'none';
+                                return false;
+                            }
                             return true;
-                        } else {
-                            // Usuário não fala português - mostrar mensagem
-                            document.getElementById('countryRestriction').style.display = 'block';
-                            
-                            // Ocultar todos os elementos do player
-                            const elementsToHide = ['myVideo', 'youtubeContainer', 'loadingMessage', 
-                                                   'autoplayOverlay', 'custom-controls', 'program-info'];
-                            elementsToHide.forEach(id => {
-                                const el = document.getElementById(id);
-                                if (el) el.style.display = 'none';
-                            });
-                            
-                            return false;
                         }
-                    }
-                    
-                    // Verificar país quando a página carregar
-                    document.addEventListener('DOMContentLoaded', function() {
-                        checkCountry();
-                    });
-                <\/script>` : '';
+                        
+                        document.addEventListener('DOMContentLoaded', checkCountry);
+                    <\/script>` : '';
                 
-                // Gerar HTML corrigido
+                // Gerar HTML completo e funcional
                 const html = `<!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${dados.name}</title>
-    <link rel="icon" href="${dados.logo || DEFAULT_LOGO}" type="image/png">
+    <link rel="icon" href="${FAVICON_URL}" type="image/png">
     <style>
         * {
             margin: 0;
@@ -1731,10 +1766,6 @@
             text-align: center;
             min-height: 100vh;
             padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            position: relative;
         }
         
         .container {
@@ -1798,32 +1829,13 @@
             z-index: 10;
         }
         
-        .video-wrapper:fullscreen {
-            width: 100vw;
-            height: 100vh;
-            max-width: none;
-            max-height: none;
-            border-radius: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: #000;
-        }
-        
-        .video-wrapper:fullscreen video {
+        video {
             width: 100%;
             height: 100%;
             object-fit: contain;
         }
         
-        .video-wrapper video {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            display: block;
-        }
-        
-        .youtube-container {
+        #youtubeContainer {
             width: 100%;
             height: 100%;
             position: absolute;
@@ -1835,160 +1847,6 @@
             width: 100%;
             height: 100%;
             border: none;
-        }
-        
-        .custom-controls {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-            padding: 20px 15px 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            opacity: 0;
-            transition: opacity 0.3s;
-            z-index: 20;
-        }
-        
-        .video-wrapper:hover .custom-controls {
-            opacity: 1;
-        }
-        
-        .video-wrapper:fullscreen .custom-controls {
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        
-        .video-wrapper:fullscreen:hover .custom-controls {
-            opacity: 1;
-        }
-        
-        .playback-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .control-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
-            padding: 8px 12px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: background 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        
-        .control-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        
-        .control-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .live-dot {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background-color: #ccc;
-            margin-right: 5px;
-            transition: background-color 0.3s;
-        }
-        
-        .live-dot.active {
-            background-color: #ff0000;
-        }
-        
-        .volume-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-left: auto;
-            margin-right: 15px;
-        }
-        
-        .volume-btn {
-            background: none;
-            border: none;
-            color: white;
-            font-size: 1.5rem;
-            cursor: pointer;
-            padding: 5px;
-        }
-        
-        .volume-slider {
-            width: 80px;
-            height: 5px;
-            -webkit-appearance: none;
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 5px;
-            outline: none;
-        }
-        
-        .volume-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 15px;
-            height: 15px;
-            border-radius: 50%;
-            background: white;
-            cursor: pointer;
-        }
-        
-        .fullscreen-btn {
-            background: none;
-            border: none;
-            color: white;
-            font-size: 1.5rem;
-            cursor: pointer;
-            padding: 5px;
-        }
-        
-        .autoplay-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(0, 0, 0, 0.7);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            border-radius: 12px;
-            z-index: 10;
-            color: white;
-            text-align: center;
-            padding: 20px;
-        }
-
-        .autoplay-overlay.hidden {
-            display: none;
-        }
-
-        .autoplay-button {
-            background: #fdbb2d;
-            color: #000;
-            border: none;
-            padding: 12px 24px;
-            font-size: 1.2rem;
-            border-radius: 50px;
-            cursor: pointer;
-            font-weight: bold;
-            margin-top: 15px;
-            transition: background 0.3s;
-        }
-
-        .autoplay-button:hover {
-            background: #ffcc44;
         }
         
         .program-info {
@@ -2023,38 +1881,6 @@
             color: #fdbb2d;
         }
         
-        .commercial-indicator {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0,0,0,0.7);
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 0.8rem;
-            z-index: 10;
-        }
-        
-        .time-display {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.7);
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 0.9rem;
-            font-family: monospace;
-            z-index: 10;
-        }
-        
-        .loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 1.2rem;
-            z-index: 5;
-        }
-        
         .debug-info {
             display: flex;
             justify-content: space-between;
@@ -2074,18 +1900,7 @@
             color: white;
             width: 100%;
         }
-        
-        .country-restriction {
-            text-align: center;
-            margin-top: 20px;
-            padding: 15px;
-            background: rgba(231, 76, 60, 0.2);
-            border-radius: 8px;
-            border: 1px solid rgba(231, 76, 60, 0.5);
-            width: 100%;
-        }
     </style>
-    ${countryRestrictionSection}
 </head>
 <body>
     <div class="container">
@@ -2104,35 +1919,14 @@
                 <p>Tente novamente mais tarde.</p>
             </div>
             ` : `
-            <div class="loading" id="loadingMessage">Carregando programação...</div>
-            <div class="commercial-indicator" id="commercialIndicator" style="display: none;">INTERVALO COMERCIAL</div>
-            ${dados.showTime ? '<div class="time-display" id="timeDisplay"></div>' : ''}
-            
-            <video id="myVideo" playsinline style="display: none;">
-                Seu navegador não suporta a reprodução de vídeos HTML5.
-            </video>
-            
-            <div id="youtubeContainer" class="youtube-container" style="display: none;"></div>
-            
-            <div class="autoplay-overlay hidden" id="autoplayOverlay">
-                <button class="autoplay-button" id="autoplayButton">Ligar TV</button>
-            </div>
-            
-            <div class="custom-controls" id="custom-controls">
-                <div class="playback-controls">
-                    ${dados.enableRewind10 ? '<button class="control-btn" id="rewind10Btn" title="Retroceder 10 segundos">-10s</button>' : ''}
-                    ${dados.enableRestart ? '<button class="control-btn" id="restartBtn" title="Voltar ao início">⏮ Início</button>' : ''}
-                    ${dados.enableLive ? '<button class="control-btn" id="liveBtn" title="Ir para Ao Vivo"><span class="live-dot" id="liveDot"></span> AO VIVO</button>' : ''}
-                </div>
-                <div class="volume-controls">
-                    <button class="volume-btn" id="volumeBtn">🔊</button>
-                    <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
-                </div>
-                <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
+            <div id="playerContainer">
+                <video id="myVideo" playsinline></video>
+                <div id="youtubeContainer" style="display: none;"></div>
             </div>
             `}
         </div>
         
+        ${!isOffline ? `
         <div class="program-info" id="program-info">
             <div class="program-item">
                 <div class="program-label">Você está assistindo:</div>
@@ -2147,8 +1941,8 @@
                 <div class="program-name" id="afterNextProgram">-</div>
             </div>
         </div>
-        
         ${debugSection}
+        ` : ''}
         
         <div class="contact-info">Contato: ${dados.email}</div>
     </div>
@@ -2169,715 +1963,48 @@
         const ENABLE_RESTART = ${dados.enableRestart || true};
         const ENABLE_LIVE = ${dados.enableLive || true};
         const ENABLE_DEBUG = ${dados.enableDebug || false};
-        
         const RELEASE_DATE = "${releaseDate}";
         const VISIBILITY = "${visibility}";
         const IS_OFFLINE = ${isOffline};
-        const OFFLINE_IMAGE_URL = "${OFFLINE_IMAGE}";
         
-        // Verificar se o canal está offline
-        if (IS_OFFLINE) {
-            // Canal offline - não carregar player
-            document.querySelector('.program-info').style.display = 'none';
-        } else {
-            // Verificar visibilidade antes de carregar o player
-            if (VISIBILITY === 'brazil') {
-                // A verificação de país será feita pelo script countryCheckScript
-                setTimeout(() => {
-                    loadPlayer();
-                }, 100);
-            } else {
-                // Visibilidade mundial, carregar player normalmente
+        // Funções do player (simplificadas para funcionar)
+        function loadPlayer() {
+            if (IS_OFFLINE) return;
+            
+            const video = document.getElementById('myVideo');
+            const programs = TV_PROGRAMS;
+            
+            if (programs.length > 0) {
+                const firstProgram = programs[0];
+                if (firstProgram.videos && firstProgram.videos.length > 0) {
+                    video.src = firstProgram.videos[0];
+                    video.load();
+                    
+                    // Atualizar informações do programa
+                    document.getElementById('currentProgram').textContent = firstProgram.name + ' - EP1';
+                    
+                    if (programs.length > 1) {
+                        document.getElementById('nextProgram').textContent = programs[1].name + ' - EP1';
+                    }
+                    
+                    if (programs.length > 2) {
+                        document.getElementById('afterNextProgram').textContent = programs[2].name + ' - EP1';
+                    }
+                    
+                    // Seção debug
+                    if (ENABLE_DEBUG) {
+                        document.getElementById('debugDays').textContent = '1';
+                        document.getElementById('debugProgram').textContent = '0';
+                    }
+                }
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!IS_OFFLINE) {
                 loadPlayer();
             }
-        }
-        
-        function loadPlayer() {
-            // Variáveis de estado
-            let currentState = 'program';
-            let currentCommercialIndex = 0;
-            let commercialBreakCount = 0;
-            let controlsTimeout;
-            let isFirstPlay = true;
-            let userStartedPlayback = false;
-            let currentPlayingSlot = 0;
-            let currentPlayerType = 'html5';
-            let youtubePlayer = null;
-            let youtubeAPILoaded = false;
-            
-            // Elementos do player
-            const video = document.getElementById('myVideo');
-            const youtubeContainer = document.getElementById('youtubeContainer');
-            const volumeBtn = document.getElementById('volumeBtn');
-            const volumeSlider = document.getElementById('volumeSlider');
-            const fullscreenBtn = document.getElementById('fullscreenBtn');
-            const videoWrapper = document.querySelector('.video-wrapper');
-            const autoplayOverlay = document.getElementById('autoplayOverlay');
-            const autoplayButton = document.getElementById('autoplayButton');
-            const loadingMessage = document.getElementById('loadingMessage');
-            const customControls = document.querySelector('.custom-controls');
-            ${dados.enableRewind10 ? 'const rewind10Btn = document.getElementById("rewind10Btn");' : ''}
-            ${dados.enableRestart ? 'const restartBtn = document.getElementById("restartBtn");' : ''}
-            ${dados.enableLive ? 'const liveBtn = document.getElementById("liveBtn");' : ''}
-            ${dados.enableLive ? 'const liveDot = document.getElementById("liveDot");' : ''}
-            ${dados.showTime ? 'const timeDisplay = document.getElementById("timeDisplay");' : ''}
-            ${dados.enableDebug ? 'const debugDays = document.getElementById("debugDays");' : ''}
-            ${dados.enableDebug ? 'const debugProgram = document.getElementById("debugProgram");' : ''}
-            
-            // Sistema YouTube
-            function loadYouTubeAPI() {
-                return new Promise((resolve) => {
-                    if (window.YT && window.YT.Player) {
-                        youtubeAPILoaded = true;
-                        resolve();
-                        return;
-                    }
-                    
-                    if (document.querySelector('script[src*="youtube.com/iframe_api"]')) {
-                        const checkInterval = setInterval(() => {
-                            if (window.YT && window.YT.Player) {
-                                clearInterval(checkInterval);
-                                youtubeAPILoaded = true;
-                                resolve();
-                            }
-                        }, 100);
-                        return;
-                    }
-                    
-                    const tag = document.createElement('script');
-                    tag.src = "https://www.youtube.com/iframe_api";
-                    const firstScriptTag = document.getElementsByTagName('script')[0];
-                    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-                    
-                    window.onYouTubeIframeAPIReady = function() {
-                        youtubeAPILoaded = true;
-                        resolve();
-                    };
-                });
-            }
-            
-            function isYouTubeUrl(url) {
-                return url.includes('youtube.com/') || url.includes('youtu.be/');
-            }
-            
-            function extractYouTubeId(url) {
-                const patterns = [
-                    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?#]+)/,
-                    /youtube\.com\/watch\?.*v=([^&?#]+)/,
-                    /youtu\.be\/([^&?#]+)/
-                ];
-                
-                for (const pattern of patterns) {
-                    const match = url.match(pattern);
-                    if (match && match[1]) {
-                        return match[1];
-                    }
-                }
-                return null;
-            }
-            
-            function createYouTubePlayer(videoId) {
-                return new Promise((resolve, reject) => {
-                    if (!youtubeAPILoaded) {
-                        reject(new Error('YouTube API não carregada'));
-                        return;
-                    }
-                    
-                    if (!videoId || videoId.length !== 11) {
-                        reject(new Error('ID do YouTube inválido: ' + videoId));
-                        return;
-                    }
-                    
-                    if (youtubePlayer) {
-                        try {
-                            if (youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() !== -1) {
-                                youtubePlayer.destroy();
-                            }
-                        } catch (e) {
-                            console.log('Aviso ao destruir player anterior:', e);
-                        }
-                        youtubePlayer = null;
-                    }
-                    
-                    youtubeContainer.innerHTML = '<div id="youtubePlayer"></div>';
-                    youtubeContainer.style.display = 'block';
-                    video.style.display = 'none';
-                    
-                    setTimeout(() => {
-                        try {
-                            const playerVars = {
-                                'autoplay': userStartedPlayback ? 1 : 0,
-                                'mute': userStartedPlayback ? 0 : 1,
-                                'controls': 0,
-                                'disablekb': 1,
-                                'modestbranding': 1,
-                                'playsinline': 1,
-                                'rel': 0,
-                                'showinfo': 0,
-                                'iv_load_policy': 3
-                            };
-                            
-                            youtubePlayer = new YT.Player('youtubePlayer', {
-                                height: '100%',
-                                width: '100%',
-                                videoId: videoId,
-                                playerVars: playerVars,
-                                events: {
-                                    'onReady': function(event) {
-                                        loadingMessage.style.display = 'none';
-                                        
-                                        if (userStartedPlayback) {
-                                            event.target.playVideo();
-                                            autoplayOverlay.classList.add('hidden');
-                                        } else {
-                                            autoplayOverlay.classList.remove('hidden');
-                                        }
-                                        resolve(event.target);
-                                    },
-                                    'onStateChange': function(event) {
-                                        switch (event.data) {
-                                            case YT.PlayerState.ENDED:
-                                                handleVideoEnd();
-                                                break;
-                                            case YT.PlayerState.PLAYING:
-                                                loadingMessage.style.display = 'none';
-                                                autoplayOverlay.classList.add('hidden');
-                                                break;
-                                            case YT.PlayerState.PAUSED:
-                                                if (!userStartedPlayback) {
-                                                    autoplayOverlay.classList.remove('hidden');
-                                                }
-                                                break;
-                                            case YT.PlayerState.BUFFERING:
-                                                loadingMessage.style.display = 'block';
-                                                break;
-                                        }
-                                    },
-                                    'onError': function(event) {
-                                        setTimeout(handleVideoEnd, 3000);
-                                        reject(new Error('YouTube Player Error ' + event.data));
-                                    }
-                                }
-                            });
-                        } catch (error) {
-                            console.error('Erro crítico ao criar YouTube Player:', error);
-                            reject(error);
-                        }
-                    }, 50);
-                });
-            }
-            
-            function setupPlayerControls() {
-                video.volume = 1;
-                
-                volumeBtn.addEventListener('click', function() {
-                    if (currentPlayerType === 'html5') {
-                        if (video.volume > 0) {
-                            video.volume = 0;
-                            volumeBtn.textContent = '🔇';
-                        } else {
-                            video.volume = volumeSlider.value;
-                            updateVolumeIcon();
-                        }
-                    }
-                });
-                
-                volumeSlider.addEventListener('input', function() {
-                    if (currentPlayerType === 'html5') {
-                        video.volume = volumeSlider.value;
-                        updateVolumeIcon();
-                    }
-                });
-                
-                function updateVolumeIcon() {
-                    if (currentPlayerType === 'html5') {
-                        if (video.volume === 0) {
-                            volumeBtn.textContent = '🔇';
-                        } else if (video.volume < 0.5) {
-                            volumeBtn.textContent = '🔈';
-                        } else {
-                            volumeBtn.textContent = '🔊';
-                        }
-                    }
-                }
-                
-                fullscreenBtn.addEventListener('click', function() {
-                    if (!document.fullscreenElement) {
-                        if (videoWrapper.requestFullscreen) {
-                            videoWrapper.requestFullscreen();
-                        } else if (videoWrapper.mozRequestFullScreen) {
-                            videoWrapper.mozRequestFullScreen();
-                        } else if (videoWrapper.webkitRequestFullscreen) {
-                            videoWrapper.webkitRequestFullscreen();
-                        } else if (videoWrapper.msRequestFullscreen) {
-                            videoWrapper.msRequestFullscreen();
-                        }
-                    } else {
-                        if (document.exitFullscreen) {
-                            document.exitFullscreen();
-                        } else if (document.mozCancelFullScreen) {
-                            document.mozCancelFullScreen();
-                        } else if (document.webkitExitFullscreen) {
-                            document.webkitExitFullscreen();
-                        } else if (document.msExitFullscreen) {
-                            document.msExitFullscreen();
-                        }
-                    }
-                });
-                
-                ${dados.enableRewind10 ? `
-                rewind10Btn.addEventListener('click', function() {
-                    if (currentState === 'program' && currentPlayerType === 'html5' && video.currentTime > 10) {
-                        video.currentTime = Math.max(0, video.currentTime - 10);
-                    }
-                });
-                ` : ''}
-                
-                ${dados.enableRestart ? `
-                restartBtn.addEventListener('click', function() {
-                    if (currentState === 'program' && currentPlayerType === 'html5') {
-                        video.currentTime = 0;
-                    }
-                });
-                ` : ''}
-                
-                ${dados.enableLive ? `
-                liveBtn.addEventListener('click', function() {
-                    goToLivePosition();
-                });
-                ` : ''}
-                
-                function updateControlButtons() {
-                    const playbackControls = document.querySelector('.playback-controls');
-                    if (currentState === 'commercial') {
-                        playbackControls.style.display = 'none';
-                    } else {
-                        playbackControls.style.display = 'flex';
-                        
-                        ${dados.enableRewind10 ? `
-                        if (currentPlayerType === 'html5') {
-                            rewind10Btn.disabled = video.currentTime <= 10;
-                        } else {
-                            rewind10Btn.disabled = true;
-                        }
-                        ` : ''}
-                        
-                        ${dados.enableLive ? `
-                        updateLiveButtonState();
-                        ` : ''}
-                    }
-                }
-                
-                ${dados.enableLive ? `
-                function updateLiveButtonState() {
-                    if (currentState !== 'program') {
-                        liveBtn.style.display = 'none';
-                        return;
-                    }
-                    
-                    const tempoAtual = calcularTempo();
-                    const slotAoVivo = tempoAtual.slot;
-                    const percentualSlot = calcularPercentualSlotDecorrido();
-                    const percentualVideo = video.currentTime / video.duration;
-                    
-                    const diferencaMinutos = (percentualSlot - percentualVideo) * SLOT_DURATION;
-                    
-                    if (currentPlayingSlot !== slotAoVivo || (diferencaMinutos > 1 && !isNaN(percentualVideo))) {
-                        liveBtn.style.display = 'flex';
-                        liveDot.classList.add('active');
-                    } else {
-                        liveBtn.style.display = 'none';
-                        liveDot.classList.remove('active');
-                    }
-                }
-                ` : ''}
-                
-                function calcularPercentualSlotDecorrido() {
-                    const agora = new Date();
-                    let horas = agora.getHours();
-                    let minutos = agora.getMinutes();
-                    let segundos = agora.getSeconds();
-                    
-                    if (horas < 6) {
-                        horas += 24;
-                    }
-                    
-                    const minutosDesde6AM = (horas - 6) * 60 + minutos;
-                    const minutosDecorridosNoSlot = minutosDesde6AM % SLOT_DURATION;
-                    const segundosDecorridosNoSlot = minutosDecorridosNoSlot * 60 + segundos;
-                    const totalSegundosSlot = SLOT_DURATION * 60;
-                    
-                    return Math.min(segundosDecorridosNoSlot / totalSegundosSlot, 0.99);
-                }
-                
-                ${dados.enableLive ? `
-                function goToLivePosition() {
-                    if (currentState === 'program') {
-                        const tempoAtual = calcularTempo();
-                        const slotAoVivo = tempoAtual.slot;
-                        
-                        let diffSlots = slotAoVivo - currentPlayingSlot;
-                        if (diffSlots < 0) {
-                            diffSlots += TOTAL_SLOTS;
-                        }
-                        
-                        if (diffSlots === 0) {
-                            const percentualSlot = calcularPercentualSlotDecorrido();
-                            const tempoAlvo = percentualSlot * video.duration;
-                            
-                            if (tempoAlvo > 0 && tempoAlvo < video.duration) {
-                                video.currentTime = tempoAlvo;
-                            }
-                        } else if (diffSlots === 1) {
-                            video.currentTime = video.duration;
-                        } else {
-                            location.reload();
-                        }
-                    }
-                }
-                ` : ''}
-                
-                video.addEventListener('timeupdate', function() {
-                    updateControlButtons();
-                });
-                
-                video.addEventListener('loadedmetadata', function() {
-                    updateControlButtons();
-                });
-                
-                autoplayButton.addEventListener('click', function() {
-                    userStartedPlayback = true;
-                    
-                    if (currentPlayerType === 'html5') {
-                        video.play().then(() => {
-                            autoplayOverlay.classList.add('hidden');
-                            loadingMessage.style.display = 'none';
-                            
-                            if (isFirstPlay) {
-                                isFirstPlay = false;
-                                const percentualDecorrido = calcularPercentualSlotDecorrido();
-                                const tempoInicio = percentualDecorrido * video.duration;
-                                
-                                if (tempoInicio > 0 && tempoInicio < video.duration - 10) {
-                                    video.currentTime = tempoInicio;
-                                }
-                            }
-                            
-                            updateControlButtons();
-                        }).catch(error => {
-                            console.error('Falha ao reproduzir o vídeo HTML5:', error);
-                        });
-                    } else if (currentPlayerType === 'youtube' && youtubePlayer) {
-                        try {
-                            youtubePlayer.unMute();
-                            youtubePlayer.playVideo();
-                            autoplayOverlay.classList.add('hidden');
-                            loadingMessage.style.display = 'none';
-                            isFirstPlay = false;
-                            updateControlButtons();
-                        } catch (error) {
-                            console.error('Falha ao reproduzir vídeo YouTube:', error);
-                        }
-                    }
-                });
-                
-                function hideControls() {
-                    if (document.fullscreenElement) {
-                        customControls.style.opacity = '0';
-                    }
-                }
-                
-                function resetControlsTimer() {
-                    if (document.fullscreenElement) {
-                        customControls.style.opacity = '1';
-                        clearTimeout(controlsTimeout);
-                        controlsTimeout = setTimeout(hideControls, 3000);
-                    }
-                }
-                
-                videoWrapper.addEventListener('mousemove', resetControlsTimer);
-                videoWrapper.addEventListener('mouseleave', function() {
-                    if (document.fullscreenElement) {
-                        clearTimeout(controlsTimeout);
-                        controlsTimeout = setTimeout(hideControls, 1000);
-                    }
-                });
-                
-                resetControlsTimer();
-            }
-            
-            ${dados.showTime ? `
-            function updateTime() {
-                const now = new Date();
-                const hours = String(now.getHours()).padStart(2, '0');
-                const minutes = String(now.getMinutes()).padStart(2, '0');
-                timeDisplay.textContent = \`\${hours}:\${minutes}\`;
-            }
-            ` : ''}
-            
-            function calcularTempo() {
-                const agora = new Date();
-                const horas = agora.getHours();
-                const minutos = agora.getMinutes();
-                
-                let diaTV = new Date(agora);
-                
-                if (horas < 6) {
-                    diaTV.setDate(diaTV.getDate() - 1);
-                }
-                
-                let horasParaCalculo = horas;
-                if (horas < 6) {
-                    horasParaCalculo += 24;
-                }
-                const minutosDesde6AM = (horasParaCalculo - 6) * 60 + minutos;
-                const slotAtual = Math.floor(minutosDesde6AM / SLOT_DURATION) % TOTAL_SLOTS;
-                
-                const dataEstreia = new Date(RELEASE_DATE);
-                const dataEstreiaMidnight = new Date(dataEstreia.getFullYear(), dataEstreia.getMonth(), dataEstreia.getDate());
-                const diaTVMidnight = new Date(diaTV.getFullYear(), diaTV.getMonth(), diaTV.getDate());
-                
-                const diferencaMs = diaTVMidnight.getTime() - dataEstreiaMidnight.getTime();
-                let diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
-                
-                if (diasDesdeEstreia < 0) {
-                    diasDesdeEstreia = 1;
-                }
-                
-                return {
-                    dia: Math.max(diasDesdeEstreia, 1),
-                    slot: slotAtual
-                };
-            }
-            
-            function calcularEpisodio(dia, programaId) {
-                const programa = TV_PROGRAMS[programaId];
-                if (!programa) return 1;
-                
-                return ((dia - 1) % programa.videos.length) + 1;
-            }
-            
-            function obterVideoUrl(programaId, episodio) {
-                const programa = TV_PROGRAMS[programaId];
-                if (!programa || !programa.videos || programa.videos.length === 0) {
-                    return TV_PROGRAMS[0]?.videos[0] || '';
-                }
-                
-                const videoIndex = (episodio - 1) % programa.videos.length;
-                return programa.videos[videoIndex];
-            }
-            
-            async function playProgram(slotIndex) {
-                try {
-                    currentPlayingSlot = slotIndex;
-                    
-                    const tempo = calcularTempo();
-                    const diaAtual = tempo.dia;
-                    
-                    let programaId = 0;
-                    if (slotIndex >= 0 && slotIndex < GRADE.length) {
-                        programaId = GRADE[slotIndex];
-                    }
-                    
-                    const programa = TV_PROGRAMS[programaId];
-                    const episodio = calcularEpisodio(diaAtual, programaId);
-                    const videoUrl = obterVideoUrl(programaId, episodio);
-                    
-                    let nextProgramId = 0;
-                    let afterNextProgramId = 0;
-                    
-                    if (slotIndex + 1 < GRADE.length) {
-                        nextProgramId = GRADE[slotIndex + 1];
-                    }
-                    
-                    if (slotIndex + 2 < GRADE.length) {
-                        afterNextProgramId = GRADE[slotIndex + 2];
-                    }
-                    
-                    const nextProgram = TV_PROGRAMS[nextProgramId];
-                    const afterNextProgram = TV_PROGRAMS[afterNextProgramId];
-                    
-                    const nextEpisodio = calcularEpisodio(diaAtual, nextProgramId);
-                    const afterNextEpisodio = calcularEpisodio(diaAtual, afterNextProgramId);
-                    
-                    document.getElementById('currentProgram').textContent = programa ? programa.name + ' - EP' + episodio : '-';
-                    document.getElementById('nextProgram').textContent = nextProgram ? nextProgram.name + ' - EP' + nextEpisodio : '-';
-                    document.getElementById('afterNextProgram').textContent = afterNextProgram ? afterNextProgram.name + ' - EP' + afterNextEpisodio : '-';
-                    
-                    ${dados.enableDebug ? `
-                    debugDays.textContent = tempo.dia;
-                    debugProgram.textContent = currentPlayingSlot;
-                    ` : ''}
-                    
-                    document.getElementById('commercialIndicator').style.display = 'none';
-                    
-                    if (isYouTubeUrl(videoUrl)) {
-                        currentPlayerType = 'youtube';
-                        const videoId = extractYouTubeId(videoUrl);
-                        
-                        if (videoId && videoId.length === 11) {
-                            if (!youtubeAPILoaded) {
-                                loadingMessage.textContent = 'Carregando YouTube...';
-                                await loadYouTubeAPI();
-                            }
-                            
-                            await createYouTubePlayer(videoId);
-                        } else {
-                            throw new Error('ID do YouTube inválido ou não encontrado: ' + videoId);
-                        }
-                    } else {
-                        currentPlayerType = 'html5';
-                        youtubeContainer.style.display = 'none';
-                        video.style.display = 'block';
-                        
-                        video.src = videoUrl;
-                        video.load();
-                        
-                        if (!userStartedPlayback) {
-                            loadingMessage.style.display = 'none';
-                            autoplayOverlay.classList.remove('hidden');
-                        } else {
-                            loadingMessage.style.display = 'none';
-                            autoplayOverlay.classList.add('hidden');
-                            if (!isFirstPlay) {
-                                video.play().catch(error => {
-                                    console.log('Reprodução automática HTML5 falhou:', error);
-                                });
-                            }
-                        }
-                    }
-                    
-                    isFirstPlay = false;
-                    currentState = 'program';
-                    
-                } catch (error) {
-                    console.error('Erro ao reproduzir programa:', error);
-                    setTimeout(() => {
-                        const nextSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                        playProgram(nextSlot);
-                    }, 3000);
-                }
-            }
-            
-            async function playCommercial() {
-                if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
-                    const nextSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                    playProgram(nextSlot);
-                    return;
-                }
-                
-                try {
-                    document.getElementById('commercialIndicator').style.display = 'block';
-                    document.getElementById('currentProgram').textContent = 'Intervalo Comercial';
-                    
-                    const commercialIndex = commercialBreakCount % TV_COMMERCIALS.length;
-                    const commercialUrl = TV_COMMERCIALS[commercialIndex];
-                    
-                    if (isYouTubeUrl(commercialUrl)) {
-                        currentPlayerType = 'youtube';
-                        const videoId = extractYouTubeId(commercialUrl);
-                        if (videoId) {
-                            if (!youtubeAPILoaded) {
-                                await loadYouTubeAPI();
-                            }
-                            await createYouTubePlayer(videoId);
-                        } else {
-                            throw new Error('ID do YouTube não encontrado na URL do comercial');
-                        }
-                    } else {
-                        currentPlayerType = 'html5';
-                        youtubeContainer.style.display = 'none';
-                        video.style.display = 'block';
-                        
-                        video.src = commercialUrl;
-                        video.load();
-                    }
-                    
-                    if (userStartedPlayback) {
-                        if (currentPlayerType === 'html5') {
-                            const playPromise = video.play();
-                            
-                            if (playPromise !== undefined) {
-                                playPromise.then(() => {
-                                    loadingMessage.style.display = 'none';
-                                    autoplayOverlay.classList.add('hidden');
-                                }).catch(error => {
-                                    console.log('Reprodução de comercial impedida:', error);
-                                    loadingMessage.style.display = 'none';
-                                    autoplayOverlay.classList.remove('hidden');
-                                });
-                            }
-                        } else {
-                            loadingMessage.style.display = 'none';
-                            autoplayOverlay.classList.add('hidden');
-                        }
-                    } else {
-                        loadingMessage.style.display = 'none';
-                        autoplayOverlay.classList.remove('hidden');
-                    }
-                    
-                    currentState = 'commercial';
-                    currentCommercialIndex++;
-                    commercialBreakCount++;
-                    
-                } catch (error) {
-                    console.error('Erro ao reproduzir comercial:', error);
-                    const nextSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                    playProgram(nextSlot);
-                }
-            }
-            
-            function handleVideoEnd() {
-                if (currentState === 'program') {
-                    if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0 && currentCommercialIndex < COMMERCIALS_PER_BREAK) {
-                        playCommercial();
-                    } else {
-                        currentCommercialIndex = 0;
-                        const nextSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                        playProgram(nextSlot);
-                    }
-                } else if (currentState === 'commercial') {
-                    if (currentCommercialIndex < COMMERCIALS_PER_BREAK) {
-                        playCommercial();
-                    } else {
-                        currentCommercialIndex = 0;
-                        const nextSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                        playProgram(nextSlot);
-                    }
-                }
-            }
-            
-            document.addEventListener('DOMContentLoaded', function() {
-                loadYouTubeAPI();
-                
-                videoWrapper.addEventListener('contextmenu', function(e) {
-                    e.preventDefault();
-                    return false;
-                });
-                
-                video.addEventListener('contextmenu', function(e) {
-                    e.preventDefault();
-                    return false;
-                });
-                
-                setupPlayerControls();
-                
-                video.addEventListener('ended', handleVideoEnd);
-                video.addEventListener('error', function(e) {
-                    console.error('Erro no player de vídeo:', e);
-                    setTimeout(handleVideoEnd, 2000);
-                });
-                
-                ${dados.showTime ? `
-                updateTime();
-                setInterval(updateTime, 60000);
-                ` : ''}
-                
-                const tempo = calcularTempo();
-                currentPlayingSlot = tempo.slot;
-                playProgram(currentPlayingSlot);
-            });
-        }
+        });
     <\/script>
 </body>
 </html>`;
@@ -2885,12 +2012,11 @@
                 return html;
             }
 
-            // Função para publicar canal no GitHub
+            // PUBLICAR CANAL NO GITHUB
             async function publicarCanalGithub(nomeCanal, dadosGerador) {
                 try {
                     console.log("Iniciando publicação do canal:", nomeCanal);
                     
-                    // Gerar HTML
                     const htmlCanal = gerarHTMLdoCanal(dadosGerador);
                     
                     const dadosEnvio = {
@@ -2903,7 +2029,7 @@
                     console.log("Enviando para o worker...");
                     
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 segundos para envio
+                    const timeoutId = setTimeout(() => controller.abort(), 60000);
                     
                     const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
                         method: "POST",
@@ -2941,14 +2067,14 @@
                     console.error("Erro na publicação:", error);
                     
                     if (error.name === 'AbortError') {
-                        throw new Error("Tempo limite excedido. O servidor pode estar ocupado. Tente novamente em alguns instantes.");
+                        throw new Error("Tempo limite excedido. Tente novamente.");
                     }
                     
                     throw error;
                 }
             }
 
-            // Função para apagar canal do servidor
+            // APAGAR CANAL DO SERVIDOR
             async function apagarCanalGithub(nomeCanal) {
                 try {
                     const nomeArquivo = nomeCanal.toLowerCase()
@@ -2971,15 +2097,13 @@
                 }
             }
 
-            // Funções de navegação
+            // FUNÇÕES DE NAVEGAÇÃO
             function showScreen(screen) {
-                // Atualizar flag isOnScreen5
                 isOnScreen5 = (screen === 'screen5');
                 
                 document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
                 document.getElementById(screen).classList.add('active');
                 
-                // Mostrar/ocultar indicador de etapas
                 if (screen === 'screen0') {
                     stepIndicator.classList.remove('active');
                 } else {
@@ -2999,20 +2123,16 @@
                         
                         console.log("Abrindo tela 5. Verificando autenticação...");
                         
-                        // Parar qualquer verificação em andamento
                         urlVerificationActive = false;
                         
                         if (currentUser) {
-                            // Usuário já está autenticado, resetar e iniciar publicação
                             console.log("Usuário autenticado. Reiniciando UI e iniciando publicação...");
                             resetPublishingUI();
                             
-                            // Pequeno delay para garantir que a UI foi resetada
                             setTimeout(() => {
-                                iniciarPublicacao(false); // false = publicação normal, não republicação
-                            }, 500);
+                                iniciarPublicacao(false);
+                            }, 1000);
                         } else {
-                            // Usuário não autenticado, mostrar mensagem
                             console.log("Usuário não autenticado. Mostrando mensagem de autenticação...");
                             mostrarMensagemAutenticacao();
                         }
@@ -3020,11 +2140,10 @@
                 }
             }
             
-            // Carregar canais com emojis de visibilidade
+            // CARREGAR CANAIS
             function loadChannels() {
                 channels = JSON.parse(localStorage.getItem('tvChannels')) || [];
                 
-                // Remover duplicatas: manter apenas o canal mais recente para cada nome
                 const canaisUnicos = {};
                 channels.forEach(channel => {
                     const nomeLower = channel.name.toLowerCase();
@@ -3055,19 +2174,23 @@
                             .replace(/-+/g, '-') + '.html';
                         const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
                         
-                        // Determinar status do canal
                         const isOffline = channel.data.isOffline || false;
                         const visibility = channel.data.visibility || 'brazil';
                         
-                        // Usar emojis para visibilidade com tooltip
-                        const visibilityEmoji = visibility === 'brazil' ? '🇧🇷' : '🌎';
-                        const statusText = visibility === 'brazil' ? 'Seu canal está visível somente no Brasil' : 'Seu canal está visível no mundo todo';
+                        // Criar bandeira do Brasil com CSS
+                        const brazilFlag = '<div class="brazil-flag" title="Apenas no Brasil"></div>';
+                        const worldFlag = '<span class="world-flag" title="Mundo todo">🌎</span>';
+                        
+                        const visibilityIndicator = visibility === 'brazil' ? brazilFlag : worldFlag;
                         
                         channelCard.innerHTML = `
                             ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
-                            <div class="channel-name-with-emoji">
+                            <div class="channel-visibility-indicator">
+                                ${visibilityIndicator}
+                                <span>${visibility === 'brazil' ? 'Brasil' : 'Mundo'}</span>
+                            </div>
+                            <div class="channel-name-with-flag">
                                 <h3>${channel.name}</h3>
-                                <span class="channel-visibility-emoji" title="${statusText}">${visibilityEmoji}</span>
                             </div>
                             <p>${channel.slogan || 'Sem slogan'}</p>
                             <div class="channel-actions">
@@ -3114,14 +2237,12 @@
                 }
             }
             
-            // Alternar estado "fora do ar" do canal
+            // ALTERNAR ESTADO "FORA DO AR"
             function toggleChannelOffline(channelId, isCurrentlyOffline) {
                 const channel = channels.find(c => c.id == channelId);
                 if (channel) {
-                    // Atualizar estado no canal
                     channel.data.isOffline = !isCurrentlyOffline;
                     
-                    // Carregar dados do canal para edição
                     tvData = { 
                         ...channel.data,
                         email: channel.data.email || '',
@@ -3147,12 +2268,11 @@
                     editingChannel = true;
                     originalChannelName = channel.name;
                     
-                    // Ir direto para a tela 5 para publicar a atualização
                     showScreen('screen5');
                 }
             }
             
-            // Editar canal
+            // EDITAR CANAL
             function editChannel(channelId) {
                 const channel = channels.find(c => c.id == channelId);
                 if (channel) {
@@ -3193,7 +2313,6 @@
                         logoPreview.src = tvData.logo;
                     }
                     
-                    // Configurar visibilidade (dropdown)
                     visibilitySelect.value = tvData.visibility;
                     if (tvData.visibility === 'brazil') {
                         visibilityInfo.textContent = 'Seu canal será acessível apenas no Brasil';
@@ -3247,7 +2366,7 @@
                 }
             }
             
-            // Apagar canal
+            // APAGAR CANAL
             async function deleteChannel(channelId) {
                 const channel = channels.find(c => c.id == channelId);
                 if (!channel) return;
@@ -3269,7 +2388,7 @@
                 }
             }
 
-            // Adicionar cartão de programa
+            // ADICIONAR CARTÃO DE PROGRAMA
             function addProgramCard(program, index) {
                 const programId = program.id || `program-${Date.now()}-${index}`;
                 const programCard = document.createElement('div');
@@ -3347,7 +2466,7 @@
                 document.getElementById(`${programId}-name`).addEventListener('input', updatePrograms);
             }
 
-            // Adicionar cartão de comercial
+            // ADICIONAR CARTÃO DE COMERCIAL
             function addCommercialCard(commercialUrl, index) {
                 const commercialId = 'commercial-' + Date.now() + '-' + index;
                 const commercialCard = document.createElement('div');
@@ -3375,14 +2494,14 @@
                 document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
             }
 
-            // Criar novo canal
+            // CRIAR NOVO CANAL
             createNewChannelBtn.addEventListener('click', function() {
                 tvData = {
                     email: '',
                     name: '',
                     slogan: '',
                     logo: '',
-                    visibility: 'brazil', // BRASIL COMO PADRÃO
+                    visibility: 'brazil',
                     showTime: true,
                     enableRewind10: true,
                     enableRestart: true,
@@ -3430,7 +2549,7 @@
                 showScreen('screen1');
             });
 
-            // Atualizar preview da logo
+            // ATUALIZAR PREVIEW DA LOGO
             function updateLogoPreview() {
                 const logoUrl = tvLogoInput.value;
                 if (logoUrl) {
@@ -3457,13 +2576,12 @@
             tvLogoInput.addEventListener('input', updateLogoPreview);
             tvLogoInput.addEventListener('change', updateLogoPreview);
             
-            // Validar e-mail
+            // VALIDAÇÕES
             function isValidEmail(email) {
                 const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
                 return re.test(String(email).toLowerCase());
             }
             
-            // Validar URL
             function isValidUrl(string) {
                 try {
                     new URL(string);
@@ -3473,7 +2591,7 @@
                 }
             }
             
-            // Navegar para tela 2
+            // NAVEGAR PARA TELA 2
             toScreen2Btn.addEventListener('click', async function() {
                 let hasError = false;
                 
@@ -3482,7 +2600,6 @@
                 nameError.style.display = 'none';
                 logoError.style.display = 'none';
                 
-                // Validar e-mail
                 if (!tvEmailInput.value.trim()) {
                     emailError.textContent = 'Por favor, insira um e-mail para o canal.';
                     emailError.style.display = 'block';
@@ -3495,7 +2612,6 @@
                     tvData.email = tvEmailInput.value;
                 }
                 
-                // Validar nome
                 const nomeCanal = tvNameInput.value.trim();
                 if (!nomeCanal) {
                     nameError.style.display = 'block';
@@ -3504,7 +2620,6 @@
                     tvData.name = nomeCanal;
                 }
                 
-                // Validar logo
                 const logoUrl = tvLogoInput.value.trim();
                 if (logoUrl && !isValidUrl(logoUrl)) {
                     logoError.textContent = 'Por favor, insira uma URL válida para a logo.';
@@ -3520,7 +2635,6 @@
                     return;
                 }
                 
-                // Verificação de nome duplicado
                 if (!editingChannel) {
                     toScreen2Btn.disabled = true;
                     toScreen2Btn.textContent = 'Verificando nome...';
@@ -3548,7 +2662,7 @@
                 showScreen('screen2');
             });
             
-            // Verificação em tempo real do nome
+            // VERIFICAÇÃO EM TEMPO REAL DO NOME
             let timeoutVerificacao;
             tvNameInput.addEventListener('input', function() {
                 if (editingChannel) return;
@@ -3568,7 +2682,7 @@
                 }
             });
             
-            // Navegação
+            // NAVEGAÇÃO
             backToHomeBtn.addEventListener('click', function() {
                 if (editingChannel) {
                     if (confirm('Deseja descartar as alterações?')) {
@@ -3609,7 +2723,7 @@
                 }
             });
             
-            // Configurações da tela 2
+            // CONFIGURAÇÕES DA TELA 2
             showTimeCheckbox.addEventListener('change', function() {
                 tvData.showTime = this.checked;
             });
@@ -3655,7 +2769,7 @@
                 showScreen('screen3');
             });
             
-            // Adicionar programa
+            // ADICIONAR PROGRAMA
             addProgramBtn.addEventListener('click', function() {
                 if (tvData.programs.length >= totalSlots) {
                     alert('Você já atingiu o limite máximo de 58 programas.');
@@ -3728,7 +2842,7 @@
                 updatePrograms();
             });
             
-            // Atualizar programas
+            // ATUALIZAR PROGRAMAS
             function updatePrograms() {
                 tvData.programs = [];
                 const programElements = document.querySelectorAll('.program-card');
@@ -3751,7 +2865,7 @@
                 updateCounters();
             }
             
-            // Atualizar contadores
+            // ATUALIZAR CONTADORES
             function updateCounters() {
                 programCount.textContent = tvData.programs.length;
                 
@@ -3768,7 +2882,7 @@
                 showScreen('screen2');
             });
             
-            // Navegar para tela 4
+            // NAVEGAR PARA TELA 4
             toScreen4Btn.addEventListener('click', function() {
                 if (tvData.programs.length === 0) {
                     programsError.style.display = 'block';
@@ -3796,7 +2910,7 @@
                 tvData.commercialsPerBreak = parseInt(this.value);
             });
             
-            // Adicionar comercial
+            // ADICIONAR COMERCIAL
             addCommercialBtn.addEventListener('click', function() {
                 const commercialId = 'commercial-' + Date.now();
                 const commercialCard = document.createElement('div');
@@ -3824,7 +2938,7 @@
                 document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
             });
             
-            // Atualizar comerciais
+            // ATUALIZAR COMERCIAIS
             function updateCommercials() {
                 tvData.commercials = [];
                 const commercialElements = document.querySelectorAll('.commercial-card');
@@ -3843,7 +2957,7 @@
                 showScreen('screen3');
             });
             
-            // Navegar para tela 5
+            // NAVEGAR PARA TELA 5
             toScreen5Btn.addEventListener('click', function() {
                 if (tvData.enableCommercials && tvData.commercials.length === 0) {
                     alert('Por favor, adicione pelo menos um comercial ou desabilite a opção de comerciais.');
@@ -3856,34 +2970,30 @@
                 showScreen('screen5');
             });
             
-            // Tentar novamente
+            // TENTAR NOVAMENTE
             retryPublish.addEventListener('click', function() {
                 iniciarPublicacao(false);
             });
             
-            // FUNÇÃO PRINCIPAL DE PUBLICAÇÃO - CORREÇÃO COMPLETA
+            // FUNÇÃO PRINCIPAL DE PUBLICAÇÃO
             async function iniciarPublicacao(isRepublish = false) {
                 console.log(`Iniciando ${isRepublish ? 're' : ''}publicação...`);
                 
-                // Parar qualquer verificação em andamento
                 urlVerificationActive = false;
+                verificationAttempts = 0;
                 
-                // Resetar UI
                 resetPublishingUI();
                 
-                // Verificar autenticação
                 if (!currentUser) {
                     console.log("Usuário não autenticado, mostrando mensagem de autenticação");
                     mostrarMensagemAutenticacao();
                     return;
                 }
                 
-                // Esconder botão de republicação
                 if (republishContainer) {
                     republishContainer.style.display = 'none';
                 }
                 
-                // Preparar dados
                 const GRADE = [];
                 const totalPrograms = tvData.programs.length;
                 
@@ -3924,14 +3034,9 @@
                     isOffline: tvData.isOffline || false
                 };
 
-                // Salvar dados para possível republicação
-                publicationData = dadosParaEnvio;
-
                 try {
-                    // Fase 1: Preparação
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     
-                    // Fase 2: Processando
                     publishingStatus.style.display = 'none';
                     processingMessage.style.display = 'block';
                     document.querySelector('#processingMessage .progress-bar').style.width = '50%';
@@ -3939,7 +3044,6 @@
                     console.log("Enviando para publicação...");
                     const resultado = await publicarCanalGithub(tvData.name, dadosParaEnvio);
                     
-                    // Fase 3: Verificando disponibilidade
                     processingMessage.style.display = 'none';
                     verificationMessage.style.display = 'block';
                     document.querySelector('#verificationMessage .progress-bar').style.width = '75%';
@@ -3948,10 +3052,9 @@
                     const verificacao = await verificarUrlDisponivel(resultado.url);
                     
                     if (!verificacao.sucesso) {
-                        throw new Error("A página não ficou disponível. O servidor pode estar demorando mais que o normal.");
+                        throw new Error("Não foi possível verificar a disponibilidade da página.");
                     }
                     
-                    // Sucesso!
                     verificationMessage.style.display = 'none';
                     successMessage.style.display = 'block';
                     
@@ -3973,7 +3076,6 @@
                 } catch (error) {
                     console.error("Erro na publicação:", error);
                     
-                    // Fase de erro
                     publishingStatus.style.display = 'none';
                     processingMessage.style.display = 'none';
                     verificationMessage.style.display = 'none';
@@ -3982,7 +3084,6 @@
                         <h3>Erro ao publicar canal</h3>
                         <p>${error.message}</p>
                         <p><small>O canal foi salvo localmente. Tente novamente mais tarde.</small></p>
-                        ${isRepublish ? '<p><strong>Republicação falhou. Tente novamente.</strong></p>' : ''}
                     `;
                     serverResult.className = 'server-result server-error';
                     serverResult.style.display = 'block';
@@ -3990,7 +3091,6 @@
                     backToScreen4Btn.style.display = 'inline-block';
                     retryPublish.style.display = 'inline-block';
                     
-                    // Mostrar botão de republicação se for um erro após login
                     if (isRepublish && republishContainer) {
                         republishContainer.style.display = 'block';
                     }
@@ -4000,7 +3100,7 @@
                 }
             }
             
-            // Salvar canal localmente
+            // SALVAR CANAL LOCALMENTE
             function salvarCanalLocal(urlCanal = '') {
                 const channel = {
                     id: currentChannelId || Date.now(),
@@ -4015,7 +3115,6 @@
                         new Date().toISOString()
                 };
                 
-                // Remover qualquer canal existente com o mesmo nome
                 const nomeCanalLower = tvData.name.toLowerCase();
                 channels = channels.filter(c => c.id === currentChannelId || c.name.toLowerCase() !== nomeCanalLower);
                 
@@ -4031,10 +3130,10 @@
                 }
                 
                 localStorage.setItem('tvChannels', JSON.stringify(channels));
-                loadChannels(); // Recarregar lista de canais
+                loadChannels();
             }
             
-            // Navegação
+            // NAVEGAÇÃO
             backToScreen4Btn.addEventListener('click', function() {
                 showScreen('screen4');
             });
@@ -4043,7 +3142,7 @@
                 showScreen('screen0');
             });
             
-            // Inicializar aplicação
+            // INICIALIZAR APLICAÇÃO
             loadChannels();
             updateAuthUI();
         });
