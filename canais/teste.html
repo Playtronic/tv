@@ -784,16 +784,9 @@
             margin-bottom: 15px;
         }
         
-        /* REPUBLICAÇÃO */
+        /* REPUBLICAÇÃO - REMOVIDO */
         .republish-btn {
-            background: #27ae60 !important;
-            color: white !important;
-            border: none !important;
-            margin-top: 15px;
-        }
-        
-        .republish-btn:hover {
-            background: #2ecc71 !important;
+            display: none !important;
         }
         
         .verification-indicator {
@@ -1138,11 +1131,6 @@
                 </button>
             </div>
             
-            <!-- Botão de republicação quando usuário fizer login -->
-            <div id="republishContainer" style="display: none; text-align: center; margin-top: 20px;">
-                <button id="republishBtn" class="republish-btn">Republicar Agora</button>
-            </div>
-            
             <div class="navigation" style="justify-content: center; margin-top: 30px;">
                 <button id="backToScreen4" style="display: none;">Voltar</button>
                 <button id="backToHomeFromSuccess" class="secondary" style="display: none;">Voltar para Início</button>
@@ -1182,8 +1170,6 @@
         let publicationStarted = false;
         let urlVerificationActive = false;
         let isOnScreen5 = false;
-        let pendingPublication = false;
-        let publicationData = null;
         let verificationAttempts = 0;
         const MAX_VERIFICATION_ATTEMPTS = 60;
 
@@ -1236,7 +1222,6 @@
             const successMessage = document.getElementById('successMessage');
             const serverResult = document.getElementById('serverResult');
             const authRequiredMessage = document.getElementById('authRequiredMessage');
-            const republishContainer = document.getElementById('republishContainer');
             const backToScreen4Btn = document.getElementById('backToScreen4');
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
             const retryPublish = document.getElementById('retryPublish');
@@ -1247,7 +1232,6 @@
             if (successMessage) successMessage.style.display = 'none';
             if (serverResult) serverResult.style.display = 'none';
             if (authRequiredMessage) authRequiredMessage.style.display = 'none';
-            if (republishContainer) republishContainer.style.display = 'none';
             
             // Resetar botões
             if (backToScreen4Btn) backToScreen4Btn.style.display = 'none';
@@ -1271,7 +1255,6 @@
             const backToScreen4Btn = document.getElementById('backToScreen4');
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
             const retryPublish = document.getElementById('retryPublish');
-            const republishContainer = document.getElementById('republishContainer');
             
             if (authRequiredMessage) authRequiredMessage.style.display = 'block';
             if (publishingStatus) publishingStatus.style.display = 'none';
@@ -1279,7 +1262,6 @@
             if (verificationMessage) verificationMessage.style.display = 'none';
             if (successMessage) successMessage.style.display = 'none';
             if (serverResult) serverResult.style.display = 'none';
-            if (republishContainer) republishContainer.style.display = 'none';
             if (backToScreen4Btn) backToScreen4Btn.style.display = 'inline-block';
             if (backToHomeFromSuccess) backToHomeFromSuccess.style.display = 'none';
             if (retryPublish) retryPublish.style.display = 'none';
@@ -1932,22 +1914,8 @@
         }
 
         // Função principal de publicação
-        async function iniciarPublicacao(isRepublish = false) {
-            console.log(`Iniciando ${isRepublish ? 're' : ''}publicação...`);
-            
-            // Obter elementos DOM
-            const publishingStatus = document.getElementById('publishingStatus');
-            const processingMessage = document.getElementById('processingMessage');
-            const verificationMessage = document.getElementById('verificationMessage');
-            const successMessage = document.getElementById('successMessage');
-            const serverResult = document.getElementById('serverResult');
-            const republishContainer = document.getElementById('republishContainer');
-            const backToScreen4Btn = document.getElementById('backToScreen4');
-            const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
-            const retryPublish = document.getElementById('retryPublish');
-            
-            // Parar qualquer verificação em andamento
-            urlVerificationActive = false;
+        async function iniciarPublicacao() {
+            console.log("Iniciando publicação...");
             
             // Verificar autenticação
             if (!currentUser) {
@@ -1956,10 +1924,8 @@
                 return;
             }
             
-            // Esconder botão de republicação
-            if (republishContainer) {
-                republishContainer.style.display = 'none';
-            }
+            // Parar qualquer verificação em andamento
+            urlVerificationActive = false;
             
             // Preparar dados
             const GRADE = [];
@@ -2002,14 +1968,17 @@
                 isOffline: tvData.isOffline || false
             };
 
-            // Salvar dados para possível republicação
-            publicationData = dadosParaEnvio;
-
             try {
-                // Fase 1: Preparação
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
                 // Fase 2: Processando
+                const publishingStatus = document.getElementById('publishingStatus');
+                const processingMessage = document.getElementById('processingMessage');
+                const verificationMessage = document.getElementById('verificationMessage');
+                const successMessage = document.getElementById('successMessage');
+                const serverResult = document.getElementById('serverResult');
+                const backToScreen4Btn = document.getElementById('backToScreen4');
+                const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
+                const retryPublish = document.getElementById('retryPublish');
+                
                 publishingStatus.style.display = 'none';
                 processingMessage.style.display = 'block';
                 document.querySelector('#processingMessage .progress-bar').style.width = '50%';
@@ -2025,29 +1994,42 @@
                 console.log("Verificando disponibilidade da página...");
                 const verificacao = await verificarUrlDisponivel(resultado.url);
                 
-                // Sucesso!
-                verificationMessage.style.display = 'none';
-                successMessage.style.display = 'block';
-                
-                const mensagemSucesso = editingChannel 
-                    ? `Canal Atualizado com Sucesso!<br><small>Talvez demore alguns minutos para o servidor disponibilizar as mudanças.</small>`
-                    : `Seu canal já está no ar!`;
-                
-                successMessage.innerHTML = `
-                    <h3>${mensagemSucesso}</h3>
-                    <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${tvData.name}</a>
-                `;
-                
-                backToHomeFromSuccess.style.display = 'inline-block';
-                backToScreen4Btn.style.display = 'none';
-                
-                salvarCanalLocal(resultado.url);
-                publicationStarted = false;
+                if (verificacao.sucesso) {
+                    // Sucesso!
+                    verificationMessage.style.display = 'none';
+                    successMessage.style.display = 'block';
+                    
+                    const mensagemSucesso = editingChannel 
+                        ? `Canal Atualizado com Sucesso!<br><small>Talvez demore alguns minutos para o servidor disponibilizar as mudanças.</small>`
+                        : `Seu canal já está no ar!`;
+                    
+                    successMessage.innerHTML = `
+                        <h3>${mensagemSucesso}</h3>
+                        <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${tvData.name}</a>
+                    `;
+                    
+                    backToHomeFromSuccess.style.display = 'inline-block';
+                    backToScreen4Btn.style.display = 'none';
+                    
+                    salvarCanalLocal(resultado.url);
+                    publicationStarted = false;
+                } else {
+                    throw new Error(`Não foi possível verificar a publicação após ${verificacao.tentativas} tentativas.`);
+                }
                 
             } catch (error) {
                 console.error("Erro na publicação:", error);
                 
                 // Fase de erro
+                const publishingStatus = document.getElementById('publishingStatus');
+                const processingMessage = document.getElementById('processingMessage');
+                const verificationMessage = document.getElementById('verificationMessage');
+                const successMessage = document.getElementById('successMessage');
+                const serverResult = document.getElementById('serverResult');
+                const backToScreen4Btn = document.getElementById('backToScreen4');
+                const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
+                const retryPublish = document.getElementById('retryPublish');
+                
                 publishingStatus.style.display = 'none';
                 processingMessage.style.display = 'none';
                 verificationMessage.style.display = 'none';
@@ -2063,28 +2045,9 @@
                 backToScreen4Btn.style.display = 'inline-block';
                 retryPublish.style.display = 'inline-block';
                 
-                // Mostrar botão de republicação se for um erro após login
-                if (isRepublish && republishContainer) {
-                    republishContainer.style.display = 'block';
-                }
-                
                 salvarCanalLocal();
                 publicationStarted = false;
             }
-        }
-
-        // Função para iniciar republicação
-        function iniciarRepublicacao() {
-            console.log("Botão Republicar Agora clicado - Iniciando republicação...");
-            
-            // Parar qualquer verificação em andamento
-            urlVerificationActive = false;
-            
-            // Resetar UI completamente
-            resetPublishingUI();
-            
-            // Iniciar publicação imediatamente
-            iniciarPublicacao(true);
         }
 
         // Função para salvar canal localmente
@@ -2132,9 +2095,9 @@
                 await loadUserData();
                 console.log("Usuário logado:", user.email);
                 
-                // Se estiver na tela 5 e usuário fizer login, republicar automaticamente
+                // Se estiver na tela 5 e usuário fizer login, iniciar publicação automaticamente
                 if (isOnScreen5) {
-                    console.log("Usuário autenticado na tela 5. Iniciando republicação automática...");
+                    console.log("Usuário autenticado na tela 5. Iniciando publicação automática...");
                     
                     // Esconder mensagem de autenticação
                     const authRequiredMessage = document.getElementById('authRequiredMessage');
@@ -2142,14 +2105,13 @@
                         authRequiredMessage.style.display = 'none';
                     }
                     
-                    // Mostrar botão de republicação
-                    const republishContainer = document.getElementById('republishContainer');
-                    if (republishContainer) {
-                        republishContainer.style.display = 'block';
-                    }
-                    
                     // Reiniciar a UI de publicação
                     resetPublishingUI();
+                    
+                    // Iniciar publicação após um pequeno delay para garantir que a UI foi atualizada
+                    setTimeout(() => {
+                        iniciarPublicacao();
+                    }, 500);
                 }
             } else {
                 // Se o usuário deslogou e está na tela 5, mostrar mensagem de autenticação
@@ -2208,9 +2170,6 @@
         document.getElementById('loginFromPublish').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
-
-        // Botão de republicação - CORRIGIDO
-        document.getElementById('republishBtn').addEventListener('click', iniciarRepublicacao);
 
         // Toggle user card
         document.getElementById('userAvatar').addEventListener('click', (e) => {
@@ -2354,8 +2313,6 @@
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
             const loginFromPublishBtn = document.getElementById('loginFromPublish');
             const retryPublish = document.getElementById('retryPublish');
-            const republishContainer = document.getElementById('republishContainer');
-            const republishBtn = document.getElementById('republishBtn');
             
             // Elementos do indicador de etapas
             const stepIndicator = document.getElementById('stepIndicator');
@@ -2413,7 +2370,7 @@
                             
                             // Iniciar publicação automaticamente
                             setTimeout(() => {
-                                iniciarPublicacao(false);
+                                iniciarPublicacao();
                             }, 500);
                         } else {
                             // Usuário não autenticado, mostrar mensagem
@@ -3332,7 +3289,7 @@
             
             // Tentar novamente
             retryPublish.addEventListener('click', function() {
-                iniciarPublicacao(false);
+                iniciarPublicacao();
             });
             
             // Navegação
