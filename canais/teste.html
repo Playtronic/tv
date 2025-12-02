@@ -986,7 +986,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
     <script>
-        // CONFIGURAÇÃO DO FIREBASE - REVISADA
+        // CONFIGURAÇÃO DO FIREBASE
         const firebaseConfig = {
             apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
             authDomain: "playtronic-tv.firebaseapp.com",
@@ -997,7 +997,7 @@
             measurementId: "G-1QRKY0NN0W"
         };
 
-        // Inicializar Firebase apenas se ainda não foi inicializado
+        // Inicializar Firebase
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
@@ -1006,35 +1006,34 @@
         const db = firebase.firestore();
 
         let currentUser = null;
-        let currentUserData = null;
-        let publicationInProgress = false; // Variável para controlar se já está publicando
+        let publicationStarted = false; // Flag para controlar se a publicação já foi iniciada
 
-        // CORREÇÃO: OBSERVADOR DE AUTENTICAÇÃO REVISADO
+        // Observador de autenticação
         auth.onAuthStateChanged(async (user) => {
             console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
             currentUser = user;
             
-            // ATUALIZAÇÃO IMEDIATA DA UI
+            // Atualizar UI de autenticação
             updateAuthUI();
             
             if (user) {
                 await loadUserData();
                 console.log("Usuário logado:", user.email);
                 
-                // CORREÇÃO: Se estiver na tela 5 e a publicação ainda não começou, reiniciar a publicação
-                if (document.getElementById('screen5').classList.contains('active') && !publicationInProgress) {
-                    console.log("Na tela 5 após login, reiniciando publicação...");
+                // Verificar se estamos na tela 5 e se a publicação não foi iniciada ainda
+                if (document.getElementById('screen5').classList.contains('active') && !publicationStarted) {
+                    console.log("Usuário fez login na tela 5, iniciando publicação...");
                     // Esconder mensagem de autenticação
                     document.getElementById('authRequiredMessage').style.display = 'none';
-                    // Resetar completamente a UI de publicação
+                    // Resetar UI de publicação
                     resetPublishingUI();
-                    // Iniciar publicação após pequeno delay para garantir que a UI foi atualizada
-                    setTimeout(() => iniciarPublicacao(), 1000);
+                    // Iniciar publicação
+                    setTimeout(() => iniciarPublicacao(), 500);
                 }
             }
         });
 
-        // CORREÇÃO: FUNÇÃO DE LOGIN REVISADA
+        // Função de login
         document.getElementById('googleLoginBtn').addEventListener('click', async () => {
             try {
                 const provider = new firebase.auth.GoogleAuthProvider();
@@ -1047,16 +1046,13 @@
                 // Fechar modal
                 document.getElementById('loginOverlay').style.display = 'none';
                 
-                // Atualizar UI
-                updateAuthUI();
-                
             } catch (error) {
                 console.error('Erro no login:', error);
                 alert("Erro no login: " + error.message);
             }
         });
 
-        // ABRIR/CLOSE LOGIN
+        // Abrir/fechar login
         document.getElementById('loginButton').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
@@ -1065,7 +1061,7 @@
             document.getElementById('loginOverlay').style.display = 'none';
         });
 
-        // LOGOUT
+        // Logout
         document.getElementById('logoutButton').addEventListener('click', () => {
             auth.signOut()
                 .then(() => {
@@ -1078,23 +1074,23 @@
                 });
         });
 
-        // BOTÃO DE LOGIN NA TELA DE PUBLICAÇÃO
+        // Botão de login na tela de publicação
         document.getElementById('loginFromPublish').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
 
-        // TOGGLE USER CARD
+        // Toggle user card
         document.getElementById('userAvatar').addEventListener('click', (e) => {
             e.stopPropagation();
             document.getElementById('userCard').classList.toggle('active');
         });
 
-        // FECHAR USER CARD AO CLICAR FORA
+        // Fechar user card ao clicar fora
         document.addEventListener('click', () => {
             document.getElementById('userCard').classList.remove('active');
         });
 
-        // CARREGAR DADOS EXTRA DO USER
+        // Carregar dados do usuário
         async function loadUserData() {
             if (!currentUser) return;
             
@@ -1102,24 +1098,21 @@
                 const ref = db.collection('users').doc(currentUser.uid);
                 const doc = await ref.get();
                 
-                if (doc.exists) {
-                    currentUserData = doc.data();
-                } else {
-                    currentUserData = {
+                if (!doc.exists) {
+                    await ref.set({
                         name: currentUser.displayName,
                         email: currentUser.email,
                         avatar: currentUser.photoURL,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         plan: 'free'
-                    };
-                    await ref.set(currentUserData);
+                    });
                 }
             } catch (error) {
                 console.error("Erro ao carregar dados do usuário:", error);
             }
         }
 
-        // CORREÇÃO: FUNÇÃO DE ATUALIZAÇÃO DE UI REVISADA
+        // Atualizar UI de autenticação
         function updateAuthUI() {
             const userInfo = document.getElementById('userInfo');
             const loginButton = document.getElementById('loginButton');
@@ -1159,7 +1152,7 @@
                 // Ocultar informações do usuário
                 if (userInfo) userInfo.style.display = 'none';
                 
-                // Fechar card de usuário se estiver aberto
+                // Fechar card de usuário
                 const userCard = document.getElementById('userCard');
                 if (userCard) userCard.classList.remove('active');
             }
@@ -1193,7 +1186,7 @@
         let totalSlots = 58;
         const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
         
-        // Inicializar elementos DOM quando a página carregar
+        // Inicializar elementos DOM
         document.addEventListener('DOMContentLoaded', function() {
             // Elementos da tela 0
             const screen0 = document.getElementById('screen0');
@@ -1267,36 +1260,31 @@
             const step4 = document.getElementById('step4');
             const step5 = document.getElementById('step5');
 
-            // CORREÇÃO: FUNÇÃO PARA RESETAR COMPLETAMENTE A UI DE PUBLICAÇÃO
+            // Função para resetar UI de publicação
             function resetPublishingUI() {
                 console.log("Resetando UI de publicação...");
-                publicationInProgress = false;
+                publicationStarted = false;
                 
+                // Mostrar status inicial
                 publishingStatus.style.display = 'block';
                 processingMessage.style.display = 'none';
                 verificationMessage.style.display = 'none';
                 successMessage.style.display = 'none';
                 serverResult.style.display = 'none';
                 authRequiredMessage.style.display = 'none';
+                
+                // Resetar botões
                 backToScreen4Btn.style.display = 'none';
                 backToHomeFromSuccess.style.display = 'none';
                 retryPublish.style.display = 'none';
                 
-                // Resetar progress bars
+                // Resetar barras de progresso
                 document.querySelectorAll('.progress-bar').forEach(bar => {
                     bar.style.width = '0%';
                 });
-                
-                // Resetar texto
-                if (publishingStatus.querySelector('h3')) {
-                    publishingStatus.querySelector('h3').textContent = 'Iniciando publicação...';
-                }
-                if (publishingStatus.querySelector('p')) {
-                    publishingStatus.querySelector('p').textContent = 'Preparando seu canal para ir ao ar';
-                }
             }
 
-            // CORREÇÃO: FUNÇÃO PARA VERIFICAR SE UMA URL ESTÁ DISPONÍVEL
+            // Função para verificar se uma URL está disponível
             async function verificarUrlDisponivel(url, maxTentativas = 30, intervalo = 2000) {
                 console.log(`Verificando disponibilidade da URL: ${url}`);
                 
@@ -1304,18 +1292,16 @@
                     try {
                         console.log(`Tentativa ${tentativa}/${maxTentativas}`);
                         
-                        // Usar fetch com modo 'no-cors' para evitar problemas de CORS
+                        // Tentar uma requisição HEAD
                         const response = await fetch(url, {
                             method: 'HEAD',
                             cache: 'no-cache',
                             mode: 'no-cors'
                         }).catch(e => {
-                            // Em modo 'no-cors', não podemos verificar o status
-                            // Mas se a requisição não falhar, provavelmente a página existe
                             return { ok: true };
                         });
                         
-                        // Tentar verificar com uma requisição GET simples
+                        // Tentar verificar com uma requisição GET
                         try {
                             const testResponse = await fetch(url, { 
                                 method: 'GET',
@@ -1329,7 +1315,6 @@
                                 console.log(`URL ainda retornando 404 na tentativa ${tentativa}`);
                             }
                         } catch (e) {
-                            // Se chegou aqui sem erro, a página pode estar disponível
                             console.log(`Possível sucesso na tentativa ${tentativa}`);
                             return { sucesso: true, tentativas: tentativa };
                         }
@@ -1340,7 +1325,6 @@
                         }
                     } catch (error) {
                         console.log(`Erro na tentativa ${tentativa}:`, error);
-                        // Aguardar antes da próxima tentativa
                         if (tentativa < maxTentativas) {
                             await new Promise(resolve => setTimeout(resolve, intervalo));
                         }
@@ -1398,7 +1382,6 @@
                         return { existe: false };
                     }
                 } catch (error) {
-                    // Se houver erro na verificação, assumimos que não existe
                     console.log('Erro na verificação do servidor:', error);
                     return { existe: false };
                 }
@@ -1421,7 +1404,7 @@
                 tvNameInput.style.background = 'rgba(255, 255, 255, 0.9)';
             }
 
-            // FUNÇÃO PARA GERAR HTML DO CANAL SEGUINDO O MODELO ORIGINAL - CORREÇÃO DO ERRO DE DEBUG
+            // Função para gerar HTML do canal
             function gerarHTMLdoCanal(dados) {
                 // Gerar a grade de programação
                 const GRADE = [];
@@ -1440,10 +1423,10 @@
                 // Determinar data de estreia
                 const releaseDate = dados.release || new Date().toISOString().split('T')[0];
                 
-                // CORREÇÃO DO ERRO: Separar a seção de debug em uma variável para evitar problemas de interpolação
+                // Seção de debug
                 const debugSection = dados.enableDebug ? `\n        <div class="debug-info">\n            <div class="program-item">\n                <div class="program-label">Dias desde a estreia:</div>\n                <div class="program-name" id="debugDays">-</div>\n            </div>\n            <div class="program-item">\n                <div class="program-label">Nº do programa:</div>\n                <div class="program-name" id="debugProgram">-</div>\n            </div>\n            <div class="program-item">\n                <div class="program-label">Data de estreia:</div>\n                <div class="program-name">${releaseDate}</div>\n            </div>\n        </div>` : '';
                 
-                // CORREÇÃO: Gerar HTML seguindo o modelo original fornecido
+                // Gerar HTML seguindo o modelo original
                 const html = `<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -2556,12 +2539,12 @@
                 return html;
             }
 
-            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO COM VERIFICAÇÃO DE DISPONIBILIDADE
+            // Função para publicar canal no GitHub
             async function publicarCanalGithub(nomeCanal, dadosGerador) {
                 try {
                     console.log("Iniciando publicação do canal:", nomeCanal);
                     
-                    // Gerar HTML usando o formato correto
+                    // Gerar HTML
                     const htmlCanal = gerarHTMLdoCanal(dadosGerador);
                     
                     const dadosEnvio = {
@@ -2573,9 +2556,8 @@
 
                     console.log("Enviando para o worker...");
                     
-                    // Timeout maior para garantir a publicação
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos
+                    const timeoutId = setTimeout(() => controller.abort(), 30000);
                     
                     const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
                         method: "POST",
@@ -2596,7 +2578,6 @@
                     console.log("Resposta do worker:", resultado);
                     
                     if (resultado.success) {
-                        // Gerar URL do canal
                         const nomeArquivo = nomeCanal.toLowerCase()
                             .replace(/[^a-z0-9]/g, '-')
                             .replace(/-+/g, '-') + '.html';
@@ -2613,7 +2594,6 @@
                 } catch (error) {
                     console.error("Erro na publicação:", error);
                     
-                    // Se for erro de timeout, tentar uma abordagem diferente
                     if (error.name === 'AbortError') {
                         throw new Error("Tempo limite excedido. O servidor pode estar ocupado. Tente novamente em alguns instantes.");
                     }
@@ -2662,7 +2642,6 @@
                     else if (screen === 'screen2') step2.classList.add('active');
                     else if (screen === 'screen3') {
                         step3.classList.add('active');
-                        // Ocultar mensagem de erro ao entrar na tela
                         programsError.style.display = 'none';
                     }
                     else if (screen === 'screen4') step4.classList.add('active');
@@ -2673,7 +2652,7 @@
                 }
             }
             
-            // Tela 0: Gerenciamento de Canais
+            // Carregar canais
             function loadChannels() {
                 channels = JSON.parse(localStorage.getItem('tvChannels')) || [];
                 channelsList.innerHTML = '';
@@ -2694,7 +2673,6 @@
                             .replace(/-+/g, '-') + '.html';
                         const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
                         
-                        // CORREÇÃO: Botão com texto "Abrir [Nome do Canal]"
                         channelCard.innerHTML = `
                             ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
                             <h3>${channel.name}</h3>
@@ -2731,6 +2709,7 @@
                 }
             }
             
+            // Editar canal
             function editChannel(channelId) {
                 const channel = channels.find(c => c.id == channelId);
                 if (channel) {
@@ -2761,7 +2740,6 @@
                     tvNameInput.value = tvData.name;
                     tvSloganInput.value = tvData.slogan;
                     
-                    // CORREÇÃO: Limpar campo de logo se for a padrão
                     if (tvData.logo === DEFAULT_LOGO || !tvData.logo) {
                         tvLogoInput.value = '';
                         logoPreview.src = DEFAULT_LOGO;
@@ -2777,7 +2755,6 @@
                     enableDebugCheckbox.checked = tvData.enableDebug;
                     customReleaseDateCheckbox.checked = tvData.customReleaseDate;
                     
-                    // Desabilitar edição do nome em canais já publicados
                     tvNameInput.disabled = true;
                     tvNameInput.classList.add('name-disabled');
                     
@@ -2817,12 +2794,12 @@
                 }
             }
             
+            // Apagar canal
             async function deleteChannel(channelId) {
                 const channel = channels.find(c => c.id == channelId);
                 if (!channel) return;
                 
                 if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal tanto localmente quanto do servidor.')) {
-                    // Primeiro apagar do servidor
                     const apagadoDoServidor = await apagarCanalGithub(channel.name);
                     
                     if (!apagadoDoServidor) {
@@ -2831,7 +2808,6 @@
                         }
                     }
                     
-                    // Apagar localmente
                     channels = channels.filter(c => c.id != channelId);
                     localStorage.setItem('tvChannels', JSON.stringify(channels));
                     loadChannels();
@@ -2840,7 +2816,7 @@
                 }
             }
 
-            // Função auxiliar para adicionar cartão de programa
+            // Adicionar cartão de programa
             function addProgramCard(program, index) {
                 const programId = program.id || `program-${Date.now()}-${index}`;
                 const programCard = document.createElement('div');
@@ -2918,7 +2894,7 @@
                 document.getElementById(`${programId}-name`).addEventListener('input', updatePrograms);
             }
 
-            // Função auxiliar para adicionar cartão de comercial
+            // Adicionar cartão de comercial
             function addCommercialCard(commercialUrl, index) {
                 const commercialId = 'commercial-' + Date.now() + '-' + index;
                 const commercialCard = document.createElement('div');
@@ -2946,6 +2922,7 @@
                 document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
             }
 
+            // Criar novo canal
             createNewChannelBtn.addEventListener('click', function() {
                 tvData = {
                     email: '',
@@ -2987,7 +2964,6 @@
                 commercialSettings.style.display = 'none';
                 addCommercialBtn.style.display = 'none';
                 
-                // Habilitar edição do nome para novos canais
                 tvNameInput.disabled = false;
                 tvNameInput.classList.remove('name-disabled');
                 limparErroNomeDuplicado();
@@ -2997,6 +2973,7 @@
                 showScreen('screen1');
             });
 
+            // Atualizar preview da logo
             function updateLogoPreview() {
                 const logoUrl = tvLogoInput.value;
                 if (logoUrl) {
@@ -3023,11 +3000,13 @@
             tvLogoInput.addEventListener('input', updateLogoPreview);
             tvLogoInput.addEventListener('change', updateLogoPreview);
             
+            // Validar e-mail
             function isValidEmail(email) {
                 const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
                 return re.test(String(email).toLowerCase());
             }
             
+            // Validar URL
             function isValidUrl(string) {
                 try {
                     new URL(string);
@@ -3037,10 +3016,10 @@
                 }
             }
             
+            // Navegar para tela 2
             toScreen2Btn.addEventListener('click', async function() {
                 let hasError = false;
                 
-                // Limpar erros anteriores
                 limparErroNomeDuplicado();
                 emailError.style.display = 'none';
                 nameError.style.display = 'none';
@@ -3084,7 +3063,7 @@
                     return;
                 }
                 
-                // Verificação de nome duplicado (apenas para novos canais)
+                // Verificação de nome duplicado
                 if (!editingChannel) {
                     toScreen2Btn.disabled = true;
                     toScreen2Btn.textContent = 'Verificando nome...';
@@ -3112,7 +3091,7 @@
                 showScreen('screen2');
             });
             
-            // Verificação em tempo real (apenas para novos canais)
+            // Verificação em tempo real do nome
             let timeoutVerificacao;
             tvNameInput.addEventListener('input', function() {
                 if (editingChannel) return;
@@ -3132,6 +3111,7 @@
                 }
             });
             
+            // Navegação
             backToHomeBtn.addEventListener('click', function() {
                 if (editingChannel) {
                     if (confirm('Deseja descartar as alterações?')) {
@@ -3187,6 +3167,7 @@
                 showScreen('screen3');
             });
             
+            // Adicionar programa
             addProgramBtn.addEventListener('click', function() {
                 if (tvData.programs.length >= totalSlots) {
                     alert('Você já atingiu o limite máximo de 58 programas.');
@@ -3259,6 +3240,7 @@
                 updatePrograms();
             });
             
+            // Atualizar programas
             function updatePrograms() {
                 tvData.programs = [];
                 const programElements = document.querySelectorAll('.program-card');
@@ -3281,6 +3263,7 @@
                 updateCounters();
             }
             
+            // Atualizar contadores
             function updateCounters() {
                 programCount.textContent = tvData.programs.length;
                 
@@ -3297,16 +3280,14 @@
                 showScreen('screen2');
             });
             
-            // CORREÇÃO: Mostrar mensagem de erro apenas ao tentar prosseguir sem programas
+            // Navegar para tela 4
             toScreen4Btn.addEventListener('click', function() {
                 if (tvData.programs.length === 0) {
-                    // Exibir a mensagem de erro
                     programsError.style.display = 'block';
                     programsError.scrollIntoView({ behavior: 'smooth' });
                     return;
                 }
                 
-                // Ocultar mensagem se houver programas
                 programsError.style.display = 'none';
                 showScreen('screen4');
             });
@@ -3327,6 +3308,7 @@
                 tvData.commercialsPerBreak = parseInt(this.value);
             });
             
+            // Adicionar comercial
             addCommercialBtn.addEventListener('click', function() {
                 const commercialId = 'commercial-' + Date.now();
                 const commercialCard = document.createElement('div');
@@ -3354,6 +3336,7 @@
                 document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
             });
             
+            // Atualizar comerciais
             function updateCommercials() {
                 tvData.commercials = [];
                 const commercialElements = document.querySelectorAll('.commercial-card');
@@ -3372,47 +3355,43 @@
                 showScreen('screen3');
             });
             
+            // Navegar para tela 5
             toScreen5Btn.addEventListener('click', function() {
                 if (tvData.enableCommercials && tvData.commercials.length === 0) {
                     alert('Por favor, adicione pelo menos um comercial ou desabilite a opção de comerciais.');
                     return;
                 }
                 
-                // Atualizar dados antes de publicar
                 updatePrograms();
                 updateCommercials();
                 
                 showScreen('screen5');
             });
             
+            // Tentar novamente
             retryPublish.addEventListener('click', function() {
                 iniciarPublicacao();
             });
             
-            // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO COM VERIFICAÇÃO DE DISPONIBILIDADE E CORREÇÕES
+            // FUNÇÃO PRINCIPAL DE PUBLICAÇÃO - CORRIGIDA
             async function iniciarPublicacao() {
-                // Evitar múltiplas publicações simultâneas
-                if (publicationInProgress) {
-                    console.log("Publicação já em andamento, ignorando chamada duplicada.");
-                    return;
-                }
-                
-                publicationInProgress = true;
                 console.log("Iniciando processo de publicação...");
+                publicationStarted = true;
                 
-                // Resetar UI para o estado inicial de publicação
+                // Resetar UI
                 resetPublishingUI();
                 
-                // Verificar autenticação - CORREÇÃO
+                // Verificar autenticação
                 if (!currentUser) {
                     console.log("Usuário não autenticado, mostrando mensagem de autenticação");
                     publishingStatus.style.display = 'none';
                     authRequiredMessage.style.display = 'block';
-                    publicationInProgress = false;
+                    backToScreen4Btn.style.display = 'inline-block';
+                    publicationStarted = false;
                     return;
                 }
                 
-                // Preparar dados para publicação
+                // Preparar dados
                 const GRADE = [];
                 const totalPrograms = tvData.programs.length;
                 
@@ -3452,7 +3431,7 @@
                 };
 
                 try {
-                    // Pequeno delay para mostrar a mensagem inicial
+                    // Pequeno delay
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     
                     // Fase 2: Processando
@@ -3479,7 +3458,6 @@
                     verificationMessage.style.display = 'none';
                     successMessage.style.display = 'block';
                     
-                    // CORREÇÃO: Mensagens mais concisas
                     const mensagemSucesso = editingChannel 
                         ? `Canal Atualizado com Sucesso!<br><small>Talvez demore alguns minutos para o servidor disponibilizar as mudanças.</small>`
                         : `Seu canal já está no ar!`;
@@ -3493,7 +3471,7 @@
                     backToScreen4Btn.style.display = 'none';
                     
                     salvarCanalLocal(resultado.url);
-                    publicationInProgress = false;
+                    publicationStarted = false;
                     
                 } catch (error) {
                     console.error("Erro na publicação:", error);
@@ -3515,10 +3493,11 @@
                     retryPublish.style.display = 'inline-block';
                     
                     salvarCanalLocal();
-                    publicationInProgress = false;
+                    publicationStarted = false;
                 }
             }
             
+            // Salvar canal localmente
             function salvarCanalLocal(urlCanal = '') {
                 const channel = {
                     id: currentChannelId || Date.now(),
@@ -3547,6 +3526,7 @@
                 localStorage.setItem('tvChannels', JSON.stringify(channels));
             }
             
+            // Navegação
             backToScreen4Btn.addEventListener('click', function() {
                 showScreen('screen4');
             });
@@ -3555,11 +3535,10 @@
                 showScreen('screen0');
             });
             
-            // Inicializar a aplicação
+            // Inicializar aplicação
             loadChannels();
-            updateAuthUI(); // Garantir que a UI de autenticação está correta
+            updateAuthUI();
         });
     </script>
 </body>
 </html>
-
