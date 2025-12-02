@@ -1007,6 +1007,7 @@
 
         let currentUser = null;
         let currentUserData = null;
+        let publicationInProgress = false; // Variável para controlar se já está publicando
 
         // CORREÇÃO: OBSERVADOR DE AUTENTICAÇÃO REVISADO
         auth.onAuthStateChanged(async (user) => {
@@ -1020,14 +1021,14 @@
                 await loadUserData();
                 console.log("Usuário logado:", user.email);
                 
-                // CORREÇÃO: Se estiver na tela 5, reiniciar a publicação
-                if (document.getElementById('screen5').classList.contains('active')) {
+                // CORREÇÃO: Se estiver na tela 5 e a publicação ainda não começou, reiniciar a publicação
+                if (document.getElementById('screen5').classList.contains('active') && !publicationInProgress) {
                     console.log("Na tela 5 após login, reiniciando publicação...");
                     // Esconder mensagem de autenticação
                     document.getElementById('authRequiredMessage').style.display = 'none';
-                    // Mostrar status de publicação
-                    document.getElementById('publishingStatus').style.display = 'block';
-                    // Iniciar publicação após pequeno delay
+                    // Resetar completamente a UI de publicação
+                    resetPublishingUI();
+                    // Iniciar publicação após pequeno delay para garantir que a UI foi atualizada
                     setTimeout(() => iniciarPublicacao(), 1000);
                 }
             }
@@ -1266,6 +1267,35 @@
             const step4 = document.getElementById('step4');
             const step5 = document.getElementById('step5');
 
+            // CORREÇÃO: FUNÇÃO PARA RESETAR COMPLETAMENTE A UI DE PUBLICAÇÃO
+            function resetPublishingUI() {
+                console.log("Resetando UI de publicação...");
+                publicationInProgress = false;
+                
+                publishingStatus.style.display = 'block';
+                processingMessage.style.display = 'none';
+                verificationMessage.style.display = 'none';
+                successMessage.style.display = 'none';
+                serverResult.style.display = 'none';
+                authRequiredMessage.style.display = 'none';
+                backToScreen4Btn.style.display = 'none';
+                backToHomeFromSuccess.style.display = 'none';
+                retryPublish.style.display = 'none';
+                
+                // Resetar progress bars
+                document.querySelectorAll('.progress-bar').forEach(bar => {
+                    bar.style.width = '0%';
+                });
+                
+                // Resetar texto
+                if (publishingStatus.querySelector('h3')) {
+                    publishingStatus.querySelector('h3').textContent = 'Iniciando publicação...';
+                }
+                if (publishingStatus.querySelector('p')) {
+                    publishingStatus.querySelector('p').textContent = 'Preparando seu canal para ir ao ar';
+                }
+            }
+
             // CORREÇÃO: FUNÇÃO PARA VERIFICAR SE UMA URL ESTÁ DISPONÍVEL
             async function verificarUrlDisponivel(url, maxTentativas = 30, intervalo = 2000) {
                 console.log(`Verificando disponibilidade da URL: ${url}`);
@@ -1411,21 +1441,7 @@
                 const releaseDate = dados.release || new Date().toISOString().split('T')[0];
                 
                 // CORREÇÃO DO ERRO: Separar a seção de debug em uma variável para evitar problemas de interpolação
-                const debugSection = dados.enableDebug ? `
-        <div class="debug-info">
-            <div class="program-item">
-                <div class="program-label">Dias desde a estreia:</div>
-                <div class="program-name" id="debugDays">-</div>
-            </div>
-            <div class="program-item">
-                <div class="program-label">Nº do programa:</div>
-                <div class="program-name" id="debugProgram">-</div>
-            </div>
-            <div class="program-item">
-                <div class="program-label">Data de estreia:</div>
-                <div class="program-name">${releaseDate}</div>
-            </div>
-        </div>` : '';
+                const debugSection = dados.enableDebug ? `\n        <div class="debug-info">\n            <div class="program-item">\n                <div class="program-label">Dias desde a estreia:</div>\n                <div class="program-name" id="debugDays">-</div>\n            </div>\n            <div class="program-item">\n                <div class="program-label">Nº do programa:</div>\n                <div class="program-name" id="debugProgram">-</div>\n            </div>\n            <div class="program-item">\n                <div class="program-label">Data de estreia:</div>\n                <div class="program-name">${releaseDate}</div>\n            </div>\n        </div>` : '';
                 
                 // CORREÇÃO: Gerar HTML seguindo o modelo original fornecido
                 const html = `<!DOCTYPE html>
@@ -3375,24 +3391,24 @@
             
             // CORREÇÃO: FUNÇÃO DE PUBLICAÇÃO COM VERIFICAÇÃO DE DISPONIBILIDADE E CORREÇÕES
             async function iniciarPublicacao() {
+                // Evitar múltiplas publicações simultâneas
+                if (publicationInProgress) {
+                    console.log("Publicação já em andamento, ignorando chamada duplicada.");
+                    return;
+                }
+                
+                publicationInProgress = true;
                 console.log("Iniciando processo de publicação...");
                 
-                // Resetar UI
-                publishingStatus.style.display = 'block';
-                processingMessage.style.display = 'none';
-                verificationMessage.style.display = 'none';
-                successMessage.style.display = 'none';
-                serverResult.style.display = 'none';
-                authRequiredMessage.style.display = 'none';
-                backToScreen4Btn.style.display = 'none';
-                backToHomeFromSuccess.style.display = 'none';
-                retryPublish.style.display = 'none';
+                // Resetar UI para o estado inicial de publicação
+                resetPublishingUI();
                 
                 // Verificar autenticação - CORREÇÃO
                 if (!currentUser) {
                     console.log("Usuário não autenticado, mostrando mensagem de autenticação");
                     publishingStatus.style.display = 'none';
                     authRequiredMessage.style.display = 'block';
+                    publicationInProgress = false;
                     return;
                 }
                 
@@ -3442,6 +3458,7 @@
                     // Fase 2: Processando
                     publishingStatus.style.display = 'none';
                     processingMessage.style.display = 'block';
+                    document.querySelector('#processingMessage .progress-bar').style.width = '50%';
                     
                     console.log("Enviando para publicação...");
                     const resultado = await publicarCanalGithub(tvData.name, dadosParaEnvio);
@@ -3449,6 +3466,7 @@
                     // Fase 3: Verificando disponibilidade
                     processingMessage.style.display = 'none';
                     verificationMessage.style.display = 'block';
+                    document.querySelector('#verificationMessage .progress-bar').style.width = '75%';
                     
                     console.log("Verificando disponibilidade da página...");
                     const verificacao = await verificarUrlDisponivel(resultado.url, 30, 2000);
@@ -3475,6 +3493,7 @@
                     backToScreen4Btn.style.display = 'none';
                     
                     salvarCanalLocal(resultado.url);
+                    publicationInProgress = false;
                     
                 } catch (error) {
                     console.error("Erro na publicação:", error);
@@ -3496,6 +3515,7 @@
                     retryPublish.style.display = 'inline-block';
                     
                     salvarCanalLocal();
+                    publicationInProgress = false;
                 }
             }
             
