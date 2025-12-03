@@ -758,11 +758,9 @@
             position: absolute;
             top: 10px;
             left: 10px;
-            width: 32px;
-            height: 32px;
-            border-radius: 3px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            object-fit: cover;
+            width: 16px;
+            height: 16px;
+            object-fit: contain;
             cursor: help;
             z-index: 1;
         }
@@ -1317,7 +1315,7 @@
             };
         }
 
-        // Função para gerar HTML do canal
+        // Função para gerar HTML do canal - CORRIGIDA
         function gerarHTMLdoCanal(dados) {
             const isOffline = dados.isOffline || false;
             const visibility = dados.visibility || 'brazil';
@@ -1340,7 +1338,21 @@
             const releaseDate = dados.release || new Date().toISOString().split('T')[0];
             
             // Seção de debug
-            const debugSection = dados.enableDebug ? `\n        <div class="debug-info">\n            <div class="program-item">\n                <div class="program-label">Dias desde a estreia:</div>\n                <div class="program-name" id="debugDays">-</div>\n            </div>\n            <div class="program-item">\n                <div class="program-label">Nº do programa:</div>\n                <div class="program-name" id="debugProgram">-</div>\n            </div>\n            <div class="program-item">\n                <div class="program-label">Data de estreia:</div>\n                <div class="program-name">${releaseDate}</div>\n            </div>\n        </div>` : '';
+            const debugSection = dados.enableDebug ? `
+            <div class="debug-info">
+                <div class="program-item">
+                    <div class="program-label">Dias desde a estreia:</div>
+                    <div class="program-name" id="debugDays">-</div>
+                </div>
+                <div class="program-item">
+                    <div class="program-label">Nº do programa:</div>
+                    <div class="program-name" id="debugProgram">-</div>
+                </div>
+                <div class="program-item">
+                    <div class="program-label">Data de estreia:</div>
+                    <div class="program-name">${releaseDate}</div>
+                </div>
+            </div>` : '';
             
             // Script de verificação de país (para visibilidade Brasil)
             const countryCheckScript = visibility === 'brazil' ? `
@@ -1365,6 +1377,13 @@
                     checkCountry();
                 });
             <\/script>` : '';
+            
+            // Gerar lista de programas para o player
+            const programasArray = dados.programas.map((program, index) => ({
+                id: index,
+                name: program.name,
+                videos: program.videos || []
+            }));
             
             // Gerar HTML do canal
             const html = `<!DOCTYPE html>
@@ -1731,6 +1750,14 @@
             color: white;
             width: 100%;
         }
+        
+        .error-message {
+            color: #ff6b6b;
+            padding: 10px;
+            border-radius: 5px;
+            background: rgba(255, 107, 107, 0.1);
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
@@ -1803,7 +1830,7 @@
     
     <script>
         // Configurações da TV
-        const TV_PROGRAMS = ${JSON.stringify(dados.programas)};
+        const TV_PROGRAMS = ${JSON.stringify(programasArray)};
         const TV_COMMERCIALS = ${JSON.stringify(dados.comerciais || [])};
         const ENABLE_COMMERCIALS = ${dados.enableCommercials || false};
         const COMMERCIALS_PER_BREAK = ${dados.commercialsPerBreak || 2};
@@ -1820,18 +1847,472 @@
         const VISIBILITY = "${visibility}";
         const IS_OFFLINE = ${isOffline};
         
+        // Elementos DOM
+        let videoElement = null;
+        let youtubeContainer = null;
+        let currentVideoIndex = 0;
+        let currentProgramIndex = 0;
+        let currentDay = 0;
+        let isPlaying = false;
+        let isCommercialBreak = false;
+        let commercialIndex = 0;
+        let commercialBreakCount = 0;
+        let autoplayOverlay = null;
+        let autoplayButton = null;
+        
         // Verificar se o canal está offline
         if (IS_OFFLINE) {
             // Canal offline - não carregar player
             document.querySelector('.program-info').style.display = 'none';
+            console.log("Canal offline - player desativado");
         } else {
             // Carregar player normalmente
             loadPlayer();
         }
         
         function loadPlayer() {
-            // Código do player (mantido do código original)
-            // ... (código do player aqui)
+            console.log("Iniciando player...");
+            console.log("Programas carregados:", TV_PROGRAMS);
+            console.log("Grade:", GRADE);
+            
+            // Inicializar elementos DOM
+            videoElement = document.getElementById('myVideo');
+            youtubeContainer = document.getElementById('youtubeContainer');
+            autoplayOverlay = document.getElementById('autoplayOverlay');
+            autoplayButton = document.getElementById('autoplayButton');
+            
+            // Configurar autoplay
+            if (autoplayButton) {
+                autoplayButton.addEventListener('click', function() {
+                    autoplayOverlay.classList.add('hidden');
+                    startPlayer();
+                });
+            }
+            
+            // Mostrar overlay de autoplay
+            if (autoplayOverlay) {
+                autoplayOverlay.classList.remove('hidden');
+            }
+            
+            // Configurar controles
+            setupControls();
+            
+            // Inicializar informações
+            updateProgramInfo();
+            
+            // Inicializar debug se habilitado
+            if (ENABLE_DEBUG) {
+                updateDebugInfo();
+                setInterval(updateDebugInfo, 1000);
+            }
+            
+            // Atualizar hora se habilitado
+            if (SHOW_TIME) {
+                updateTimeDisplay();
+                setInterval(updateTimeDisplay, 1000);
+            }
+        }
+        
+        function startPlayer() {
+            console.log("Iniciando reprodução...");
+            
+            // Calcular dia atual desde a estreia
+            const release = new Date(RELEASE_DATE);
+            const today = new Date();
+            const diffTime = Math.abs(today - release);
+            currentDay = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            
+            // Calcular slot atual
+            const totalSeconds = (currentDay * 24 * 60 * 60) + 
+                               (today.getHours() * 60 * 60) + 
+                               (today.getMinutes() * 60) + 
+                               today.getSeconds();
+            const currentSlot = Math.floor(totalSeconds / SLOT_DURATION) % TOTAL_SLOTS;
+            
+            // Determinar programa atual
+            currentProgramIndex = GRADE[currentSlot];
+            currentVideoIndex = currentDay % (TV_PROGRAMS[currentProgramIndex]?.videos?.length || 1);
+            
+            console.log("Dia:", currentDay, "Slot:", currentSlot, "Programa:", currentProgramIndex, "Vídeo:", currentVideoIndex);
+            
+            // Carregar vídeo
+            loadCurrentVideo();
+            
+            // Configurar eventos do vídeo
+            if (videoElement) {
+                videoElement.addEventListener('ended', handleVideoEnded);
+                videoElement.addEventListener('error', handleVideoError);
+                videoElement.addEventListener('playing', function() {
+                    isPlaying = true;
+                    if (ENABLE_LIVE) {
+                        updateLiveIndicator(false);
+                    }
+                });
+                videoElement.addEventListener('pause', function() {
+                    isPlaying = false;
+                });
+            }
+            
+            // Configurar intervalo para verificar se é hora de comercial
+            if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
+                setInterval(checkCommercialBreak, 1000);
+            }
+        }
+        
+        function loadCurrentVideo() {
+            const program = TV_PROGRAMS[currentProgramIndex];
+            if (!program || !program.videos || program.videos.length === 0) {
+                console.error("Programa sem vídeos:", program);
+                showError("Erro: Programa sem vídeos configurados");
+                return;
+            }
+            
+            const videoUrl = program.videos[currentVideoIndex];
+            if (!videoUrl) {
+                console.error("URL do vídeo não encontrada:", currentVideoIndex, program.videos);
+                showError("Erro: URL do vídeo não encontrada");
+                return;
+            }
+            
+            console.log("Carregando vídeo:", videoUrl);
+            
+            // Verificar se é URL do YouTube
+            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+                loadYouTubeVideo(videoUrl);
+            } else {
+                loadHTML5Video(videoUrl);
+            }
+            
+            // Atualizar informações
+            updateProgramInfo();
+        }
+        
+        function loadHTML5Video(url) {
+            if (youtubeContainer) youtubeContainer.style.display = 'none';
+            if (videoElement) {
+                videoElement.style.display = 'block';
+                videoElement.src = url;
+                videoElement.load();
+                
+                // Tentar reproduzir
+                videoElement.play().catch(error => {
+                    console.log("Autoplay bloqueado:", error);
+                    if (autoplayOverlay) {
+                        autoplayOverlay.classList.remove('hidden');
+                    }
+                });
+            }
+        }
+        
+        function loadYouTubeVideo(url) {
+            if (videoElement) videoElement.style.display = 'none';
+            if (youtubeContainer) {
+                youtubeContainer.style.display = 'block';
+                
+                // Extrair ID do vídeo
+                let videoId = '';
+                if (url.includes('v=')) {
+                    videoId = url.split('v=')[1].split('&')[0];
+                } else if (url.includes('youtu.be/')) {
+                    videoId = url.split('youtu.be/')[1].split('?')[0];
+                }
+                
+                if (videoId) {
+                    youtubeContainer.innerHTML = \`
+                        <iframe class="youtube-iframe" 
+                                src="https://www.youtube.com/embed/\${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0" 
+                                frameborder="0" 
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                allowfullscreen>
+                        </iframe>
+                    \`;
+                }
+            }
+        }
+        
+        function handleVideoEnded() {
+            console.log("Vídeo terminado, carregando próximo...");
+            
+            // Avançar para próximo vídeo
+            currentVideoIndex++;
+            const program = TV_PROGRAMS[currentProgramIndex];
+            
+            // Se acabaram os vídeos deste programa, voltar ao primeiro
+            if (currentVideoIndex >= (program?.videos?.length || 1)) {
+                currentVideoIndex = 0;
+            }
+            
+            loadCurrentVideo();
+        }
+        
+        function handleVideoError(error) {
+            console.error("Erro no vídeo:", error);
+            showError("Erro ao carregar vídeo. Tentando próximo...");
+            
+            // Tentar próximo vídeo após 5 segundos
+            setTimeout(() => {
+                currentVideoIndex++;
+                const program = TV_PROGRAMS[currentProgramIndex];
+                if (currentVideoIndex >= (program?.videos?.length || 1)) {
+                    currentVideoIndex = 0;
+                }
+                loadCurrentVideo();
+            }, 5000);
+        }
+        
+        function checkCommercialBreak() {
+            if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0 || isCommercialBreak) return;
+            
+            const now = new Date();
+            const seconds = now.getSeconds();
+            
+            // Verificar se é minuto 25 ou 55 (início de intervalo comercial)
+            if ((now.getMinutes() === 25 || now.getMinutes() === 55) && seconds < 10) {
+                startCommercialBreak();
+            }
+        }
+        
+        function startCommercialBreak() {
+            if (isCommercialBreak) return;
+            
+            console.log("Iniciando intervalo comercial");
+            isCommercialBreak = true;
+            commercialBreakCount = 0;
+            
+            // Mostrar indicador
+            const indicator = document.getElementById('commercialIndicator');
+            if (indicator) indicator.style.display = 'block';
+            
+            // Pausar vídeo atual
+            if (videoElement && !videoElement.paused) {
+                videoElement.pause();
+            }
+            
+            // Iniciar comerciais
+            playNextCommercial();
+        }
+        
+        function playNextCommercial() {
+            if (!isCommercialBreak || commercialBreakCount >= COMMERCIALS_PER_BREAK) {
+                endCommercialBreak();
+                return;
+            }
+            
+            const commercialUrl = TV_COMMERCIALS[commercialIndex % TV_COMMERCIALS.length];
+            commercialIndex++;
+            commercialBreakCount++;
+            
+            console.log("Reproduzindo comercial", commercialBreakCount, "de", COMMERCIALS_PER_BREAK, ":", commercialUrl);
+            
+            if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
+                loadYouTubeVideo(commercialUrl);
+            } else {
+                loadHTML5Video(commercialUrl);
+            }
+            
+            // Configurar timeout para próximo comercial (25 segundos cada)
+            setTimeout(playNextCommercial, 25000);
+        }
+        
+        function endCommercialBreak() {
+            console.log("Finalizando intervalo comercial");
+            isCommercialBreak = false;
+            
+            // Esconder indicador
+            const indicator = document.getElementById('commercialIndicator');
+            if (indicator) indicator.style.display = 'none';
+            
+            // Retomar vídeo normal
+            loadCurrentVideo();
+        }
+        
+        function setupControls() {
+            // Controle de volume
+            const volumeBtn = document.getElementById('volumeBtn');
+            const volumeSlider = document.getElementById('volumeSlider');
+            
+            if (volumeBtn && volumeSlider && videoElement) {
+                volumeSlider.addEventListener('input', function() {
+                    videoElement.volume = this.value;
+                    updateVolumeButton(volumeBtn, this.value);
+                });
+                
+                volumeBtn.addEventListener('click', function() {
+                    if (videoElement.volume > 0) {
+                        videoElement.volume = 0;
+                        volumeSlider.value = 0;
+                    } else {
+                        videoElement.volume = 1;
+                        volumeSlider.value = 1;
+                    }
+                    updateVolumeButton(volumeBtn, videoElement.volume);
+                });
+                
+                updateVolumeButton(volumeBtn, videoElement.volume);
+            }
+            
+            // Retroceder 10 segundos
+            const rewindBtn = document.getElementById('rewind10Btn');
+            if (rewindBtn && videoElement) {
+                rewindBtn.addEventListener('click', function() {
+                    if (videoElement.currentTime > 10) {
+                        videoElement.currentTime -= 10;
+                    } else {
+                        videoElement.currentTime = 0;
+                    }
+                });
+            }
+            
+            // Voltar ao início
+            const restartBtn = document.getElementById('restartBtn');
+            if (restartBtn && videoElement) {
+                restartBtn.addEventListener('click', function() {
+                    videoElement.currentTime = 0;
+                });
+            }
+            
+            // Botão AO VIVO
+            const liveBtn = document.getElementById('liveBtn');
+            const liveDot = document.getElementById('liveDot');
+            if (liveBtn && liveDot) {
+                liveBtn.addEventListener('click', function() {
+                    // Ir para o slot atual (ao vivo)
+                    const today = new Date();
+                    const totalSeconds = (currentDay * 24 * 60 * 60) + 
+                                       (today.getHours() * 60 * 60) + 
+                                       (today.getMinutes() * 60) + 
+                                       today.getSeconds();
+                    const currentSlot = Math.floor(totalSeconds / SLOT_DURATION) % TOTAL_SLOTS;
+                    
+                    currentProgramIndex = GRADE[currentSlot];
+                    currentVideoIndex = currentDay % (TV_PROGRAMS[currentProgramIndex]?.videos?.length || 1);
+                    
+                    loadCurrentVideo();
+                    updateLiveIndicator(true);
+                });
+                
+                updateLiveIndicator(false);
+            }
+            
+            // Tela cheia
+            const fullscreenBtn = document.getElementById('fullscreenBtn');
+            const videoWrapper = document.querySelector('.video-wrapper');
+            
+            if (fullscreenBtn && videoWrapper) {
+                fullscreenBtn.addEventListener('click', function() {
+                    if (!document.fullscreenElement) {
+                        videoWrapper.requestFullscreen().catch(err => {
+                            console.log("Erro ao entrar em tela cheia:", err);
+                        });
+                    } else {
+                        document.exitFullscreen();
+                    }
+                });
+            }
+        }
+        
+        function updateVolumeButton(btn, volume) {
+            if (!btn) return;
+            
+            if (volume === 0) {
+                btn.textContent = '🔇';
+            } else if (volume < 0.5) {
+                btn.textContent = '🔈';
+            } else {
+                btn.textContent = '🔊';
+            }
+        }
+        
+        function updateLiveIndicator(isLive) {
+            const liveDot = document.getElementById('liveDot');
+            if (liveDot) {
+                if (isLive) {
+                    liveDot.classList.add('active');
+                    setTimeout(() => {
+                        liveDot.classList.remove('active');
+                    }, 3000);
+                } else {
+                    liveDot.classList.remove('active');
+                }
+            }
+        }
+        
+        function updateProgramInfo() {
+            const currentProgram = TV_PROGRAMS[currentProgramIndex];
+            const nextProgramIndex = (currentProgramIndex + 1) % TV_PROGRAMS.length;
+            const afterNextProgramIndex = (currentProgramIndex + 2) % TV_PROGRAMS.length;
+            
+            const nextProgram = TV_PROGRAMS[nextProgramIndex];
+            const afterNextProgram = TV_PROGRAMS[afterNextProgramIndex];
+            
+            // Atualizar elementos DOM
+            const currentProgramEl = document.getElementById('currentProgram');
+            const nextProgramEl = document.getElementById('nextProgram');
+            const afterNextProgramEl = document.getElementById('afterNextProgram');
+            
+            if (currentProgramEl && currentProgram) {
+                currentProgramEl.textContent = currentProgram.name || '-';
+            }
+            
+            if (nextProgramEl && nextProgram) {
+                nextProgramEl.textContent = nextProgram.name || '-';
+            }
+            
+            if (afterNextProgramEl && afterNextProgram) {
+                afterNextProgramEl.textContent = afterNextProgram.name || '-';
+            }
+        }
+        
+        function updateDebugInfo() {
+            if (!ENABLE_DEBUG) return;
+            
+            const debugDays = document.getElementById('debugDays');
+            const debugProgram = document.getElementById('debugProgram');
+            
+            if (debugDays) {
+                const today = new Date();
+                const release = new Date(RELEASE_DATE);
+                const diffTime = Math.abs(today - release);
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                debugDays.textContent = diffDays;
+            }
+            
+            if (debugProgram) {
+                debugProgram.textContent = currentProgramIndex + 1;
+            }
+        }
+        
+        function updateTimeDisplay() {
+            if (!SHOW_TIME) return;
+            
+            const timeDisplay = document.getElementById('timeDisplay');
+            if (timeDisplay) {
+                const now = new Date();
+                const hours = now.getHours().toString().padStart(2, '0');
+                const minutes = now.getMinutes().toString().padStart(2, '0');
+                const seconds = now.getSeconds().toString().padStart(2, '0');
+                timeDisplay.textContent = \`\${hours}:\${minutes}:\${seconds}\`;
+            }
+        }
+        
+        function showError(message) {
+            console.error(message);
+            
+            // Criar elemento de erro se não existir
+            let errorEl = document.querySelector('.error-message');
+            if (!errorEl) {
+                errorEl = document.createElement('div');
+                errorEl.className = 'error-message';
+                document.querySelector('.container').appendChild(errorEl);
+            }
+            
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+            
+            // Esconder após 5 segundos
+            setTimeout(() => {
+                errorEl.style.display = 'none';
+            }, 5000);
         }
     <\/script>
 </body>
@@ -1955,7 +2436,7 @@
                 visibility: tvData.visibility,
                 programas: tvData.programs.map(program => ({
                     name: program.name,
-                    videos: program.videos
+                    videos: program.videos || []
                 })),
                 grade: GRADE,
                 comerciais: tvData.commercials,
@@ -2391,7 +2872,7 @@
                 }
             }
             
-            // Carregar canais com imagens de bandeira/mundo
+            // Carregar canais com imagens de bandeira/mundo (16x16)
             window.loadChannels = function() {
                 channels = JSON.parse(localStorage.getItem('tvChannels')) || [];
                 
@@ -2431,7 +2912,7 @@
                         const visibility = channel.data.visibility || 'brazil';
                         
                         // Usar imagem da bandeira do Brasil para visibilidade Brasil
-                        // e imagem do mundo para visibilidade mundial
+                        // e imagem do mundo para visibilidade mundial (16x16)
                         let visibilityIcon = '';
                         if (visibility === 'brazil') {
                             visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil">`;
