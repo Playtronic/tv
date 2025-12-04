@@ -1324,7 +1324,8 @@
             customButton: {
                 text: '',
                 url: ''
-            }
+            },
+            url: ''
         };
         
         let totalSlots = 58;
@@ -1451,7 +1452,7 @@
             };
         }
 
-        // Função para gerar HTML do canal - SISTEMA COMPLETO CORRIGIDO
+        // Função para gerar HTML do canal
         function gerarHTMLdoCanal(dados) {
             const isOffline = dados.isOffline || false;
             const visibility = dados.visibility || 'brazil';
@@ -1461,12 +1462,10 @@
             const totalPrograms = dados.programas.length;
             
             if (totalPrograms === 0) {
-                // Se não houver programas, grade vazia
                 for (let i = 0; i < totalSlots; i++) {
                     GRADE.push(0);
                 }
             } else {
-                // Criar grade cíclica baseada nos programas
                 for (let i = 0; i < totalSlots; i++) {
                     GRADE.push(i % totalPrograms);
                 }
@@ -1559,7 +1558,7 @@
                 </div>`;
             }
             
-            // CORREÇÃO CRÍTICA: Função calcularDiasDesdeEstreia corrigida
+            // Função calcularDiasDesdeEstreia corrigida
             const calcularDiasDesdeEstreiaCorrigida = `
             // Calcular dias desde a estreia (muda às 6h) - CORRIGIDO
             function calcularDiasDesdeEstreia() {
@@ -1581,25 +1580,18 @@
                 const diferencaMs = diaAtual.getTime() - dataEstreia.getTime();
                 let diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
                 
-                // CORREÇÃO: O dia da estreia é sempre dia 1
-                // Se a diferença for 0 (mesmo dia após 6h), é dia 1
-                // Se a diferença for 1, é dia 2, etc.
-                // IMPORTANTE: Não adicionar +1 aqui, pois já estamos contando corretamente
-                
                 // Garantir que seja pelo menos dia 1
                 if (diasDesdeEstreia < 0) {
-                    diasDesdeEstreia = 0; // Ainda não chegou na data de estreia
+                    diasDesdeEstreia = 0;
                 }
                 
                 // Converter para número do dia da programação (começa em 1)
-                // Se hoje é o dia da estreia (diasDesdeEstreia = 0), é dia 1
-                // Se passou 1 dia (diasDesdeEstreia = 1), é dia 2, etc.
                 const diaProgramacao = diasDesdeEstreia + 1;
                 
                 return diaProgramacao;
             }`;
             
-            // HTML do canal com sistema completo de programação CORRIGIDO
+            // HTML do canal com sistema completo de programação
             const html = `<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -2237,9 +2229,6 @@
             }
             
             // Determinar vídeo baseado no dia (cíclico)
-            // Subtrair 1 do dia porque arrays começam em 0
-            // CORREÇÃO: Se currentDay for 1, vídeoIndex deve ser 0 (primeiro vídeo)
-            // Se currentDay for 2, vídeoIndex deve ser 1 (segundo vídeo), etc.
             currentVideoIndex = (currentDay - 1) % programa.videos.length;
             
             return {
@@ -2861,37 +2850,40 @@
             }
         }
 
-        // Função para salvar canal no Firestore - CORRIGIDA
-        async function salvarCanalFirestore(channel) {
+        // ==================== FUNÇÕES DE SINCRONIZAÇÃO CORRIGIDAS ====================
+
+        // Função para salvar canal no Firestore
+        async function salvarCanalFirestore(channelData) {
             if (!currentUser) return null;
             
             try {
-                const channelData = {
-                    email: channel.email,
-                    name: channel.name,
-                    slogan: channel.slogan,
-                    logo: channel.logo || DEFAULT_LOGO,
-                    data: channel.data,
-                    url: channel.url || '',
+                const channelToSave = {
+                    email: channelData.email,
+                    name: channelData.name,
+                    slogan: channelData.slogan,
+                    logo: channelData.logo || DEFAULT_LOGO,
+                    data: channelData.data,
+                    url: channelData.url || '',
                     userId: currentUser.uid,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    // Adicionar campo para saber se foi publicado
-                    isPublished: channel.data?.url ? true : false
+                    isPublished: channelData.url ? true : false,
+                    timestamp: Date.now()
                 };
                 
-                if (editingChannel && currentChannelId) {
-                    // Atualizar canal existente
-                    await db.collection('channels').doc(currentChannelId).update(channelData);
-                    console.log("Canal atualizado no Firestore:", currentChannelId);
-                    return currentChannelId;
+                if (editingChannel && currentChannelId && currentChannelId.startsWith('firestore-')) {
+                    // Atualizar canal existente no Firestore
+                    const firestoreId = currentChannelId.replace('firestore-', '');
+                    await db.collection('channels').doc(firestoreId).update(channelToSave);
+                    console.log("Canal atualizado no Firestore:", firestoreId);
+                    return `firestore-${firestoreId}`;
                 } else {
-                    // Criar novo canal
+                    // Criar novo canal no Firestore
                     const docRef = await db.collection('channels').add({
-                        ...channelData,
+                        ...channelToSave,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     console.log("Novo canal criado no Firestore:", docRef.id);
-                    return docRef.id;
+                    return `firestore-${docRef.id}`;
                 }
             } catch (error) {
                 console.error("Erro ao salvar canal no Firestore:", error);
@@ -2899,7 +2891,7 @@
             }
         }
 
-        // Função para carregar canais do Firestore - MELHORADA
+        // Função para carregar canais do Firestore
         async function carregarCanaisFirestore() {
             if (!currentUser) return [];
             
@@ -2915,8 +2907,9 @@
                 querySnapshot.forEach(doc => {
                     const data = doc.data();
                     channels.push({
-                        id: doc.id,
-                        ...data
+                        id: `firestore-${doc.id}`,
+                        ...data,
+                        firestoreId: doc.id
                     });
                 });
                 
@@ -2933,7 +2926,8 @@
             if (!currentUser) return false;
             
             try {
-                await db.collection('channels').doc(channelId).delete();
+                const firestoreId = channelId.replace('firestore-', '');
+                await db.collection('channels').doc(firestoreId).delete();
                 return true;
             } catch (error) {
                 console.error("Erro ao deletar canal do Firestore:", error);
@@ -2941,7 +2935,7 @@
             }
         }
 
-        // Função para salvar canal automaticamente - REESCRITA
+        // Função para salvar canal automaticamente - CORRIGIDA PARA SINCRONIZAR
         async function salvarCanalAutomaticamente() {
             try {
                 if (!tvData.name || !tvData.email) {
@@ -2950,12 +2944,13 @@
                 }
                 
                 // Preparar dados do canal
-                const channel = {
+                const channelData = {
                     email: tvData.email,
                     name: tvData.name,
                     slogan: tvData.slogan,
                     logo: tvData.logo || DEFAULT_LOGO,
                     data: { ...tvData },
+                    url: tvData.url || '',
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 };
@@ -2964,34 +2959,40 @@
                 let canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
                 
                 // Remover canal existente se estiver editando
-                if (editingChannel) {
+                if (editingChannel && originalChannelName) {
                     canaisLocais = canaisLocais.filter(c => c.name !== originalChannelName);
                 } else {
                     // Remover se já existir com mesmo nome
-                    canaisLocais = canaisLocais.filter(c => c.name !== channel.name);
+                    canaisLocais = canaisLocais.filter(c => c.name !== channelData.name);
                 }
                 
-                canaisLocais.push(channel);
+                canaisLocais.push(channelData);
                 localStorage.setItem('playtronic_tv_channels', JSON.stringify(canaisLocais));
                 
                 // Mostrar notificação de salvamento automático
                 mostrarNotificacaoSalvamento();
                 
-                console.log("Canal salvo automaticamente no localStorage:", channel.name);
+                console.log("Canal salvo automaticamente no localStorage:", channelData.name);
                 
                 // Se autenticado, salvar também no Firestore
                 if (currentUser) {
-                    const channelId = await salvarCanalFirestore(channel);
-                    if (channelId) {
-                        currentChannelId = channelId;
-                        console.log("Canal salvo automaticamente no Firestore:", channelId);
+                    const firestoreChannelId = await salvarCanalFirestore(channelData);
+                    if (firestoreChannelId) {
+                        currentChannelId = firestoreChannelId;
+                        console.log("Canal salvo automaticamente no Firestore:", firestoreChannelId);
                         
-                        // Atualizar a lista de canais após salvar
-                        if (typeof window.loadChannels === 'function') {
-                            await window.loadChannels();
+                        // Atualizar localStorage com o ID do Firestore
+                        const updatedCanais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
+                        const canalIndex = updatedCanais.findIndex(c => c.name === channelData.name);
+                        if (canalIndex !== -1) {
+                            updatedCanais[canalIndex].firestoreId = firestoreChannelId.replace('firestore-', '');
+                            localStorage.setItem('playtronic_tv_channels', JSON.stringify(updatedCanais));
                         }
                     }
                 }
+                
+                // Recarregar a lista de canais
+                await carregarCanais();
                 
                 return true;
             } catch (error) {
@@ -3016,11 +3017,15 @@
             if (!currentUser) return;
             
             try {
+                console.log("Iniciando sincronização de canais...");
+                
                 // Carregar canais do localStorage
                 const canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
+                console.log(`${canaisLocais.length} canais encontrados no localStorage`);
                 
                 // Carregar canais do Firestore
                 const canaisFirestore = await carregarCanaisFirestore();
+                console.log(`${canaisFirestore.length} canais encontrados no Firestore`);
                 
                 // Para cada canal local, verificar se existe no Firestore
                 for (const canalLocal of canaisLocais) {
@@ -3028,15 +3033,32 @@
                     
                     if (!existeNoFirestore) {
                         // Salvar no Firestore
+                        console.log(`Sincronizando canal ${canalLocal.name} com Firestore...`);
                         await salvarCanalFirestore(canalLocal);
-                        console.log(`Canal ${canalLocal.name} sincronizado com Firestore`);
                     }
                 }
                 
-                // Recarregar canais
-                if (typeof window.loadChannels === 'function') {
-                    await window.loadChannels();
+                // Para cada canal do Firestore, verificar se existe no localStorage
+                for (const canalFirestore of canaisFirestore) {
+                    const existeNoLocal = canaisLocais.some(c => c.name === canalFirestore.name);
+                    
+                    if (!existeNoLocal) {
+                        // Adicionar ao localStorage
+                        console.log(`Adicionando canal ${canalFirestore.name} ao localStorage...`);
+                        const canalParaLocal = { ...canalFirestore };
+                        delete canalParaLocal.id;
+                        delete canalParaLocal.firestoreId;
+                        canaisLocais.push(canalParaLocal);
+                    }
                 }
+                
+                // Atualizar localStorage com todos os canais
+                localStorage.setItem('playtronic_tv_channels', JSON.stringify(canaisLocais));
+                
+                console.log("Sincronização concluída!");
+                
+                // Recarregar a lista de canais
+                await carregarCanais();
                 
             } catch (error) {
                 console.error("Erro na sincronização:", error);
@@ -3188,6 +3210,373 @@
             }
         }
 
+        // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
+
+        // Função para carregar todos os canais
+        async function carregarCanais() {
+            try {
+                console.log("Carregando canais...");
+                
+                const channelsList = document.getElementById('channelsList');
+                const emptyState = document.getElementById('emptyState');
+                
+                // Limpar lista atual
+                channels = [];
+                if (channelsList) channelsList.innerHTML = '';
+                
+                // Carregar canais do localStorage (sempre)
+                const canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
+                console.log(`${canaisLocais.length} canais carregados do localStorage`);
+                
+                // Adicionar canais locais com ID local
+                canaisLocais.forEach((canal, index) => {
+                    if (!canal.id) {
+                        canal.id = `local-${Date.now()}-${index}`;
+                    }
+                    channels.push(canal);
+                });
+                
+                // Se usuário autenticado, carregar também do Firestore
+                if (currentUser) {
+                    const canaisFirestore = await carregarCanaisFirestore();
+                    console.log(`${canaisFirestore.length} canais carregados do Firestore`);
+                    
+                    // Mesclar canais, dando preferência aos do Firestore (mais recentes)
+                    for (const canalFirestore of canaisFirestore) {
+                        const indexLocal = channels.findIndex(c => c.name === canalFirestore.name);
+                        if (indexLocal !== -1) {
+                            // Substituir canal local pelo do Firestore (mais atualizado)
+                            channels[indexLocal] = canalFirestore;
+                        } else {
+                            // Adicionar canal do Firestore
+                            channels.push(canalFirestore);
+                        }
+                    }
+                }
+                
+                // Exibir canais
+                if (channels.length === 0) {
+                    if (emptyState) emptyState.style.display = 'block';
+                    if (channelsList) channelsList.style.display = 'none';
+                } else {
+                    if (emptyState) emptyState.style.display = 'none';
+                    if (channelsList) {
+                        channelsList.style.display = 'grid';
+                        
+                        channels.forEach(channel => {
+                            const channelCard = document.createElement('div');
+                            channelCard.className = 'channel-card';
+                            
+                            const nomeArquivo = channel.name.toLowerCase()
+                                .replace(/[^a-z0-9]/g, '-')
+                                .replace(/-+/g, '-') + '.html';
+                            const urlCanal = channel.url || channel.data?.url || `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
+                            
+                            // Determinar status do canal
+                            const isOffline = channel.data?.isOffline || false;
+                            const visibility = channel.data?.visibility || 'brazil';
+                            
+                            // Usar imagem da bandeira do Brasil para visibilidade Brasil
+                            // e imagem do mundo para visibilidade mundial (25x25)
+                            let visibilityIcon = '';
+                            if (visibility === 'brazil') {
+                                visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil">`;
+                            } else {
+                                visibilityIcon = `<img src="${WORLD_ICON}" class="visibility-icon" title="Seu canal está visível no mundo todo">`;
+                            }
+                            
+                            channelCard.innerHTML = `
+                                ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
+                                <div class="channel-name-with-emoji">
+                                    <h3>${channel.name}</h3>
+                                </div>
+                                ${visibilityIcon}
+                                <p>${channel.slogan || 'Sem slogan'}</p>
+                                <div class="channel-actions">
+                                    ${urlCanal && urlCanal !== 'https://playtronic.github.io/tv/canais/.html' ? `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
+                                    <button class="edit-channel" data-id="${channel.id}">Editar</button>
+                                    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
+                                        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
+                                    </button>
+                                    <button class="delete-channel" data-id="${channel.id}">Apagar</button>
+                                </div>
+                            `;
+                            channelsList.appendChild(channelCard);
+                            
+                            // Adicionar event listeners
+                            const watchBtn = channelCard.querySelector('.watch-channel');
+                            const editBtn = channelCard.querySelector('.edit-channel');
+                            const toggleBtn = channelCard.querySelector('.toggle-offline-channel');
+                            const deleteBtn = channelCard.querySelector('.delete-channel');
+                            
+                            if (watchBtn) {
+                                watchBtn.addEventListener('click', function() {
+                                    const channelUrl = this.getAttribute('data-url');
+                                    window.open(channelUrl, '_blank');
+                                });
+                            }
+                            
+                            if (editBtn) {
+                                editBtn.addEventListener('click', function() {
+                                    const channelId = this.getAttribute('data-id');
+                                    editChannel(channelId);
+                                });
+                            }
+                            
+                            if (toggleBtn) {
+                                toggleBtn.addEventListener('click', function() {
+                                    const channelId = this.getAttribute('data-id');
+                                    const isOffline = this.getAttribute('data-offline') === 'true';
+                                    toggleChannelOffline(channelId, isOffline);
+                                });
+                            }
+                            
+                            if (deleteBtn) {
+                                deleteBtn.addEventListener('click', function() {
+                                    const channelId = this.getAttribute('data-id');
+                                    deleteChannel(channelId);
+                                });
+                            }
+                        });
+                    }
+                }
+                
+                console.log(`Total de ${channels.length} canais exibidos`);
+            } catch (error) {
+                console.error("Erro ao carregar canais:", error);
+                const emptyState = document.getElementById('emptyState');
+                const channelsList = document.getElementById('channelsList');
+                if (emptyState) emptyState.style.display = 'block';
+                if (channelsList) channelsList.style.display = 'none';
+            }
+        }
+
+        // Alternar estado "fora do ar" do canal
+        async function toggleChannelOffline(channelId, isCurrentlyOffline) {
+            const channel = channels.find(c => c.id == channelId);
+            if (channel) {
+                // Atualizar estado no canal
+                if (!channel.data) channel.data = {};
+                channel.data.isOffline = !isCurrentlyOffline;
+                
+                // Carregar dados do canal para edição
+                tvData = { 
+                    ...(channel.data || {}),
+                    email: channel.data?.email || channel.email || '',
+                    name: channel.data?.name || channel.name || '',
+                    slogan: channel.data?.slogan || channel.slogan || '',
+                    logo: channel.data?.logo || channel.logo || '',
+                    visibility: channel.data?.visibility || 'brazil',
+                    showTime: channel.data?.showTime !== undefined ? channel.data.showTime : true,
+                    enableRewind10: channel.data?.enableRewind10 !== undefined ? channel.data.enableRewind10 : true,
+                    enableRestart: channel.data?.enableRestart !== undefined ? channel.data.enableRestart : true,
+                    enableLive: channel.data?.enableLive !== undefined ? channel.data.enableLive : true,
+                    enableDebug: channel.data?.enableDebug !== undefined ? channel.data.enableDebug : false,
+                    customReleaseDate: channel.data?.customReleaseDate !== undefined ? channel.data.customReleaseDate : false,
+                    releaseDate: channel.data?.releaseDate || '',
+                    programs: channel.data?.programs || [],
+                    commercials: channel.data?.commercials || [],
+                    enableCommercials: channel.data?.enableCommercials !== undefined ? channel.data.enableCommercials : false,
+                    commercialsPerBreak: channel.data?.commercialsPerBreak || 2,
+                    isOffline: !isCurrentlyOffline,
+                    socialMedia: channel.data?.socialMedia || {
+                        facebook: '',
+                        instagram: '',
+                        bluesky: '',
+                        tiktok: ''
+                    },
+                    customButton: channel.data?.customButton || {
+                        text: '',
+                        url: ''
+                    },
+                    url: channel.data?.url || channel.url || ''
+                };
+                
+                currentChannelId = channelId;
+                editingChannel = true;
+                originalChannelName = channel.name;
+                
+                // Ir direto para a tela 6 para publicar a atualização
+                showScreen('screen6');
+            }
+        }
+        
+        // Editar canal
+        function editChannel(channelId) {
+            const channel = channels.find(c => c.id == channelId);
+            if (channel) {
+                tvData = { 
+                    ...(channel.data || {}),
+                    email: channel.data?.email || channel.email || '',
+                    name: channel.data?.name || channel.name || '',
+                    slogan: channel.data?.slogan || channel.slogan || '',
+                    logo: channel.data?.logo || channel.logo || '',
+                    visibility: channel.data?.visibility || 'brazil',
+                    showTime: channel.data?.showTime !== undefined ? channel.data.showTime : true,
+                    enableRewind10: channel.data?.enableRewind10 !== undefined ? channel.data.enableRewind10 : true,
+                    enableRestart: channel.data?.enableRestart !== undefined ? channel.data.enableRestart : true,
+                    enableLive: channel.data?.enableLive !== undefined ? channel.data.enableLive : true,
+                    enableDebug: channel.data?.enableDebug !== undefined ? channel.data.enableDebug : false,
+                    customReleaseDate: channel.data?.customReleaseDate !== undefined ? channel.data.customReleaseDate : false,
+                    releaseDate: channel.data?.releaseDate || '',
+                    programs: channel.data?.programs || [],
+                    commercials: channel.data?.commercials || [],
+                    enableCommercials: channel.data?.enableCommercials !== undefined ? channel.data.enableCommercials : false,
+                    commercialsPerBreak: channel.data?.commercialsPerBreak || 2,
+                    isOffline: channel.data?.isOffline || false,
+                    socialMedia: channel.data?.socialMedia || {
+                        facebook: '',
+                        instagram: '',
+                        bluesky: '',
+                        tiktok: ''
+                    },
+                    customButton: channel.data?.customButton || {
+                        text: '',
+                        url: ''
+                    },
+                    url: channel.data?.url || channel.url || ''
+                };
+                
+                currentChannelId = channelId;
+                editingChannel = true;
+                originalChannelName = channel.name;
+                
+                // Preencher formulário com dados do canal
+                document.getElementById('tvEmail').value = tvData.email;
+                document.getElementById('tvName').value = tvData.name;
+                document.getElementById('tvSlogan').value = tvData.slogan;
+                
+                if (tvData.logo === DEFAULT_LOGO || !tvData.logo) {
+                    document.getElementById('tvLogo').value = '';
+                    document.getElementById('logoPreview').src = DEFAULT_LOGO;
+                } else {
+                    document.getElementById('tvLogo').value = tvData.logo;
+                    document.getElementById('logoPreview').src = tvData.logo;
+                }
+                
+                // Atualizar contadores
+                document.getElementById('tvNameCounter').textContent = `${tvData.name.length}/50`;
+                document.getElementById('tvSloganCounter').textContent = `${tvData.slogan.length}/100`;
+                
+                // Configurar visibilidade
+                document.getElementById('visibilitySelect').value = tvData.visibility;
+                document.getElementById('visibilityInfo').textContent = tvData.visibility === 'brazil' 
+                    ? 'Seu canal será acessível apenas no Brasil' 
+                    : 'Seu canal será acessível de qualquer país (Mundo)';
+                
+                document.getElementById('showTime').checked = tvData.showTime;
+                document.getElementById('enableRewind10').checked = tvData.enableRewind10;
+                document.getElementById('enableRestart').checked = tvData.enableRestart;
+                document.getElementById('enableLive').checked = tvData.enableLive;
+                document.getElementById('enableDebug').checked = tvData.enableDebug;
+                document.getElementById('customReleaseDate').checked = tvData.customReleaseDate;
+                
+                document.getElementById('tvName').disabled = true;
+                document.getElementById('tvName').classList.add('name-disabled');
+                
+                if (tvData.customReleaseDate && tvData.releaseDate) {
+                    document.getElementById('releaseDate').value = tvData.releaseDate;
+                    document.getElementById('releaseDateContainer').style.display = 'block';
+                } else {
+                    document.getElementById('releaseDateContainer').style.display = 'none';
+                }
+                
+                updateLogoPreview();
+                
+                // Limpar e recriar programas
+                const programsContainer = document.getElementById('programsContainer');
+                programsContainer.innerHTML = '';
+                tvData.programs.forEach((program, index) => {
+                    addProgramCard(program, index);
+                });
+                
+                // Limpar e recriar comerciais
+                const commercialsContainer = document.getElementById('commercialsContainer');
+                commercialsContainer.innerHTML = '';
+                tvData.commercials.forEach((commercial, index) => {
+                    const commercialTitle = commercial.name || `Comercial ${index + 1}`;
+                    addCommercialCard({...commercial, name: commercialTitle}, index);
+                });
+                
+                document.getElementById('enableCommercials').checked = tvData.enableCommercials;
+                document.getElementById('commercialsPerBreak').value = tvData.commercialsPerBreak;
+                
+                if (tvData.enableCommercials) {
+                    document.getElementById('commercialSettings').style.display = 'block';
+                    document.getElementById('addCommercial').style.display = 'inline-block';
+                } else {
+                    document.getElementById('commercialSettings').style.display = 'none';
+                    document.getElementById('addCommercial').style.display = 'none';
+                }
+                
+                // Redes sociais
+                document.getElementById('facebookUrl').value = tvData.socialMedia.facebook || '';
+                document.getElementById('instagramUrl').value = tvData.socialMedia.instagram || '';
+                document.getElementById('blueskyUrl').value = tvData.socialMedia.bluesky || '';
+                document.getElementById('tiktokUrl').value = tvData.socialMedia.tiktok || '';
+                
+                // Botão personalizado
+                document.getElementById('customButtonText').value = tvData.customButton.text || '';
+                document.getElementById('customButtonUrl').value = tvData.customButton.url || '';
+                document.getElementById('customButtonTextCounter').textContent = `${tvData.customButton.text.length}/20`;
+                
+                updateCounters();
+                
+                showScreen('screen1');
+            }
+        }
+        
+        // Apagar canal
+        async function deleteChannel(channelId) {
+            const channel = channels.find(c => c.id == channelId);
+            if (!channel) return;
+            
+            if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal do servidor e do seu perfil.')) {
+                try {
+                    let apagadoDoServidor = false;
+                    let apagadoDoFirestore = false;
+                    
+                    // Tentar apagar do servidor GitHub (se tiver URL)
+                    if (channel.url) {
+                        try {
+                            apagadoDoServidor = await apagarCanalGithub(channel.name);
+                        } catch (error) {
+                            console.log("Não foi possível apagar do servidor GitHub:", error);
+                        }
+                    }
+                    
+                    // Tentar apagar do Firestore (se for um canal da nuvem)
+                    if (channelId.startsWith('firestore-')) {
+                        try {
+                            apagadoDoFirestore = await deletarCanalFirestore(channelId);
+                        } catch (error) {
+                            console.log("Não foi possível apagar do Firestore:", error);
+                        }
+                    }
+                    
+                    // Remover do localStorage
+                    let canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
+                    canaisLocais = canaisLocais.filter(c => c.name !== channel.name);
+                    localStorage.setItem('playtronic_tv_channels', JSON.stringify(canaisLocais));
+                    
+                    // Remover da lista de canais atual
+                    channels = channels.filter(c => c.id != channelId);
+                    
+                    // Recarregar a lista
+                    await carregarCanais();
+                    
+                    // Mostrar notificação de salvamento automático
+                    mostrarNotificacaoSalvamento();
+                    
+                    alert('Canal apagado com sucesso!');
+                    
+                } catch (error) {
+                    console.error("Erro ao apagar canal:", error);
+                    alert('Erro ao apagar canal. Tente novamente.');
+                }
+            }
+        }
+
         // ==================== OBSERVADOR DE AUTENTICAÇÃO ====================
         auth.onAuthStateChanged(async (user) => {
             console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
@@ -3196,7 +3585,6 @@
             updateAuthUI();
             
             if (user) {
-                await loadUserData();
                 console.log("Usuário logado:", user.email);
                 
                 // Sincronizar canais entre localStorage e Firestore
@@ -3220,6 +3608,11 @@
                         iniciarPublicacao();
                     }, 500);
                 }
+                
+                // Se estiver na tela 0, recarregar canais
+                if (document.getElementById('screen0').classList.contains('active')) {
+                    await carregarCanais();
+                }
             } else {
                 // Se o usuário deslogou e está na tela 6, mostrar mensagem de autenticação
                 if (isOnScreen6) {
@@ -3228,12 +3621,10 @@
                     publicationStarted = false;
                 }
                 
-                // Limpar lista de canais
-                channels = [];
-                const channelsList = document.getElementById('channelsList');
-                const emptyState = document.getElementById('emptyState');
-                if (channelsList) channelsList.innerHTML = '';
-                if (emptyState) emptyState.style.display = 'block';
+                // Se estiver na tela 0, recarregar apenas canais locais
+                if (document.getElementById('screen0').classList.contains('active')) {
+                    await carregarCanais();
+                }
             }
         });
 
@@ -3296,28 +3687,6 @@
             document.getElementById('userCard').classList.remove('active');
         });
 
-        // Carregar dados do usuário
-        async function loadUserData() {
-            if (!currentUser) return;
-            
-            try {
-                const ref = db.collection('users').doc(currentUser.uid);
-                const doc = await ref.get();
-                
-                if (!doc.exists) {
-                    await ref.set({
-                        name: currentUser.displayName,
-                        email: currentUser.email,
-                        avatar: currentUser.photoURL,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        plan: 'free'
-                    });
-                }
-            } catch (error) {
-                console.error("Erro ao carregar dados do usuário:", error);
-            }
-        }
-
         // Atualizar UI de autenticação
         function updateAuthUI() {
             const userInfo = document.getElementById('userInfo');
@@ -3360,8 +3729,6 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Elementos da tela 0
             const screen0 = document.getElementById('screen0');
-            const channelsList = document.getElementById('channelsList');
-            const emptyState = document.getElementById('emptyState');
             const createNewChannelBtn = document.getElementById('createNewChannel');
             
             // Elementos da tela 1
@@ -3417,7 +3784,7 @@
             const backToHomeFromScreen4Btn = document.getElementById('backToHomeFromScreen4');
             const toScreen5Btn = document.getElementById('toScreen5');
             
-            // Elementos da tela 5 (Redes Sociais)
+            // Elementos da tela 5
             const screen5 = document.getElementById('screen5');
             const facebookUrlInput = document.getElementById('facebookUrl');
             const instagramUrlInput = document.getElementById('instagramUrl');
@@ -3435,7 +3802,7 @@
             const backToHomeFromScreen5Btn = document.getElementById('backToHomeFromScreen5');
             const toScreen6Btn = document.getElementById('toScreen6');
             
-            // Elementos da tela 6 (Publicação)
+            // Elementos da tela 6
             const screen6 = document.getElementById('screen6');
             const publishingStatus = document.getElementById('publishingStatus');
             const processingMessage = document.getElementById('processingMessage');
@@ -3520,9 +3887,7 @@
                     
                     // Carregar canais ao voltar para tela 0
                     setTimeout(() => {
-                        if (typeof window.loadChannels === 'function') {
-                            window.loadChannels();
-                        }
+                        carregarCanais();
                     }, 100);
                 } else {
                     stepIndicator.classList.add('active');
@@ -3563,493 +3928,6 @@
                 }
             }
             
-            // Carregar canais com imagens de bandeira/mundo (25x25) - CORRIGIDO (sem indicador "online")
-            window.loadChannels = async function() {
-                try {
-                    // Primeiro, tentar carregar da nuvem (Firestore) se autenticado
-                    if (currentUser) {
-                        const firestoreChannels = await carregarCanaisFirestore();
-                        console.log(`Carregados ${firestoreChannels.length} canais do Firestore`);
-                        
-                        // Adicionar canais do Firestore à lista
-                        channels = [...firestoreChannels];
-                    }
-                    
-                    // Carregar também do localStorage (para garantir que canais não publicados apareçam)
-                    const canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
-                    console.log(`Carregados ${canaisLocais.length} canais do localStorage`);
-                    
-                    // Mesclar canais, evitando duplicatas
-                    const canaisLocaisFormatados = canaisLocais.map((canal, index) => ({
-                        id: `local-${index}`,
-                        ...canal
-                    }));
-                    
-                    // Adicionar canais locais que não existem no Firestore
-                    for (const canalLocal of canaisLocaisFormatados) {
-                        const existe = channels.some(c => c.name === canalLocal.name);
-                        if (!existe) {
-                            channels.push(canalLocal);
-                        }
-                    }
-                    
-                    channelsList.innerHTML = '';
-                    
-                    if (channels.length === 0) {
-                        emptyState.style.display = 'block';
-                        channelsList.style.display = 'none';
-                    } else {
-                        emptyState.style.display = 'none';
-                        channelsList.style.display = 'grid';
-                        
-                        channels.forEach(channel => {
-                            const channelCard = document.createElement('div');
-                            channelCard.className = 'channel-card';
-                            
-                            const nomeArquivo = channel.name.toLowerCase()
-                                .replace(/[^a-z0-9]/g, '-')
-                                .replace(/-+/g, '-') + '.html';
-                            const urlCanal = channel.url || `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
-                            
-                            // Determinar status do canal
-                            const isOffline = channel.data?.isOffline || false;
-                            const visibility = channel.data?.visibility || 'brazil';
-                            
-                            // Usar imagem da bandeira do Brasil para visibilidade Brasil
-                            // e imagem do mundo para visibilidade mundial (25x25)
-                            let visibilityIcon = '';
-                            if (visibility === 'brazil') {
-                                visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil">`;
-                            } else {
-                                visibilityIcon = `<img src="${WORLD_ICON}" class="visibility-icon" title="Seu canal está visível no mundo todo">`;
-                            }
-                            
-                            // REMOVIDO: Indicador "online/offline" que não foi solicitado
-                            channelCard.innerHTML = `
-                                ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
-                                <div class="channel-name-with-emoji">
-                                    <h3>${channel.name}</h3>
-                                </div>
-                                ${visibilityIcon}
-                                <p>${channel.slogan || 'Sem slogan'}</p>
-                                <div class="channel-actions">
-                                    ${channel.url ? `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
-                                    <button class="edit-channel" data-id="${channel.id}">Editar</button>
-                                    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
-                                        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
-                                    </button>
-                                    <button class="delete-channel" data-id="${channel.id}">Apagar</button>
-                                </div>
-                            `;
-                            channelsList.appendChild(channelCard);
-                            
-                            // Adicionar event listeners
-                            const watchBtn = channelCard.querySelector('.watch-channel');
-                            const editBtn = channelCard.querySelector('.edit-channel');
-                            const toggleBtn = channelCard.querySelector('.toggle-offline-channel');
-                            const deleteBtn = channelCard.querySelector('.delete-channel');
-                            
-                            if (watchBtn) {
-                                watchBtn.addEventListener('click', function() {
-                                    const channelUrl = this.getAttribute('data-url');
-                                    window.open(channelUrl, '_blank');
-                                });
-                            }
-                            
-                            editBtn.addEventListener('click', function() {
-                                const channelId = this.getAttribute('data-id');
-                                editChannel(channelId);
-                            });
-                            
-                            toggleBtn.addEventListener('click', function() {
-                                const channelId = this.getAttribute('data-id');
-                                const isOffline = this.getAttribute('data-offline') === 'true';
-                                toggleChannelOffline(channelId, isOffline);
-                            });
-                            
-                            deleteBtn.addEventListener('click', function() {
-                                const channelId = this.getAttribute('data-id');
-                                deleteChannel(channelId);
-                            });
-                        });
-                    }
-                } catch (error) {
-                    console.error("Erro ao carregar canais:", error);
-                    emptyState.style.display = 'block';
-                    channelsList.style.display = 'none';
-                }
-            };
-            
-            // Alternar estado "fora do ar" do canal
-            async function toggleChannelOffline(channelId, isCurrentlyOffline) {
-                const channel = channels.find(c => c.id == channelId);
-                if (channel) {
-                    // Atualizar estado no canal
-                    if (!channel.data) channel.data = {};
-                    channel.data.isOffline = !isCurrentlyOffline;
-                    
-                    // Carregar dados do canal para edição
-                    tvData = { 
-                        ...(channel.data || {}),
-                        email: channel.data?.email || channel.email || '',
-                        name: channel.data?.name || channel.name || '',
-                        slogan: channel.data?.slogan || channel.slogan || '',
-                        logo: channel.data?.logo || channel.logo || '',
-                        visibility: channel.data?.visibility || 'brazil',
-                        showTime: channel.data?.showTime !== undefined ? channel.data.showTime : true,
-                        enableRewind10: channel.data?.enableRewind10 !== undefined ? channel.data.enableRewind10 : true,
-                        enableRestart: channel.data?.enableRestart !== undefined ? channel.data.enableRestart : true,
-                        enableLive: channel.data?.enableLive !== undefined ? channel.data.enableLive : true,
-                        enableDebug: channel.data?.enableDebug !== undefined ? channel.data.enableDebug : false,
-                        customReleaseDate: channel.data?.customReleaseDate !== undefined ? channel.data.customReleaseDate : false,
-                        releaseDate: channel.data?.releaseDate || '',
-                        programs: channel.data?.programs || [],
-                        commercials: channel.data?.commercials || [],
-                        enableCommercials: channel.data?.enableCommercials !== undefined ? channel.data.enableCommercials : false,
-                        commercialsPerBreak: channel.data?.commercialsPerBreak || 2,
-                        isOffline: !isCurrentlyOffline,
-                        socialMedia: channel.data?.socialMedia || {
-                            facebook: '',
-                            instagram: '',
-                            bluesky: '',
-                            tiktok: ''
-                        },
-                        customButton: channel.data?.customButton || {
-                            text: '',
-                            url: ''
-                        }
-                    };
-                    
-                    currentChannelId = channelId;
-                    editingChannel = true;
-                    originalChannelName = channel.name;
-                    
-                    // Ir direto para a tela 6 para publicar a atualização
-                    showScreen('screen6');
-                }
-            }
-            
-            // Editar canal
-            function editChannel(channelId) {
-                const channel = channels.find(c => c.id == channelId);
-                if (channel) {
-                    tvData = { 
-                        ...(channel.data || {}),
-                        email: channel.data?.email || channel.email || '',
-                        name: channel.data?.name || channel.name || '',
-                        slogan: channel.data?.slogan || channel.slogan || '',
-                        logo: channel.data?.logo || channel.logo || '',
-                        visibility: channel.data?.visibility || 'brazil',
-                        showTime: channel.data?.showTime !== undefined ? channel.data.showTime : true,
-                        enableRewind10: channel.data?.enableRewind10 !== undefined ? channel.data.enableRewind10 : true,
-                        enableRestart: channel.data?.enableRestart !== undefined ? channel.data.enableRestart : true,
-                        enableLive: channel.data?.enableLive !== undefined ? channel.data.enableLive : true,
-                        enableDebug: channel.data?.enableDebug !== undefined ? channel.data.enableDebug : false,
-                        customReleaseDate: channel.data?.customReleaseDate !== undefined ? channel.data.customReleaseDate : false,
-                        releaseDate: channel.data?.releaseDate || '',
-                        programs: channel.data?.programs || [],
-                        commercials: channel.data?.commercials || [],
-                        enableCommercials: channel.data?.enableCommercials !== undefined ? channel.data.enableCommercials : false,
-                        commercialsPerBreak: channel.data?.commercialsPerBreak || 2,
-                        isOffline: channel.data?.isOffline || false,
-                        socialMedia: channel.data?.socialMedia || {
-                            facebook: '',
-                            instagram: '',
-                            bluesky: '',
-                            tiktok: ''
-                        },
-                        customButton: channel.data?.customButton || {
-                            text: '',
-                            url: ''
-                        }
-                    };
-                    
-                    currentChannelId = channelId;
-                    editingChannel = true;
-                    originalChannelName = channel.name;
-                    
-                    tvEmailInput.value = tvData.email;
-                    tvNameInput.value = tvData.name;
-                    tvSloganInput.value = tvData.slogan;
-                    
-                    if (tvData.logo === DEFAULT_LOGO || !tvData.logo) {
-                        tvLogoInput.value = '';
-                        logoPreview.src = DEFAULT_LOGO;
-                    } else {
-                        tvLogoInput.value = tvData.logo;
-                        logoPreview.src = tvData.logo;
-                    }
-                    
-                    // Atualizar contadores
-                    tvNameCounter.textContent = `${tvData.name.length}/50`;
-                    tvSloganCounter.textContent = `${tvData.slogan.length}/100`;
-                    
-                    // Configurar visibilidade (dropdown)
-                    visibilitySelect.value = tvData.visibility;
-                    if (tvData.visibility === 'brazil') {
-                        visibilityInfo.textContent = 'Seu canal será acessível apenas no Brasil';
-                    } else {
-                        visibilityInfo.textContent = 'Seu canal será acessível de qualquer país (Mundo)';
-                    }
-                    
-                    showTimeCheckbox.checked = tvData.showTime;
-                    enableRewind10Checkbox.checked = tvData.enableRewind10;
-                    enableRestartCheckbox.checked = tvData.enableRestart;
-                    enableLiveCheckbox.checked = tvData.enableLive;
-                    enableDebugCheckbox.checked = tvData.enableDebug;
-                    customReleaseDateCheckbox.checked = tvData.customReleaseDate;
-                    
-                    tvNameInput.disabled = true;
-                    tvNameInput.classList.add('name-disabled');
-                    
-                    if (tvData.customReleaseDate && tvData.releaseDate) {
-                        releaseDateInput.value = tvData.releaseDate;
-                        releaseDateContainer.style.display = 'block';
-                    } else {
-                        releaseDateContainer.style.display = 'none';
-                    }
-                    
-                    updateLogoPreview();
-                    
-                    programsContainer.innerHTML = '';
-                    tvData.programs.forEach((program, index) => {
-                        addProgramCard(program, index);
-                    });
-                    
-                    commercialsContainer.innerHTML = '';
-                    tvData.commercials.forEach((commercial, index) => {
-                        const commercialTitle = commercial.name || `Comercial ${index + 1}`;
-                        addCommercialCard({...commercial, name: commercialTitle}, index);
-                    });
-                    
-                    enableCommercialsCheckbox.checked = tvData.enableCommercials;
-                    commercialsPerBreakInput.value = tvData.commercialsPerBreak;
-                    
-                    if (tvData.enableCommercials) {
-                        commercialSettings.style.display = 'block';
-                        addCommercialBtn.style.display = 'inline-block';
-                    } else {
-                        commercialSettings.style.display = 'none';
-                        addCommercialBtn.style.display = 'none';
-                    }
-                    
-                    // Redes sociais
-                    facebookUrlInput.value = tvData.socialMedia.facebook || '';
-                    instagramUrlInput.value = tvData.socialMedia.instagram || '';
-                    blueskyUrlInput.value = tvData.socialMedia.bluesky || '';
-                    tiktokUrlInput.value = tvData.socialMedia.tiktok || '';
-                    
-                    // Botão personalizado
-                    customButtonTextInput.value = tvData.customButton.text || '';
-                    customButtonUrlInput.value = tvData.customButton.url || '';
-                    customButtonTextCounter.textContent = `${tvData.customButton.text.length}/20`;
-                    
-                    updateCounters();
-                    
-                    showScreen('screen1');
-                }
-            }
-            
-            // Apagar canal - CORRIGIDO
-            async function deleteChannel(channelId) {
-                const channel = channels.find(c => c.id == channelId);
-                if (!channel) return;
-                
-                if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal do servidor e do seu perfil.')) {
-                    try {
-                        let apagadoDoServidor = false;
-                        let apagadoDoFirestore = false;
-                        
-                        // Tentar apagar do servidor GitHub (se tiver URL)
-                        if (channel.url) {
-                            try {
-                                apagadoDoServidor = await apagarCanalGithub(channel.name);
-                            } catch (error) {
-                                console.log("Não foi possível apagar do servidor GitHub:", error);
-                            }
-                        }
-                        
-                        // Tentar apagar do Firestore (se for um canal da nuvem)
-                        if (channelId && !channelId.startsWith('local-')) {
-                            try {
-                                apagadoDoFirestore = await deletarCanalFirestore(channelId);
-                            } catch (error) {
-                                console.log("Não foi possível apagar do Firestore:", error);
-                            }
-                        }
-                        
-                        // Remover do localStorage
-                        let canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
-                        canaisLocais = canaisLocais.filter(c => c.name !== channel.name);
-                        localStorage.setItem('playtronic_tv_channels', JSON.stringify(canaisLocais));
-                        
-                        // Remover da lista de canais atual
-                        channels = channels.filter(c => c.id != channelId);
-                        
-                        // Recarregar a lista
-                        await window.loadChannels();
-                        
-                        // Mostrar notificação de salvamento automático
-                        mostrarNotificacaoSalvamento();
-                        
-                    } catch (error) {
-                        console.error("Erro ao apagar canal:", error);
-                        alert('Erro ao apagar canal. Tente novamente.');
-                    }
-                }
-            }
-
-            // Adicionar cartão de programa
-            function addProgramCard(program, index) {
-                const programId = program.id || `program-${Date.now()}-${index}`;
-                const programCard = document.createElement('div');
-                programCard.className = 'program-card';
-                programCard.id = programId;
-                
-                programCard.innerHTML = `
-                    <div class="program-header">
-                        <h3>Programa ${index + 1}</h3>
-                        <button type="button" class="remove-program" data-program="${programId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="${programId}-name">Nome do Programa (máx. 50 caracteres):</label>
-                        <input type="text" id="${programId}-name" maxlength="50" value="${program.name || ''}" placeholder="Ex: Jornal da Manhã">
-                        <div class="char-counter" id="${programId}-name-counter">${program.name ? program.name.length : 0}/50</div>
-                    </div>
-                    <div class="form-group">
-                        <label>Episódios (Dias):</label>
-                        <ul class="video-list" id="${programId}-videos"></ul>
-                        <input type="url" id="${programId}-new-video" placeholder="URL do vídeo">
-                        <button type="button" class="add-video" data-program="${programId}">Adicionar Episódio</button>
-                    </div>
-                `;
-                
-                programsContainer.appendChild(programCard);
-                
-                // Atualizar contador de caracteres
-                const nameInput = document.getElementById(`${programId}-name`);
-                const nameCounter = document.getElementById(`${programId}-name-counter`);
-                nameInput.addEventListener('input', function() {
-                    nameCounter.textContent = `${this.value.length}/50`;
-                    if (this.value.length > 45) {
-                        nameCounter.className = 'char-counter near-limit';
-                    } else if (this.value.length > 50) {
-                        nameCounter.className = 'char-counter over-limit';
-                    } else {
-                        nameCounter.className = 'char-counter';
-                    }
-                    updatePrograms();
-                });
-                
-                const videoList = document.getElementById(`${programId}-videos`);
-                if (program.videos && program.videos.length > 0) {
-                    program.videos.forEach((videoUrl, videoIndex) => {
-                        const videoItem = document.createElement('li');
-                        videoItem.innerHTML = `
-                            <span>Vídeo - Dia ${videoIndex + 1}: ${videoUrl}</span>
-                            <button type="button" class="remove-video">Remover</button>
-                        `;
-                        videoList.appendChild(videoItem);
-                    });
-                }
-                
-                document.querySelector(`#${programId} .add-video`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    const videoUrlInput = document.getElementById(`${programId}-new-video`);
-                    const videoUrl = videoUrlInput.value;
-                    
-                    if (videoUrl) {
-                        if (!isValidUrl(videoUrl)) {
-                            alert('Por favor, insira uma URL válida para o vídeo.');
-                            return;
-                        }
-                        
-                        const videoList = document.getElementById(`${programId}-videos`);
-                        const videoItem = document.createElement('li');
-                        const dayNumber = videoList.children.length + 1;
-                        videoItem.innerHTML = `
-                            <span>Vídeo - Dia ${dayNumber}: ${videoUrl}</span>
-                            <button type="button" class="remove-video">Remover</button>
-                        `;
-                        videoList.appendChild(videoItem);
-                        videoUrlInput.value = '';
-                        updatePrograms();
-                    }
-                });
-                
-                document.querySelector(`#${programId} .remove-program`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    document.getElementById(programId).remove();
-                    updatePrograms();
-                });
-                
-                programCard.addEventListener('click', function(e) {
-                    if (e.target.classList.contains('remove-video')) {
-                        e.target.parentElement.remove();
-                        const videoList = e.target.parentElement.parentElement;
-                        Array.from(videoList.children).forEach((item, index) => {
-                            const span = item.querySelector('span');
-                            span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
-                        });
-                        updatePrograms();
-                    }
-                });
-                
-                nameInput.addEventListener('input', updatePrograms);
-            }
-
-            // Adicionar cartão de comercial com nome
-            function addCommercialCard(commercial, index) {
-                const commercialId = 'commercial-' + Date.now() + '-' + index;
-                const commercialCard = document.createElement('div');
-                commercialCard.className = 'commercial-card';
-                commercialCard.id = commercialId;
-                
-                // Se commercial for string (antigo formato), converter para objeto
-                const commercialObj = typeof commercial === 'string' ? { name: `Comercial ${index + 1}`, url: commercial } : commercial;
-                
-                commercialCard.innerHTML = `
-                    <div class="commercial-header">
-                        <h4>Comercial ${index + 1}</h4>
-                        <button type="button" class="remove-commercial" data-commercial="${commercialId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="${commercialId}-name">Nome (controle interno, máx. 50 caracteres):</label>
-                        <input type="text" id="${commercialId}-name" value="${commercialObj.name || ''}" placeholder="Ex: Comercial da Empresa X" maxlength="50">
-                        <div class="char-counter" id="${commercialId}-name-counter">${commercialObj.name ? commercialObj.name.length : 0}/50</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="${commercialId}-url">URL do comercial:</label>
-                        <input type="url" id="${commercialId}-url" value="${commercialObj.url || ''}" placeholder="URL do comercial">
-                    </div>
-                `;
-                
-                commercialsContainer.appendChild(commercialCard);
-                
-                // Atualizar contador de caracteres
-                const nameInput = document.getElementById(`${commercialId}-name`);
-                const nameCounter = document.getElementById(`${commercialId}-name-counter`);
-                nameInput.addEventListener('input', function() {
-                    nameCounter.textContent = `${this.value.length}/50`;
-                    if (this.value.length > 45) {
-                        nameCounter.className = 'char-counter near-limit';
-                    } else if (this.value.length > 50) {
-                        nameCounter.className = 'char-counter over-limit';
-                    } else {
-                        nameCounter.className = 'char-counter';
-                    }
-                    updateCommercials();
-                });
-                
-                document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
-                    const commercialId = this.getAttribute('data-commercial');
-                    document.getElementById(commercialId).remove();
-                    updateCommercials();
-                });
-                
-                document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
-            }
-
             // Criar novo canal
             createNewChannelBtn.addEventListener('click', function() {
                 tvData = {
@@ -4079,7 +3957,8 @@
                     customButton: {
                         text: '',
                         url: ''
-                    }
+                    },
+                    url: ''
                 };
                 currentChannelId = null;
                 editingChannel = false;
@@ -4467,6 +4346,157 @@
                 showScreen('screen3');
             });
             
+            // Adicionar cartão de programa
+            function addProgramCard(program, index) {
+                const programId = program.id || `program-${Date.now()}-${index}`;
+                const programCard = document.createElement('div');
+                programCard.className = 'program-card';
+                programCard.id = programId;
+                
+                programCard.innerHTML = `
+                    <div class="program-header">
+                        <h3>Programa ${index + 1}</h3>
+                        <button type="button" class="remove-program" data-program="${programId}">Remover</button>
+                    </div>
+                    <div class="form-group">
+                        <label for="${programId}-name">Nome do Programa (máx. 50 caracteres):</label>
+                        <input type="text" id="${programId}-name" maxlength="50" value="${program.name || ''}" placeholder="Ex: Jornal da Manhã">
+                        <div class="char-counter" id="${programId}-name-counter">${program.name ? program.name.length : 0}/50</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Episódios (Dias):</label>
+                        <ul class="video-list" id="${programId}-videos"></ul>
+                        <input type="url" id="${programId}-new-video" placeholder="URL do vídeo">
+                        <button type="button" class="add-video" data-program="${programId}">Adicionar Episódio</button>
+                    </div>
+                `;
+                
+                programsContainer.appendChild(programCard);
+                
+                // Atualizar contador de caracteres
+                const nameInput = document.getElementById(`${programId}-name`);
+                const nameCounter = document.getElementById(`${programId}-name-counter`);
+                nameInput.addEventListener('input', function() {
+                    nameCounter.textContent = `${this.value.length}/50`;
+                    if (this.value.length > 45) {
+                        nameCounter.className = 'char-counter near-limit';
+                    } else if (this.value.length > 50) {
+                        nameCounter.className = 'char-counter over-limit';
+                    } else {
+                        nameCounter.className = 'char-counter';
+                    }
+                    updatePrograms();
+                });
+                
+                const videoList = document.getElementById(`${programId}-videos`);
+                if (program.videos && program.videos.length > 0) {
+                    program.videos.forEach((videoUrl, videoIndex) => {
+                        const videoItem = document.createElement('li');
+                        videoItem.innerHTML = `
+                            <span>Vídeo - Dia ${videoIndex + 1}: ${videoUrl}</span>
+                            <button type="button" class="remove-video">Remover</button>
+                        `;
+                        videoList.appendChild(videoItem);
+                    });
+                }
+                
+                document.querySelector(`#${programId} .add-video`).addEventListener('click', function() {
+                    const programId = this.getAttribute('data-program');
+                    const videoUrlInput = document.getElementById(`${programId}-new-video`);
+                    const videoUrl = videoUrlInput.value;
+                    
+                    if (videoUrl) {
+                        if (!isValidUrl(videoUrl)) {
+                            alert('Por favor, insira uma URL válida para o vídeo.');
+                            return;
+                        }
+                        
+                        const videoList = document.getElementById(`${programId}-videos`);
+                        const videoItem = document.createElement('li');
+                        const dayNumber = videoList.children.length + 1;
+                        videoItem.innerHTML = `
+                            <span>Vídeo - Dia ${dayNumber}: ${videoUrl}</span>
+                            <button type="button" class="remove-video">Remover</button>
+                        `;
+                        videoList.appendChild(videoItem);
+                        videoUrlInput.value = '';
+                        updatePrograms();
+                    }
+                });
+                
+                document.querySelector(`#${programId} .remove-program`).addEventListener('click', function() {
+                    const programId = this.getAttribute('data-program');
+                    document.getElementById(programId).remove();
+                    updatePrograms();
+                });
+                
+                programCard.addEventListener('click', function(e) {
+                    if (e.target.classList.contains('remove-video')) {
+                        e.target.parentElement.remove();
+                        const videoList = e.target.parentElement.parentElement;
+                        Array.from(videoList.children).forEach((item, index) => {
+                            const span = item.querySelector('span');
+                            span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
+                        });
+                        updatePrograms();
+                    }
+                });
+                
+                nameInput.addEventListener('input', updatePrograms);
+            }
+
+            // Adicionar cartão de comercial com nome
+            function addCommercialCard(commercial, index) {
+                const commercialId = 'commercial-' + Date.now() + '-' + index;
+                const commercialCard = document.createElement('div');
+                commercialCard.className = 'commercial-card';
+                commercialCard.id = commercialId;
+                
+                // Se commercial for string (antigo formato), converter para objeto
+                const commercialObj = typeof commercial === 'string' ? { name: `Comercial ${index + 1}`, url: commercial } : commercial;
+                
+                commercialCard.innerHTML = `
+                    <div class="commercial-header">
+                        <h4>Comercial ${index + 1}</h4>
+                        <button type="button" class="remove-commercial" data-commercial="${commercialId}">Remover</button>
+                    </div>
+                    <div class="form-group">
+                        <label for="${commercialId}-name">Nome (controle interno, máx. 50 caracteres):</label>
+                        <input type="text" id="${commercialId}-name" value="${commercialObj.name || ''}" placeholder="Ex: Comercial da Empresa X" maxlength="50">
+                        <div class="char-counter" id="${commercialId}-name-counter">${commercialObj.name ? commercialObj.name.length : 0}/50</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="${commercialId}-url">URL do comercial:</label>
+                        <input type="url" id="${commercialId}-url" value="${commercialObj.url || ''}" placeholder="URL do comercial">
+                    </div>
+                `;
+                
+                commercialsContainer.appendChild(commercialCard);
+                
+                // Atualizar contador de caracteres
+                const nameInput = document.getElementById(`${commercialId}-name`);
+                const nameCounter = document.getElementById(`${commercialId}-name-counter`);
+                nameInput.addEventListener('input', function() {
+                    nameCounter.textContent = `${this.value.length}/50`;
+                    if (this.value.length > 45) {
+                        nameCounter.className = 'char-counter near-limit';
+                    } else if (this.value.length > 50) {
+                        nameCounter.className = 'char-counter over-limit';
+                    } else {
+                        nameCounter.className = 'char-counter';
+                    }
+                    updateCommercials();
+                });
+                
+                document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
+                    const commercialId = this.getAttribute('data-commercial');
+                    document.getElementById(commercialId).remove();
+                    updateCommercials();
+                });
+                
+                document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
+            }
+
             // Adicionar programa
             addProgramBtn.addEventListener('click', function() {
                 if (tvData.programs.length >= totalSlots) {
@@ -4864,14 +4894,8 @@
             // Inicializar aplicação
             updateAuthUI();
             
-            // Tentar carregar canais se o usuário já estiver logado
-            if (currentUser) {
-                setTimeout(() => {
-                    if (typeof window.loadChannels === 'function') {
-                        window.loadChannels();
-                    }
-                }, 1000);
-            }
+            // Carregar canais inicialmente
+            carregarCanais();
         });
     </script>
 </body>
