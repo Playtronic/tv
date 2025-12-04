@@ -851,24 +851,41 @@
             transform: translateY(0);
         }
         
-        /* ÍNDICE DE ERRO DO FIRESTORE */
-        .firestore-index-error {
-            background: rgba(231, 76, 60, 0.2);
-            border: 1px solid rgba(231, 76, 60, 0.5);
+        /* STATUS DE PUBLICAÇÃO */
+        .publishing-blocked {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        /* MENSAGENS DE STATUS */
+        .status-message {
             padding: 15px;
             border-radius: 8px;
             margin: 15px 0;
-            text-align: left;
+            text-align: center;
         }
         
-        .firestore-index-error h4 {
-            color: #e74c3c;
-            margin-bottom: 10px;
+        .status-info {
+            background: rgba(52, 152, 219, 0.2);
+            border: 1px solid rgba(52, 152, 219, 0.5);
         }
         
-        .firestore-index-error a {
-            color: #3498db;
-            text-decoration: underline;
+        .status-warning {
+            background: rgba(241, 196, 15, 0.2);
+            border: 1px solid rgba(241, 196, 15, 0.5);
+        }
+        
+        .status-error {
+            background: rgba(231, 76, 60, 0.2);
+            border: 1px solid rgba(231, 76, 60, 0.5);
+        }
+        
+        .status-success {
+            background: rgba(46, 204, 113, 0.2);
+            border: 1px solid rgba(46, 204, 113, 0.5);
         }
     </style>
 </head>
@@ -927,14 +944,6 @@
             
             <h2>Meus Canais</h2>
             
-            <div id="firestoreIndexError" class="firestore-index-error" style="display: none;">
-                <h4>⚠️ Aviso: Configuração de Índice do Firestore Necessária</h4>
-                <p>Para exibir seus canais corretamente, é necessário criar um índice no Firestore.</p>
-                <p>Clique no link abaixo para criar o índice automaticamente:</p>
-                <a id="createIndexLink" href="#" target="_blank" style="display: inline-block; margin: 10px 0; padding: 10px 15px; background: #3498db; color: white; border-radius: 5px; text-decoration: none;">Criar Índice do Firestore</a>
-                <p><small>Depois de criar o índice, aguarde alguns minutos e recarregue a página.</small></p>
-            </div>
-            
             <div id="channelsList" class="channels-grid">
                 <!-- Os canais serão carregados aqui -->
             </div>
@@ -947,6 +956,11 @@
             <div id="loadingState" class="empty-state" style="display: none;">
                 <div class="spinner" style="width: 30px; height: 30px; margin: 0 auto 15px;"></div>
                 <p>Carregando seus canais...</p>
+            </div>
+            
+            <div id="errorState" class="empty-state" style="display: none;">
+                <p>Erro ao carregar canais. Tente novamente.</p>
+                <button id="retryLoadChannels">Tentar Novamente</button>
             </div>
         </div>
         
@@ -1231,6 +1245,12 @@
         <div id="screen6" class="screen">
             <h1>Publicando seu Canal</h1>
             
+            <div id="publishingBlocked" class="publishing-blocked" style="display: none;">
+                <h3>Publicação em Andamento</h3>
+                <p>Por favor, aguarde a publicação atual ser concluída antes de tentar novamente.</p>
+                <div class="spinner"></div>
+            </div>
+            
             <div id="publishingStatus" class="publishing-status">
                 <div class="spinner"></div>
                 <h3>Iniciando publicação...</h3>
@@ -1262,8 +1282,8 @@
                 <!-- Mensagem será preenchida dinamicamente -->
             </div>
             
-            <div id="serverResult" class="server-result">
-                <!-- Mensagens de erro serão mostradas aqui -->
+            <div id="statusMessage" class="status-message" style="display: none;">
+                <!-- Mensagens de status serão mostradas aqui -->
             </div>
             
             <div id="authRequiredMessage" class="server-error" style="display: none; text-align: center; padding: 20px; margin-top: 20px;">
@@ -1292,7 +1312,6 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
     <script>
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -1391,8 +1410,9 @@
             const processingMessage = document.getElementById('processingMessage');
             const verificationMessage = document.getElementById('verificationMessage');
             const successMessage = document.getElementById('successMessage');
-            const serverResult = document.getElementById('serverResult');
+            const statusMessage = document.getElementById('statusMessage');
             const authRequiredMessage = document.getElementById('authRequiredMessage');
+            const publishingBlocked = document.getElementById('publishingBlocked');
             const backToScreen5Btn = document.getElementById('backToScreen5');
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
             const retryPublish = document.getElementById('retryPublish');
@@ -1401,8 +1421,9 @@
             if (processingMessage) processingMessage.style.display = 'none';
             if (verificationMessage) verificationMessage.style.display = 'none';
             if (successMessage) successMessage.style.display = 'none';
-            if (serverResult) serverResult.style.display = 'none';
+            if (statusMessage) statusMessage.style.display = 'none';
             if (authRequiredMessage) authRequiredMessage.style.display = 'none';
+            if (publishingBlocked) publishingBlocked.style.display = 'none';
             
             // Resetar botões
             if (backToScreen5Btn) backToScreen5Btn.style.display = 'none';
@@ -1422,7 +1443,7 @@
             const processingMessage = document.getElementById('processingMessage');
             const verificationMessage = document.getElementById('verificationMessage');
             const successMessage = document.getElementById('successMessage');
-            const serverResult = document.getElementById('serverResult');
+            const statusMessage = document.getElementById('statusMessage');
             const backToScreen5Btn = document.getElementById('backToScreen5');
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
             const retryPublish = document.getElementById('retryPublish');
@@ -1432,7 +1453,7 @@
             if (processingMessage) processingMessage.style.display = 'none';
             if (verificationMessage) verificationMessage.style.display = 'none';
             if (successMessage) successMessage.style.display = 'none';
-            if (serverResult) serverResult.style.display = 'none';
+            if (statusMessage) statusMessage.style.display = 'none';
             if (backToScreen5Btn) backToScreen5Btn.style.display = 'inline-block';
             if (backToHomeFromSuccess) backToHomeFromSuccess.style.display = 'none';
             if (retryPublish) retryPublish.style.display = 'none';
@@ -1447,48 +1468,47 @@
             urlVerificationActive = true;
             verificationAttempts = 0;
             
-            // Verificar indefinidamente enquanto estiver na tela 6
-            while (urlVerificationActive && isOnScreen6) {
+            // Verificar apenas algumas vezes
+            const maxAttempts = 30;
+            
+            while (urlVerificationActive && verificationAttempts < maxAttempts && isOnScreen6) {
                 verificationAttempts++;
-                console.log(`Tentativa ${verificationAttempts}`);
+                console.log(`Tentativa ${verificationAttempts} de ${maxAttempts}`);
                 
                 try {
-                    // Tentar verificar com uma requisição GET
+                    // Tentar verificar com uma requisição HEAD
                     const testResponse = await fetch(url, { 
-                        method: 'GET',
+                        method: 'HEAD',
                         cache: 'no-cache',
-                        mode: 'no-cors'
+                        mode: 'no-cors' // Modo no-cors para evitar problemas CORS
                     });
                     
-                    if (testResponse.ok || testResponse.type === 'opaque') {
-                        console.log(`URL verificada com sucesso na tentativa ${verificationAttempts}`);
-                        urlVerificationActive = false;
-                        return { sucesso: true, tentativas: verificationAttempts };
-                    } else {
-                        console.log(`URL ainda não disponível na tentativa ${verificationAttempts}`);
-                    }
-                } catch (error) {
-                    // Em caso de erro CORS, considerar como sucesso (a página existe)
-                    console.log(`Possível sucesso (erro CORS) na tentativa ${verificationAttempts}`);
+                    console.log(`Resposta na tentativa ${verificationAttempts}:`, testResponse);
+                    
+                    // Se chegou aqui (sem erro), considerar sucesso
+                    console.log(`URL verificada com sucesso na tentativa ${verificationAttempts}`);
                     urlVerificationActive = false;
                     return { sucesso: true, tentativas: verificationAttempts };
+                } catch (error) {
+                    // Em caso de erro, continuar tentando
+                    console.log(`URL ainda não disponível na tentativa ${verificationAttempts}:`, error.message);
+                    
+                    // Aguardar 1 segundo antes da próxima tentativa
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
-                
-                // Aguardar 2 segundos antes da próxima tentativa
-                await new Promise(resolve => setTimeout(resolve, 2000));
             }
             
             urlVerificationActive = false;
             return { 
                 sucesso: false, 
                 tentativas: verificationAttempts,
-                mensagem: 'Verificação interrompida pelo usuário.'
+                mensagem: 'Verificação interrompida após ' + verificationAttempts + ' tentativas.'
             };
         }
 
         // ==================== FUNÇÕES DO FIRESTORE (CORRIGIDAS E MELHORADAS) ====================
 
-        // Função para salvar canal no Firestore
+        // Função para salvar canal no Firestore (USANDO SUBCONJUNTOS POR USUÁRIO)
         async function salvarCanalFirestore(channelData) {
             if (!currentUser) {
                 console.error("Usuário não autenticado para salvar canal");
@@ -1511,26 +1531,27 @@
                 
                 console.log("Salvando canal no Firestore:", channelData.name);
                 
+                // USANDO SUBCONJUNTOS: users/{userId}/channels/{channelId}
                 if (editingChannel && currentChannelId) {
                     // Atualizar canal existente no Firestore
-                    await db.collection('channels').doc(currentChannelId).update(channelToSave);
+                    await db.collection('users').doc(currentUser.uid).collection('channels').doc(currentChannelId).update(channelToSave);
                     console.log("Canal atualizado no Firestore:", currentChannelId);
                     return currentChannelId;
                 } else {
                     // Criar novo canal no Firestore
-                    const docRef = await db.collection('channels').add(channelToSave);
+                    const docRef = await db.collection('users').doc(currentUser.uid).collection('channels').add(channelToSave);
                     console.log("Novo canal criado no Firestore:", docRef.id);
                     currentChannelId = docRef.id;
                     return docRef.id;
                 }
             } catch (error) {
                 console.error("Erro ao salvar canal no Firestore:", error);
-                alert("Erro ao salvar canal: " + error.message);
+                mostrarMensagemStatus("Erro ao salvar canal: " + error.message, 'error');
                 return null;
             }
         }
 
-        // Função para carregar canais do Firestore (CORRIGIDA PARA LIDAR COM ERRO DE ÍNDICE)
+        // Função para carregar canais do Firestore (USANDO SUBCONJUNTOS POR USUÁRIO)
         async function carregarCanaisFirestore() {
             if (!currentUser) {
                 console.log("Usuário não autenticado, não é possível carregar canais");
@@ -1540,45 +1561,10 @@
             try {
                 console.log("Carregando canais do Firestore para usuário:", currentUser.uid);
                 
-                // Tentar a consulta com ordenação (pode falhar se o índice não existir)
-                let querySnapshot;
-                
-                try {
-                    // Primeira tentativa: consulta com ordenação
-                    querySnapshot = await db.collection('channels')
-                        .where('userId', '==', currentUser.uid)
-                        .orderBy('updatedAt', 'desc')
-                        .get();
-                } catch (error) {
-                    // Verificar se é erro de índice
-                    if (error.message && error.message.includes('index')) {
-                        console.warn("Índice não encontrado. Tentando consulta alternativa...");
-                        
-                        // Segunda tentativa: consulta sem ordenação e ordenar localmente
-                        querySnapshot = await db.collection('channels')
-                            .where('userId', '==', currentUser.uid)
-                            .get();
-                        
-                        // Ordenar localmente por updatedAt (decrescente)
-                        const docs = querySnapshot.docs;
-                        docs.sort((a, b) => {
-                            const aData = a.data();
-                            const bData = b.data();
-                            const aDate = aData.updatedAt ? aData.updatedAt.toDate() : new Date(0);
-                            const bDate = bData.updatedAt ? bData.updatedAt.toDate() : new Date(0);
-                            return bDate.getTime() - aDate.getTime();
-                        });
-                        
-                        // Atualizar querySnapshot com documentos ordenados
-                        querySnapshot.docs = docs;
-                        
-                        // Mostrar mensagem sobre o índice
-                        mostrarMensagemIndiceFirestore(error);
-                    } else {
-                        // Outro tipo de erro, relançar
-                        throw error;
-                    }
-                }
+                // USANDO SUBCONJUNTOS: users/{userId}/channels
+                const querySnapshot = await db.collection('users').doc(currentUser.uid).collection('channels')
+                    .orderBy('updatedAt', 'desc')
+                    .get();
                 
                 const channels = [];
                 querySnapshot.forEach(doc => {
@@ -1599,9 +1585,9 @@
             } catch (error) {
                 console.error("Erro ao carregar canais do Firestore:", error);
                 
-                // Se for erro de índice, mostrar mensagem específica
-                if (error.message && error.message.includes('index')) {
-                    mostrarMensagemIndiceFirestore(error);
+                // Se for erro de permissões, pode ser porque o documento do usuário ainda não existe
+                if (error.code === 'permission-denied' || error.code === 'not-found') {
+                    console.log("Documento do usuário não encontrado ou sem permissões. Retornando array vazio.");
                     return [];
                 }
                 
@@ -1609,39 +1595,7 @@
             }
         }
 
-        // Função para mostrar mensagem sobre índice do Firestore
-        function mostrarMensagemIndiceFirestore(error) {
-            const indexErrorDiv = document.getElementById('firestoreIndexError');
-            const createIndexLink = document.getElementById('createIndexLink');
-            
-            if (indexErrorDiv) {
-                indexErrorDiv.style.display = 'block';
-                
-                // Extrair URL do índice da mensagem de erro (se disponível)
-                const errorMessage = error.message || '';
-                const urlMatch = errorMessage.match(/https:\/\/console\.firebase\.google\.com[^\s]+/);
-                
-                if (urlMatch && createIndexLink) {
-                    createIndexLink.href = urlMatch[0];
-                } else {
-                    // URL padrão para criar índice
-                    const projectId = firebaseConfig.projectId;
-                    createIndexLink.href = `https://console.firebase.google.com/project/${projectId}/firestore/indexes`;
-                }
-                
-                console.log("Erro de índice do Firestore detectado. Mostrando mensagem ao usuário.");
-            }
-        }
-
-        // Função para esconder mensagem de índice do Firestore
-        function esconderMensagemIndiceFirestore() {
-            const indexErrorDiv = document.getElementById('firestoreIndexError');
-            if (indexErrorDiv) {
-                indexErrorDiv.style.display = 'none';
-            }
-        }
-
-        // Função para deletar canal do Firestore
+        // Função para deletar canal do Firestore (USANDO SUBCONJUNTOS POR USUÁRIO)
         async function deletarCanalFirestore(channelId) {
             if (!currentUser) {
                 console.error("Usuário não autenticado para deletar canal");
@@ -1649,7 +1603,7 @@
             }
             
             try {
-                await db.collection('channels').doc(channelId).delete();
+                await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).delete();
                 console.log("Canal deletado do Firestore:", channelId);
                 return true;
             } catch (error) {
@@ -1705,34 +1659,362 @@
             }
         }
 
-        // Função para gerar HTML do canal (mantida igual)
+        // Função para mostrar mensagem de status
+        function mostrarMensagemStatus(mensagem, tipo = 'info') {
+            const statusMessage = document.getElementById('statusMessage');
+            if (statusMessage) {
+                statusMessage.textContent = mensagem;
+                statusMessage.className = `status-message status-${tipo}`;
+                statusMessage.style.display = 'block';
+                
+                // Auto-esconder após 5 segundos para mensagens de info/warning
+                if (tipo === 'info' || tipo === 'warning') {
+                    setTimeout(() => {
+                        statusMessage.style.display = 'none';
+                    }, 5000);
+                }
+            }
+        }
+
+        // Função para gerar HTML do canal
         function gerarHTMLdoCanal(dados) {
-            // ... (código da função gerarHTMLdoCanal permanece igual ao anterior)
-            // Por questões de espaço, mantenho apenas a assinatura da função
-            // O conteúdo completo desta função deve ser mantido como estava
-            return `<!DOCTYPE html>...`; // Código HTML completo do canal
+            // Esta função precisa ser implementada completamente
+            // Por enquanto, retornaremos um HTML básico
+            const nomeArquivo = dados.name.toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-') + '.html';
+            
+            return `<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${dados.name}</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        .player-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .channel-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .channel-logo {
+            max-width: 200px;
+            max-height: 100px;
+        }
+        .player {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #111;
+        }
+    </style>
+</head>
+<body>
+    <div class="player-container">
+        <div class="channel-header">
+            <img src="${dados.logo || DEFAULT_LOGO}" alt="${dados.name}" class="channel-logo">
+            <h1>${dados.name}</h1>
+            <p>${dados.slogan}</p>
+        </div>
+        <div class="player">
+            <!-- Player será implementado aqui -->
+            <p style="text-align: center; padding: 50px;">Canal ${dados.name} - Em breve!</p>
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+            <p>E-mail: ${dados.email}</p>
+        </div>
+    </div>
+</body>
+</html>`;
         }
 
-        // Função para publicar canal no GitHub (mantida igual)
+        // Função para publicar canal no GitHub
         async function publicarCanalGithub(nomeCanal, dadosGerador) {
-            // ... (código da função publicarCanalGithub permanece igual)
-            return { url: urlCanal, message: resultado.message, nomeArquivo: nomeArquivo };
+            try {
+                console.log("Iniciando publicação no GitHub...");
+                
+                // Verificar se é um canal válido
+                if (!nomeCanal || nomeCanal.trim() === '') {
+                    throw new Error('Nome do canal inválido');
+                }
+                
+                // Criar nome de arquivo seguro
+                const nomeArquivo = nomeCanal.toLowerCase()
+                    .replace(/[^a-z0-9]/g, '-')
+                    .replace(/-+/g, '-') + '.html';
+                
+                console.log("Nome do arquivo:", nomeArquivo);
+                
+                // URL do Worker para publicação
+                const workerUrl = 'https://tv-gen-worker.playtronic.workers.dev';
+                
+                // Dados para enviar ao Worker
+                const postData = {
+                    action: 'publish',
+                    channelName: nomeCanal,
+                    fileName: nomeArquivo,
+                    htmlContent: dadosGerador,
+                    timestamp: new Date().toISOString()
+                };
+                
+                console.log("Enviando dados para o Worker...");
+                
+                // Enviar para o Worker
+                const response = await fetch(workerUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(postData)
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Erro do Worker: ${response.status} - ${errorText}`);
+                }
+                
+                const resultado = await response.json();
+                console.log("Resposta do Worker:", resultado);
+                
+                if (resultado.success) {
+                    const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
+                    return { 
+                        url: urlCanal, 
+                        message: resultado.message || 'Canal publicado com sucesso!', 
+                        nomeArquivo: nomeArquivo 
+                    };
+                } else {
+                    throw new Error(resultado.message || 'Erro desconhecido do Worker');
+                }
+                
+            } catch (error) {
+                console.error("Erro na publicação GitHub:", error);
+                throw error;
+            }
         }
 
-        // Função para apagar canal do servidor (mantida igual)
+        // Função para apagar canal do servidor
         async function apagarCanalGithub(nomeCanal) {
-            // ... (código da função apagarCanalGithub permanece igual)
-            return true;
+            try {
+                console.log("Iniciando exclusão do canal:", nomeCanal);
+                
+                // Criar nome de arquivo seguro
+                const nomeArquivo = nomeCanal.toLowerCase()
+                    .replace(/[^a-z0-9]/g, '-')
+                    .replace(/-+/g, '-') + '.html';
+                
+                // URL do Worker para exclusão
+                const workerUrl = 'https://tv-gen-worker.playtronic.workers.dev';
+                
+                // Dados para enviar ao Worker
+                const postData = {
+                    action: 'delete',
+                    channelName: nomeCanal,
+                    fileName: nomeArquivo,
+                    timestamp: new Date().toISOString()
+                };
+                
+                // Enviar para o Worker
+                const response = await fetch(workerUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(postData)
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Erro do Worker: ${response.status} - ${errorText}`);
+                }
+                
+                const resultado = await response.json();
+                console.log("Resposta do Worker (exclusão):", resultado);
+                
+                return resultado.success || false;
+                
+            } catch (error) {
+                console.error("Erro ao apagar canal do GitHub:", error);
+                return false;
+            }
         }
 
-        // Função principal de publicação (mantida igual)
+        // Função principal de publicação
         async function iniciarPublicacao() {
-            // ... (código da função iniciarPublicacao permanece igual)
+            if (publicationStarted) {
+                console.log("Publicação já em andamento. Bloqueando nova tentativa.");
+                document.getElementById('publishingBlocked').style.display = 'block';
+                return;
+            }
+            
+            if (!currentUser) {
+                mostrarMensagemAutenticacao();
+                return;
+            }
+            
+            publicationStarted = true;
+            console.log("Iniciando publicação...");
+            
+            // Atualizar UI
+            const publishingStatus = document.getElementById('publishingStatus');
+            const processingMessage = document.getElementById('processingMessage');
+            const verificationMessage = document.getElementById('verificationMessage');
+            const successMessage = document.getElementById('successMessage');
+            const statusMessage = document.getElementById('statusMessage');
+            const authRequiredMessage = document.getElementById('authRequiredMessage');
+            const backToScreen5Btn = document.getElementById('backToScreen5');
+            const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
+            const retryPublish = document.getElementById('retryPublish');
+            const publishingBlocked = document.getElementById('publishingBlocked');
+            
+            publishingBlocked.style.display = 'none';
+            publishingStatus.style.display = 'block';
+            processingMessage.style.display = 'none';
+            verificationMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+            statusMessage.style.display = 'none';
+            authRequiredMessage.style.display = 'none';
+            backToScreen5Btn.style.display = 'none';
+            backToHomeFromSuccess.style.display = 'none';
+            retryPublish.style.display = 'none';
+            
+            try {
+                // 1. Gerar HTML do canal
+                mostrarMensagemStatus("Gerando HTML do canal...", 'info');
+                const htmlContent = gerarHTMLdoCanal(tvData);
+                console.log("HTML gerado com sucesso");
+                
+                // 2. Enviar para o servidor (GitHub via Worker)
+                publishingStatus.style.display = 'none';
+                processingMessage.style.display = 'block';
+                mostrarMensagemStatus("Enviando para o servidor...", 'info');
+                
+                const result = await publicarCanalGithub(tvData.name, htmlContent);
+                console.log("Publicação no GitHub concluída:", result);
+                
+                // 3. Atualizar tvData com a URL
+                tvData.url = result.url;
+                
+                // 4. Salvar no Firestore com a URL
+                mostrarMensagemStatus("Salvando informações no banco de dados...", 'info');
+                await salvarCanalFirestore(tvData);
+                
+                // 5. Verificar se a URL está acessível
+                processingMessage.style.display = 'none';
+                verificationMessage.style.display = 'block';
+                mostrarMensagemStatus("Verificando se a página está disponível...", 'info');
+                
+                const verificacao = await verificarUrlDisponivel(result.url);
+                
+                if (verificacao.sucesso) {
+                    // Sucesso
+                    verificationMessage.style.display = 'none';
+                    successMessage.style.display = 'block';
+                    successMessage.innerHTML = `
+                        <h3>Canal Publicado com Sucesso!</h3>
+                        <p>Seu canal está disponível em:</p>
+                        <a href="${result.url}" target="_blank" class="channel-link">${tvData.name}</a>
+                        <p>Link para compartilhar: <strong>${result.url}</strong></p>
+                        <p><small>O canal foi salvo em seu perfil e pode ser editado a qualquer momento.</small></p>
+                    `;
+                    
+                    backToHomeFromSuccess.style.display = 'inline-block';
+                    mostrarMensagemStatus("Canal publicado com sucesso!", 'success');
+                    
+                    // Resetar a flag de edição
+                    editingChannel = false;
+                    originalChannelName = '';
+                    currentChannelId = null;
+                    
+                    // Resetar dados do canal
+                    tvData = {
+                        email: '',
+                        name: '',
+                        slogan: '',
+                        logo: '',
+                        visibility: 'brazil',
+                        showTime: true,
+                        enableRewind10: true,
+                        enableRestart: true,
+                        enableLive: true,
+                        enableDebug: false,
+                        customReleaseDate: false,
+                        releaseDate: '',
+                        programs: [],
+                        commercials: [],
+                        enableCommercials: false,
+                        commercialsPerBreak: 2,
+                        isOffline: false,
+                        socialMedia: {
+                            facebook: '',
+                            instagram: '',
+                            bluesky: '',
+                            tiktok: ''
+                        },
+                        customButton: {
+                            text: '',
+                            url: ''
+                        },
+                        url: '',
+                        createdAt: null,
+                        updatedAt: null
+                    };
+                    
+                } else {
+                    // Falha na verificação
+                    verificationMessage.style.display = 'none';
+                    mostrarMensagemStatus(`Publicação incompleta. A URL não ficou acessível após ${verificacao.tentativas} tentativas.`, 'warning');
+                    
+                    successMessage.style.display = 'block';
+                    successMessage.innerHTML = `
+                        <h3>Publicação Parcialmente Concluída</h3>
+                        <p>O canal foi publicado, mas pode não estar acessível imediatamente.</p>
+                        <p>URL: <a href="${result.url}" target="_blank">${result.url}</a></p>
+                        <p><small>Tente acessar em alguns minutos. Se o problema persistir, tente publicar novamente.</small></p>
+                    `;
+                    
+                    backToHomeFromSuccess.style.display = 'inline-block';
+                    retryPublish.style.display = 'inline-block';
+                }
+                
+                publicationStarted = false;
+                
+            } catch (error) {
+                console.error("Erro na publicação:", error);
+                
+                // Mostrar erro
+                publishingStatus.style.display = 'none';
+                processingMessage.style.display = 'none';
+                verificationMessage.style.display = 'none';
+                
+                mostrarMensagemStatus(`Erro na publicação: ${error.message}`, 'error');
+                
+                successMessage.style.display = 'block';
+                successMessage.innerHTML = `
+                    <h3>Erro na Publicação</h3>
+                    <p>${error.message}</p>
+                    <p><small>Tente novamente ou verifique sua conexão com a internet.</small></p>
+                `;
+                
+                retryPublish.style.display = 'inline-block';
+                backToScreen5Btn.style.display = 'inline-block';
+                
+                publicationStarted = false;
+            }
         }
 
-        // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS (CORRIGIDAS E MELHORADAS) ====================
+        // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
 
-        // Função para carregar todos os canais com tratamento de erros melhorado
+        // Função para carregar todos os canais
         async function carregarCanais() {
             try {
                 console.log("Carregando canais do Firestore...");
@@ -1740,12 +2022,13 @@
                 const channelsList = document.getElementById('channelsList');
                 const emptyState = document.getElementById('emptyState');
                 const loadingState = document.getElementById('loadingState');
+                const errorState = document.getElementById('errorState');
                 
                 // Mostrar estado de carregamento
                 if (loadingState) loadingState.style.display = 'block';
                 if (channelsList) channelsList.style.display = 'none';
                 if (emptyState) emptyState.style.display = 'none';
-                esconderMensagemIndiceFirestore();
+                if (errorState) errorState.style.display = 'none';
                 
                 // Limpar lista atual
                 channels = [];
@@ -1863,16 +2146,14 @@
                 const channelsList = document.getElementById('channelsList');
                 const emptyState = document.getElementById('emptyState');
                 const loadingState = document.getElementById('loadingState');
+                const errorState = document.getElementById('errorState');
                 
                 if (loadingState) loadingState.style.display = 'none';
-                
-                // Se for erro de índice, a mensagem já foi mostrada
-                if (!error.message.includes('index')) {
-                    alert("Erro ao carregar canais: " + error.message);
-                }
-                
-                if (emptyState) emptyState.style.display = 'block';
+                if (errorState) errorState.style.display = 'block';
+                if (emptyState) emptyState.style.display = 'none';
                 if (channelsList) channelsList.style.display = 'none';
+                
+                mostrarMensagemStatus("Erro ao carregar canais: " + error.message, 'error');
             }
         }
 
@@ -1887,15 +2168,13 @@
             if (channel) {
                 try {
                     // Buscar o documento atual primeiro
-                    const docRef = db.collection('channels').doc(channelId);
+                    const docRef = db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId);
                     const doc = await docRef.get();
                     
                     if (!doc.exists) {
                         alert("Canal não encontrado");
                         return;
                     }
-                    
-                    const currentData = doc.data();
                     
                     // Atualizar apenas o campo isOffline dentro de channelData
                     await docRef.update({
@@ -1917,7 +2196,7 @@
             }
         }
         
-        // Editar canal (CORRIGIDA)
+        // Editar canal
         async function editChannel(channelId) {
             if (!currentUser) {
                 alert("É necessário fazer login para editar canais");
@@ -1926,7 +2205,7 @@
             
             try {
                 // Buscar canal do Firestore
-                const doc = await db.collection('channels').doc(channelId).get();
+                const doc = await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).get();
                 
                 if (!doc.exists) {
                     alert("Canal não encontrado");
@@ -2153,10 +2432,12 @@
                 const channelsList = document.getElementById('channelsList');
                 const emptyState = document.getElementById('emptyState');
                 const loadingState = document.getElementById('loadingState');
+                const errorState = document.getElementById('errorState');
                 
                 if (channelsList) channelsList.innerHTML = '';
                 if (emptyState) emptyState.style.display = 'block';
                 if (loadingState) loadingState.style.display = 'none';
+                if (errorState) errorState.style.display = 'none';
                 
                 // Resetar dados do canal atual
                 tvData = {
@@ -2307,7 +2588,7 @@
             // Elementos da tela 0
             const screen0 = document.getElementById('screen0');
             const createNewChannelBtn = document.getElementById('createNewChannel');
-            const createIndexLink = document.getElementById('createIndexLink');
+            const retryLoadChannelsBtn = document.getElementById('retryLoadChannels');
             
             // Elementos da tela 1
             const screen1 = document.getElementById('screen1');
@@ -2386,12 +2667,13 @@
             const processingMessage = document.getElementById('processingMessage');
             const verificationMessage = document.getElementById('verificationMessage');
             const successMessage = document.getElementById('successMessage');
-            const serverResult = document.getElementById('serverResult');
+            const statusMessage = document.getElementById('statusMessage');
             const authRequiredMessage = document.getElementById('authRequiredMessage');
             const backToScreen5Btn = document.getElementById('backToScreen5');
             const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
             const loginFromPublishBtn = document.getElementById('loginFromPublish');
             const retryPublish = document.getElementById('retryPublish');
+            const publishingBlocked = document.getElementById('publishingBlocked');
             
             // Elementos do indicador de etapas
             const stepIndicator = document.getElementById('stepIndicator');
@@ -2497,6 +2779,13 @@
                         }
                     }
                 }
+            }
+            
+            // Botão para tentar novamente carregar canais
+            if (retryLoadChannelsBtn) {
+                retryLoadChannelsBtn.addEventListener('click', function() {
+                    carregarCanais();
+                });
             }
             
             // Criar novo canal
@@ -2651,9 +2940,7 @@
                 // Verificação no Firestore (apenas para o usuário atual)
                 if (currentUser) {
                     try {
-                        const querySnapshot = await db.collection('channels')
-                            .where('userId', '==', currentUser.uid)
-                            .get();
+                        const querySnapshot = await db.collection('users').doc(currentUser.uid).collection('channels').get();
                         
                         if (!querySnapshot.empty) {
                             for (const doc of querySnapshot.docs) {
@@ -3479,16 +3766,6 @@
                 showScreen('screen0');
             });
 
-            // Botão para criar índice do Firestore
-            if (createIndexLink) {
-                createIndexLink.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    const link = this.href;
-                    window.open(link, '_blank');
-                    alert('Depois de criar o índice no console do Firebase, aguarde alguns minutos e recarregue esta página.');
-                });
-            }
-            
             // Inicializar aplicação
             updateAuthUI();
             
