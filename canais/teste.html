@@ -274,7 +274,7 @@
             font-size: 12px;
         }
         
-        /* MENSAGENS DE ERRO CORRIGIDAS - COM FUNDO BRANCO */
+        /* MENSAGENS DE ERRO */
         .error-message {
             color: #ff6b6b;
             font-size: 14px;
@@ -702,36 +702,6 @@
             background: #8e44ad !important;
         }
         
-        /* STATUS DO CANAL */
-        .channel-status {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            font-weight: bold;
-            margin-left: 10px;
-        }
-        
-        .channel-status.online {
-            background: #27ae60;
-            color: white;
-        }
-        
-        .channel-status.offline {
-            background: #e74c3c;
-            color: white;
-        }
-        
-        .channel-status.brasil-only {
-            background: #3498db;
-            color: white;
-        }
-        
-        .channel-status.worldwide {
-            background: #2ecc71;
-            color: white;
-        }
-        
         /* CONTROLE DE VISIBILIDADE */
         .visibility-control {
             background: rgba(255, 255, 255, 0.1);
@@ -859,30 +829,6 @@
         
         .char-counter.over-limit {
             color: #ff4444;
-        }
-        
-        /* BOTÃO SALVAR NA NUVEM - REMOVIDO */
-        /* .cloud-sync-btn {
-            display: none !important;
-        } */
-        
-        .channel-status {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            font-weight: bold;
-            margin-left: 10px;
-        }
-        
-        .channel-status.online {
-            background: #27ae60;
-            color: white;
-        }
-        
-        .channel-status.offline {
-            background: #e74c3c;
-            color: white;
         }
         
         /* NOTIFICAÇÃO DE SALVAMENTO AUTOMÁTICO */
@@ -1365,7 +1311,7 @@
             customReleaseDate: false,
             releaseDate: '',
             programs: [],
-            commercials: [], // Agora será array de objetos {name, url}
+            commercials: [],
             enableCommercials: false,
             commercialsPerBreak: 2,
             isOffline: false,
@@ -1612,6 +1558,46 @@
                     </a>
                 </div>`;
             }
+            
+            // CORREÇÃO CRÍTICA: Função calcularDiasDesdeEstreia corrigida
+            const calcularDiasDesdeEstreiaCorrigida = `
+            // Calcular dias desde a estreia (muda às 6h) - CORRIGIDO
+            function calcularDiasDesdeEstreia() {
+                const agora = new Date();
+                const dataEstreia = new Date(RELEASE_DATE);
+                
+                // Ajustar para mudança de dia às 6h
+                let diaAtual = new Date(agora);
+                
+                // Se for antes das 6h, ainda é o dia anterior
+                if (agora.getHours() < 6) {
+                    diaAtual.setDate(diaAtual.getDate() - 1);
+                }
+                
+                // Resetar horas para cálculo preciso
+                dataEstreia.setHours(0, 0, 0, 0);
+                diaAtual.setHours(0, 0, 0, 0);
+                
+                const diferencaMs = diaAtual.getTime() - dataEstreia.getTime();
+                let diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
+                
+                // CORREÇÃO: O dia da estreia é sempre dia 1
+                // Se a diferença for 0 (mesmo dia após 6h), é dia 1
+                // Se a diferença for 1, é dia 2, etc.
+                // IMPORTANTE: Não adicionar +1 aqui, pois já estamos contando corretamente
+                
+                // Garantir que seja pelo menos dia 1
+                if (diasDesdeEstreia < 0) {
+                    diasDesdeEstreia = 0; // Ainda não chegou na data de estreia
+                }
+                
+                // Converter para número do dia da programação (começa em 1)
+                // Se hoje é o dia da estreia (diasDesdeEstreia = 0), é dia 1
+                // Se passou 1 dia (diasDesdeEstreia = 1), é dia 2, etc.
+                const diaProgramacao = diasDesdeEstreia + 1;
+                
+                return diaProgramacao;
+            }`;
             
             // HTML do canal com sistema completo de programação CORRIGIDO
             const html = `<!DOCTYPE html>
@@ -2194,37 +2180,7 @@
         
         // FUNÇÕES PRINCIPAIS
         
-        // Calcular dias desde a estreia (muda às 6h) - CORRIGIDO PARA DIA 1
-        function calcularDiasDesdeEstreia() {
-            const agora = new Date();
-            const dataEstreia = new Date(RELEASE_DATE);
-            
-            // Ajustar para mudança de dia às 6h
-            let diaAtual = new Date(agora);
-            
-            // Se for antes das 6h, ainda é o dia anterior
-            if (agora.getHours() < 6) {
-                diaAtual.setDate(diaAtual.getDate() - 1);
-            }
-            
-            // Resetar horas para cálculo preciso
-            dataEstreia.setHours(0, 0, 0, 0);
-            diaAtual.setHours(0, 0, 0, 0);
-            
-            const diferencaMs = diaAtual.getTime() - dataEstreia.getTime();
-            let diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
-            
-            // Ajustar: se for o mesmo dia (diferença = 0), é dia 1
-            // Se passou 1 dia, é dia 2, etc.
-            diasDesdeEstreia = diasDesdeEstreia + 1;
-            
-            // Garantir que seja pelo menos dia 1
-            if (diasDesdeEstreia < 1) {
-                diasDesdeEstreia = 1;
-            }
-            
-            return diasDesdeEstreia;
-        }
+        ${calcularDiasDesdeEstreiaCorrigida}
         
         // Calcular slot atual baseado no horário (começa às 6h)
         function calcularSlotAtual() {
@@ -2282,6 +2238,8 @@
             
             // Determinar vídeo baseado no dia (cíclico)
             // Subtrair 1 do dia porque arrays começam em 0
+            // CORREÇÃO: Se currentDay for 1, vídeoIndex deve ser 0 (primeiro vídeo)
+            // Se currentDay for 2, vídeoIndex deve ser 1 (segundo vídeo), etc.
             currentVideoIndex = (currentDay - 1) % programa.videos.length;
             
             return {
@@ -2293,7 +2251,7 @@
             };
         }
         
-        // Carregar vídeo HTML5 - CORRIGIDO PARA SEMPRE COMEÇAR DO INÍCIO
+        // Carregar vídeo HTML5
         function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = false) {
             if (youtubeContainer) {
                 youtubeContainer.style.display = 'none';
@@ -2344,7 +2302,7 @@
             }
         }
         
-        // Carregar vídeo do YouTube - CORRIGIDO PARA SEMPRE COMEÇAR DO INÍCIO
+        // Carregar vídeo do YouTube
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = false) {
             if (videoElement) {
                 videoElement.style.display = 'none';
@@ -2390,7 +2348,7 @@
             }
         }
         
-        // Reproduzir programa no slot especificado - SEMPRE COMEÇA DO INÍCIO
+        // Reproduzir programa no slot especificado
         function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
             const videoInfo = obterVideoParaSlot(slotIndex);
             
@@ -2398,7 +2356,7 @@
                 console.error('Nenhum vídeo encontrado para o slot', slotIndex);
                 setTimeout(() => {
                     const proximoSlot = (slotIndex + 1) % TOTAL_SLOTS;
-                    reproduzirPrograma(proximoSlot, 0); // SEMPRE COMEÇA DO INÍCIO
+                    reproduzirPrograma(proximoSlot, 0);
                 }, 5000);
                 return;
             }
@@ -2455,12 +2413,12 @@
             currentState = 'program';
         }
         
-        // Reproduzir comercial - SEMPRE COMEÇA DO INÍCIO
+        // Reproduzir comercial
         function reproduzirComercial() {
             if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
                 // Ir para próximo slot se não houver comerciais
                 const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                reproduzirPrograma(proximoSlot, 0); // SEMPRE COMEÇA DO INÍCIO
+                reproduzirPrograma(proximoSlot, 0);
                 return;
             }
             
@@ -2479,7 +2437,7 @@
             const commercialIndex = commercialBreakCount % TV_COMMERCIALS.length;
             const commercialUrl = TV_COMMERCIALS[commercialIndex];
             
-            // Carregar comercial (SEMPRE DO INÍCIO)
+            // Carregar comercial
             if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
                 carregarVideoYouTube(commercialUrl, 0, true);
             } else {
@@ -2504,7 +2462,7 @@
                             commercialIndicator.style.display = 'none';
                         }
                         const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                        reproduzirPrograma(proximoSlot, 0); // SEMPRE COMEÇA DO INÍCIO
+                        reproduzirPrograma(proximoSlot, 0);
                     }
                 };
                 
@@ -2522,7 +2480,7 @@
                             commercialIndicator.style.display = 'none';
                         }
                         const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                        reproduzirPrograma(proximoSlot, 0); // SEMPRE COMEÇA DO INÍCIO
+                        reproduzirPrograma(proximoSlot, 0);
                     }
                 }, 25000); // 25 segundos por comercial (fallback)
             }
@@ -2611,7 +2569,7 @@
                 });
             }
             
-            // Botão "AO VIVO" - CORRIGIDO
+            // Botão "AO VIVO"
             if (liveBtn) {
                 liveBtn.addEventListener('click', function() {
                     const slotAoVivo = calcularSlotAtual();
@@ -2703,7 +2661,7 @@
             }
         }
         
-        // Verificar fim do vídeo e avançar - CORRIGIDO
+        // Verificar fim do vídeo e avançar
         function verificarFimDoVideo() {
             if (currentState === 'program') {
                 // Programa terminou, verificar comerciais
@@ -2713,7 +2671,7 @@
                 } else {
                     // Ir para próximo slot (slot atual + 1)
                     const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
-                    reproduzirPrograma(proximoSlot, 0); // SEMPRE COMEÇA DO INÍCIO
+                    reproduzirPrograma(proximoSlot, 0);
                 }
             }
             // Para comerciais, o evento é tratado na função reproduzirComercial
@@ -2903,7 +2861,7 @@
             }
         }
 
-        // Função para salvar canal no Firestore
+        // Função para salvar canal no Firestore - CORRIGIDA
         async function salvarCanalFirestore(channel) {
             if (!currentUser) return null;
             
@@ -2916,7 +2874,9 @@
                     data: channel.data,
                     url: channel.url || '',
                     userId: currentUser.uid,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    // Adicionar campo para saber se foi publicado
+                    isPublished: channel.data?.url ? true : false
                 };
                 
                 if (editingChannel && currentChannelId) {
@@ -2939,7 +2899,7 @@
             }
         }
 
-        // Função para carregar canais do Firestore
+        // Função para carregar canais do Firestore - MELHORADA
         async function carregarCanaisFirestore() {
             if (!currentUser) return [];
             
@@ -2981,7 +2941,7 @@
             }
         }
 
-        // Função para salvar canal automaticamente
+        // Função para salvar canal automaticamente - REESCRITA
         async function salvarCanalAutomaticamente() {
             try {
                 if (!tvData.name || !tvData.email) {
@@ -3025,6 +2985,11 @@
                     if (channelId) {
                         currentChannelId = channelId;
                         console.log("Canal salvo automaticamente no Firestore:", channelId);
+                        
+                        // Atualizar a lista de canais após salvar
+                        if (typeof window.loadChannels === 'function') {
+                            await window.loadChannels();
+                        }
                     }
                 }
                 
@@ -3043,6 +3008,38 @@
                 setTimeout(() => {
                     notification.classList.remove('show');
                 }, 3000);
+            }
+        }
+
+        // Função para sincronizar canais entre localStorage e Firestore
+        async function sincronizarCanais() {
+            if (!currentUser) return;
+            
+            try {
+                // Carregar canais do localStorage
+                const canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
+                
+                // Carregar canais do Firestore
+                const canaisFirestore = await carregarCanaisFirestore();
+                
+                // Para cada canal local, verificar se existe no Firestore
+                for (const canalLocal of canaisLocais) {
+                    const existeNoFirestore = canaisFirestore.some(c => c.name === canalLocal.name);
+                    
+                    if (!existeNoFirestore) {
+                        // Salvar no Firestore
+                        await salvarCanalFirestore(canalLocal);
+                        console.log(`Canal ${canalLocal.name} sincronizado com Firestore`);
+                    }
+                }
+                
+                // Recarregar canais
+                if (typeof window.loadChannels === 'function') {
+                    await window.loadChannels();
+                }
+                
+            } catch (error) {
+                console.error("Erro na sincronização:", error);
             }
         }
 
@@ -3146,7 +3143,10 @@
                     backToHomeFromSuccess.style.display = 'inline-block';
                     backToScreen5Btn.style.display = 'none';
                     
-                    // Salvar canal localmente
+                    // Atualizar dados do canal com a URL
+                    tvData.url = resultado.url;
+                    
+                    // Salvar canal localmente e na nuvem
                     await salvarCanalAutomaticamente();
                     
                     publicationStarted = false;
@@ -3199,10 +3199,8 @@
                 await loadUserData();
                 console.log("Usuário logado:", user.email);
                 
-                // Carregar canais do usuário
-                if (typeof window.loadChannels === 'function') {
-                    await window.loadChannels();
-                }
+                // Sincronizar canais entre localStorage e Firestore
+                await sincronizarCanais();
                 
                 // Se estiver na tela 6 e usuário fizer login, iniciar publicação automaticamente
                 if (isOnScreen6) {
@@ -3565,23 +3563,34 @@
                 }
             }
             
-            // Carregar canais com imagens de bandeira/mundo (25x25)
+            // Carregar canais com imagens de bandeira/mundo (25x25) - CORRIGIDO (sem indicador "online")
             window.loadChannels = async function() {
                 try {
-                    // Primeiro, tentar carregar da nuvem (Firestore)
+                    // Primeiro, tentar carregar da nuvem (Firestore) se autenticado
                     if (currentUser) {
-                        channels = await carregarCanaisFirestore();
-                        console.log(`Carregados ${channels.length} canais do Firestore`);
+                        const firestoreChannels = await carregarCanaisFirestore();
+                        console.log(`Carregados ${firestoreChannels.length} canais do Firestore`);
+                        
+                        // Adicionar canais do Firestore à lista
+                        channels = [...firestoreChannels];
                     }
                     
-                    // Se não houver canais na nuvem, carregar do localStorage
-                    if (channels.length === 0) {
-                        const canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
-                        channels = canaisLocais.map((canal, index) => ({
-                            id: `local-${index}`,
-                            ...canal
-                        }));
-                        console.log(`Carregados ${channels.length} canais do localStorage`);
+                    // Carregar também do localStorage (para garantir que canais não publicados apareçam)
+                    const canaisLocais = JSON.parse(localStorage.getItem('playtronic_tv_channels') || '[]');
+                    console.log(`Carregados ${canaisLocais.length} canais do localStorage`);
+                    
+                    // Mesclar canais, evitando duplicatas
+                    const canaisLocaisFormatados = canaisLocais.map((canal, index) => ({
+                        id: `local-${index}`,
+                        ...canal
+                    }));
+                    
+                    // Adicionar canais locais que não existem no Firestore
+                    for (const canalLocal of canaisLocaisFormatados) {
+                        const existe = channels.some(c => c.name === canalLocal.name);
+                        if (!existe) {
+                            channels.push(canalLocal);
+                        }
                     }
                     
                     channelsList.innerHTML = '';
@@ -3615,16 +3624,16 @@
                                 visibilityIcon = `<img src="${WORLD_ICON}" class="visibility-icon" title="Seu canal está visível no mundo todo">`;
                             }
                             
+                            // REMOVIDO: Indicador "online/offline" que não foi solicitado
                             channelCard.innerHTML = `
                                 ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
                                 <div class="channel-name-with-emoji">
                                     <h3>${channel.name}</h3>
-                                    <span class="channel-status ${isOffline ? 'offline' : 'online'}">${isOffline ? 'Offline' : 'Online'}</span>
                                 </div>
                                 ${visibilityIcon}
                                 <p>${channel.slogan || 'Sem slogan'}</p>
                                 <div class="channel-actions">
-                                    <button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>
+                                    ${channel.url ? `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
                                     <button class="edit-channel" data-id="${channel.id}">Editar</button>
                                     <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
                                         ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
@@ -3640,10 +3649,12 @@
                             const toggleBtn = channelCard.querySelector('.toggle-offline-channel');
                             const deleteBtn = channelCard.querySelector('.delete-channel');
                             
-                            watchBtn.addEventListener('click', function() {
-                                const channelUrl = this.getAttribute('data-url');
-                                window.open(channelUrl, '_blank');
-                            });
+                            if (watchBtn) {
+                                watchBtn.addEventListener('click', function() {
+                                    const channelUrl = this.getAttribute('data-url');
+                                    window.open(channelUrl, '_blank');
+                                });
+                            }
                             
                             editBtn.addEventListener('click', function() {
                                 const channelId = this.getAttribute('data-id');
@@ -3839,7 +3850,7 @@
                 }
             }
             
-            // Apagar canal - CORRIGIDO PARA SALVAMENTO AUTOMÁTICO
+            // Apagar canal - CORRIGIDO
             async function deleteChannel(channelId) {
                 const channel = channels.find(c => c.id == channelId);
                 if (!channel) return;
@@ -3849,11 +3860,13 @@
                         let apagadoDoServidor = false;
                         let apagadoDoFirestore = false;
                         
-                        // Tentar apagar do servidor GitHub
-                        try {
-                            apagadoDoServidor = await apagarCanalGithub(channel.name);
-                        } catch (error) {
-                            console.log("Não foi possível apagar do servidor GitHub:", error);
+                        // Tentar apagar do servidor GitHub (se tiver URL)
+                        if (channel.url) {
+                            try {
+                                apagadoDoServidor = await apagarCanalGithub(channel.name);
+                            } catch (error) {
+                                console.log("Não foi possível apagar do servidor GitHub:", error);
+                            }
                         }
                         
                         // Tentar apagar do Firestore (se for um canal da nuvem)
