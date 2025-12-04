@@ -1290,7 +1290,7 @@
         let verificationAttempts = 0;
         const MAX_VERIFICATION_ATTEMPTS = 60;
 
-        // Sistema de gerenciamento de canais
+        // Sistema de gerenciamento de canais (APENAS FIRESTORE)
         let channels = [];
         let currentChannelId = null;
         let editingChannel = false;
@@ -1325,7 +1325,9 @@
                 text: '',
                 url: ''
             },
-            url: ''
+            url: '',
+            createdAt: null,
+            updatedAt: null
         };
         
         let totalSlots = 58;
@@ -2850,9 +2852,9 @@
             }
         }
 
-        // ==================== FUNÇÕES DO FIRESTORE ====================
+        // ==================== FUNÇÕES DO FIRESTORE (CORRIGIDAS) ====================
 
-        // Função para salvar canal no Firestore - CORRIGIDA
+        // Função para salvar canal no Firestore
         async function salvarCanalFirestore(channelData) {
             if (!currentUser) {
                 console.error("Usuário não autenticado para salvar canal");
@@ -2860,64 +2862,42 @@
             }
             
             try {
-                // Preparar os dados para salvar
+                // Estrutura consistente para o Firestore
                 const channelToSave = {
-                    email: channelData.email || '',
-                    name: channelData.name || '',
-                    slogan: channelData.slogan || '',
-                    logo: channelData.logo || DEFAULT_LOGO,
-                    visibility: channelData.visibility || 'brazil',
-                    showTime: channelData.showTime !== undefined ? channelData.showTime : true,
-                    enableRewind10: channelData.enableRewind10 !== undefined ? channelData.enableRewind10 : true,
-                    enableRestart: channelData.enableRestart !== undefined ? channelData.enableRestart : true,
-                    enableLive: channelData.enableLive !== undefined ? channelData.enableLive : true,
-                    enableDebug: channelData.enableDebug || false,
-                    customReleaseDate: channelData.customReleaseDate || false,
-                    releaseDate: channelData.releaseDate || '',
-                    programs: channelData.programs || [],
-                    commercials: channelData.commercials || [],
-                    enableCommercials: channelData.enableCommercials || false,
-                    commercialsPerBreak: channelData.commercialsPerBreak || 2,
-                    isOffline: channelData.isOffline || false,
-                    socialMedia: channelData.socialMedia || {
-                        facebook: '',
-                        instagram: '',
-                        bluesky: '',
-                        tiktok: ''
-                    },
-                    customButton: channelData.customButton || {
-                        text: '',
-                        url: ''
-                    },
-                    url: channelData.url || '',
                     userId: currentUser.uid,
                     userEmail: currentUser.email,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    userDisplayName: currentUser.displayName,
+                    channelData: channelData, // Salva todos os dados do canal em um único campo
+                    isPublished: !!channelData.url,
+                    isOffline: channelData.isOffline || false,
+                    url: channelData.url || '',
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    createdAt: editingChannel && currentChannelId ? undefined : firebase.firestore.FieldValue.serverTimestamp()
                 };
                 
-                console.log("Salvando canal no Firestore:", channelToSave.name);
+                console.log("Salvando canal no Firestore:", channelData.name);
+                console.log("Dados a serem salvos:", channelToSave);
                 
                 if (editingChannel && currentChannelId) {
-                    // Atualizar canal existente
+                    // Atualizar canal existente no Firestore
                     await db.collection('channels').doc(currentChannelId).update(channelToSave);
                     console.log("Canal atualizado no Firestore:", currentChannelId);
                     return currentChannelId;
                 } else {
-                    // Criar novo canal
-                    const docRef = await db.collection('channels').add({
-                        ...channelToSave,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
+                    // Criar novo canal no Firestore
+                    const docRef = await db.collection('channels').add(channelToSave);
                     console.log("Novo canal criado no Firestore:", docRef.id);
+                    currentChannelId = docRef.id;
                     return docRef.id;
                 }
             } catch (error) {
                 console.error("Erro ao salvar canal no Firestore:", error);
+                alert("Erro ao salvar canal: " + error.message);
                 return null;
             }
         }
 
-        // Função para carregar canais do Firestore - CORRIGIDA
+        // Função para carregar canais do Firestore (CORRIGIDA)
         async function carregarCanaisFirestore() {
             if (!currentUser) {
                 console.log("Usuário não autenticado, não é possível carregar canais");
@@ -2935,16 +2915,22 @@
                 const channels = [];
                 querySnapshot.forEach(doc => {
                     const data = doc.data();
-                    channels.push({
+                    
+                    // Estrutura consistente para recuperação
+                    const channel = {
                         id: doc.id,
-                        ...data
-                    });
+                        ...data.channelData, // Espalha os dados do canal
+                        firestoreData: data // Mantém os dados originais do Firestore se necessário
+                    };
+                    
+                    channels.push(channel);
                 });
                 
                 console.log(`${channels.length} canais carregados do Firestore`);
                 return channels;
             } catch (error) {
                 console.error("Erro ao carregar canais do Firestore:", error);
+                alert("Erro ao carregar canais: " + error.message);
                 return [];
             }
         }
@@ -2966,7 +2952,7 @@
             }
         }
 
-        // Função para salvar canal automaticamente - CORRIGIDA
+        // Função para salvar canal automaticamente (APENAS FIRESTORE)
         async function salvarCanalAutomaticamente() {
             try {
                 if (!tvData.name || !tvData.email) {
@@ -2978,6 +2964,8 @@
                     console.log("Usuário não autenticado, canal não salvo");
                     return false;
                 }
+                
+                console.log("Salvando canal automaticamente:", tvData.name);
                 
                 // Salvar no Firestore
                 const savedChannelId = await salvarCanalFirestore(tvData);
@@ -3011,7 +2999,7 @@
             }
         }
 
-        // Função principal de publicação - CORRIGIDA
+        // Função principal de publicação
         async function iniciarPublicacao() {
             console.log("Iniciando publicação...");
             
@@ -3154,12 +3142,12 @@
             }
         }
 
-        // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
+        // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS (CORRIGIDAS) ====================
 
-        // Função para carregar todos os canais - CORRIGIDA
+        // Função para carregar todos os canais
         async function carregarCanais() {
             try {
-                console.log("Carregando canais...");
+                console.log("Carregando canais do Firestore...");
                 
                 const channelsList = document.getElementById('channelsList');
                 const emptyState = document.getElementById('emptyState');
@@ -3168,7 +3156,7 @@
                 channels = [];
                 if (channelsList) channelsList.innerHTML = '';
                 
-                // Carregar canais do Firestore
+                // Carregar canais apenas do Firestore
                 const canaisFirestore = await carregarCanaisFirestore();
                 console.log(`${canaisFirestore.length} canais carregados do Firestore`);
                 
@@ -3178,7 +3166,6 @@
                 if (channels.length === 0) {
                     if (emptyState) emptyState.style.display = 'block';
                     if (channelsList) channelsList.style.display = 'none';
-                    console.log("Nenhum canal encontrado para o usuário");
                 } else {
                     if (emptyState) emptyState.style.display = 'none';
                     if (channelsList) {
@@ -3188,16 +3175,25 @@
                             const channelCard = document.createElement('div');
                             channelCard.className = 'channel-card';
                             
-                            const nomeArquivo = channel.name.toLowerCase()
-                                .replace(/[^a-z0-9]/g, '-')
-                                .replace(/-+/g, '-') + '.html';
-                            const urlCanal = channel.url || `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
-                            
-                            // Determinar status do canal
+                            // Verificar se os dados estão na estrutura correta
+                            const channelName = channel.name || 'Canal sem nome';
+                            const channelSlogan = channel.slogan || 'Sem slogan';
+                            const channelLogo = channel.logo || DEFAULT_LOGO;
+                            const channelUrl = channel.url || '';
                             const isOffline = channel.isOffline || false;
                             const visibility = channel.visibility || 'brazil';
                             
-                            // Ícone de visibilidade
+                            // Gerar URL do canal se não existir
+                            let finalUrl = channelUrl;
+                            if (!finalUrl && channelName !== 'Canal sem nome') {
+                                const nomeArquivo = channelName.toLowerCase()
+                                    .replace(/[^a-z0-9]/g, '-')
+                                    .replace(/-+/g, '-') + '.html';
+                                finalUrl = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
+                            }
+                            
+                            // Usar imagem da bandeira do Brasil para visibilidade Brasil
+                            // e imagem do mundo para visibilidade mundial (25x25)
                             let visibilityIcon = '';
                             if (visibility === 'brazil') {
                                 visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil">`;
@@ -3206,15 +3202,15 @@
                             }
                             
                             channelCard.innerHTML = `
-                                <img src="${channel.logo || DEFAULT_LOGO}" class="channel-logo-small" alt="Logo">
+                                <img src="${channelLogo}" class="channel-logo-small" alt="Logo">
                                 <div class="channel-name-with-emoji">
-                                    <h3>${channel.name}</h3>
+                                    <h3>${channelName}</h3>
                                 </div>
                                 ${visibilityIcon}
-                                <p>${channel.slogan || 'Sem slogan'}</p>
+                                <p>${channelSlogan}</p>
                                 <div class="channel-actions">
-                                    ${urlCanal ? 
-                                        `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
+                                    ${finalUrl && finalUrl !== 'https://playtronic.github.io/tv/canais/.html' ? 
+                                        `<button class="watch-channel" data-id="${channel.id}" data-url="${finalUrl}">Abrir ${channelName}</button>` : ''}
                                     <button class="edit-channel" data-id="${channel.id}">Editar</button>
                                     <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
                                         ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
@@ -3282,9 +3278,20 @@
             const channel = channels.find(c => c.id === channelId);
             if (channel) {
                 try {
-                    // Atualizar no Firestore
-                    await db.collection('channels').doc(channelId).update({
-                        isOffline: !isCurrentlyOffline,
+                    // Buscar o documento atual primeiro
+                    const docRef = db.collection('channels').doc(channelId);
+                    const doc = await docRef.get();
+                    
+                    if (!doc.exists) {
+                        alert("Canal não encontrado");
+                        return;
+                    }
+                    
+                    const currentData = doc.data();
+                    
+                    // Atualizar apenas o campo isOffline dentro de channelData
+                    await docRef.update({
+                        'channelData.isOffline': !isCurrentlyOffline,
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     
@@ -3302,7 +3309,7 @@
             }
         }
         
-        // Editar canal - CORRIGIDA
+        // Editar canal (CORRIGIDA)
         async function editChannel(channelId) {
             if (!currentUser) {
                 alert("É necessário fazer login para editar canais");
@@ -3318,43 +3325,51 @@
                     return;
                 }
                 
-                const channel = doc.data();
+                const data = doc.data();
+                
+                // Verificar se os dados estão na estrutura correta
+                if (!data.channelData) {
+                    alert("Estrutura de dados do canal inválida");
+                    return;
+                }
                 
                 // Preencher tvData com os dados do canal
-                tvData = {
-                    email: channel.email || '',
-                    name: channel.name || '',
-                    slogan: channel.slogan || '',
-                    logo: channel.logo || '',
-                    visibility: channel.visibility || 'brazil',
-                    showTime: channel.showTime !== undefined ? channel.showTime : true,
-                    enableRewind10: channel.enableRewind10 !== undefined ? channel.enableRewind10 : true,
-                    enableRestart: channel.enableRestart !== undefined ? channel.enableRestart : true,
-                    enableLive: channel.enableLive !== undefined ? channel.enableLive : true,
-                    enableDebug: channel.enableDebug || false,
-                    customReleaseDate: channel.customReleaseDate || false,
-                    releaseDate: channel.releaseDate || '',
-                    programs: channel.programs || [],
-                    commercials: channel.commercials || [],
-                    enableCommercials: channel.enableCommercials || false,
-                    commercialsPerBreak: channel.commercialsPerBreak || 2,
-                    isOffline: channel.isOffline || false,
-                    socialMedia: channel.socialMedia || {
+                tvData = { 
+                    ...data.channelData,
+                    // Garantir que campos essenciais existam
+                    email: data.channelData.email || '',
+                    name: data.channelData.name || '',
+                    slogan: data.channelData.slogan || '',
+                    logo: data.channelData.logo || '',
+                    visibility: data.channelData.visibility || 'brazil',
+                    showTime: data.channelData.showTime !== undefined ? data.channelData.showTime : true,
+                    enableRewind10: data.channelData.enableRewind10 !== undefined ? data.channelData.enableRewind10 : true,
+                    enableRestart: data.channelData.enableRestart !== undefined ? data.channelData.enableRestart : true,
+                    enableLive: data.channelData.enableLive !== undefined ? data.channelData.enableLive : true,
+                    enableDebug: data.channelData.enableDebug !== undefined ? data.channelData.enableDebug : false,
+                    customReleaseDate: data.channelData.customReleaseDate !== undefined ? data.channelData.customReleaseDate : false,
+                    releaseDate: data.channelData.releaseDate || '',
+                    programs: data.channelData.programs || [],
+                    commercials: data.channelData.commercials || [],
+                    enableCommercials: data.channelData.enableCommercials !== undefined ? data.channelData.enableCommercials : false,
+                    commercialsPerBreak: data.channelData.commercialsPerBreak || 2,
+                    isOffline: data.channelData.isOffline || false,
+                    socialMedia: data.channelData.socialMedia || {
                         facebook: '',
                         instagram: '',
                         bluesky: '',
                         tiktok: ''
                     },
-                    customButton: channel.customButton || {
+                    customButton: data.channelData.customButton || {
                         text: '',
                         url: ''
                     },
-                    url: channel.url || ''
+                    url: data.channelData.url || ''
                 };
                 
                 currentChannelId = channelId;
                 editingChannel = true;
-                originalChannelName = channel.name;
+                originalChannelName = tvData.name;
                 
                 // Preencher formulário com dados do canal
                 document.getElementById('tvEmail').value = tvData.email;
@@ -3461,8 +3476,8 @@
                 try {
                     let apagadoDoServidor = false;
                     
-                    // Tentar apagar do servidor GitHub (se tiver URL)
-                    if (channel.url) {
+                    // Tentar apagar do servidor GitHub (se tiver URL e nome)
+                    if (channel.url && channel.name) {
                         try {
                             apagadoDoServidor = await apagarCanalGithub(channel.name);
                         } catch (error) {
@@ -3498,6 +3513,7 @@
             
             if (user) {
                 console.log("Usuário logado:", user.email);
+                console.log("UID do usuário:", user.uid);
                 
                 // Carregar canais do Firestore
                 await carregarCanais();
@@ -3522,6 +3538,8 @@
                 }
                 
             } else {
+                console.log("Usuário deslogado, limpando dados locais");
+                
                 // Se o usuário deslogou, limpar canais
                 channels = [];
                 const channelsList = document.getElementById('channelsList');
@@ -3529,6 +3547,44 @@
                 
                 if (channelsList) channelsList.innerHTML = '';
                 if (emptyState) emptyState.style.display = 'block';
+                
+                // Resetar dados do canal atual
+                tvData = {
+                    email: '',
+                    name: '',
+                    slogan: '',
+                    logo: '',
+                    visibility: 'brazil',
+                    showTime: true,
+                    enableRewind10: true,
+                    enableRestart: true,
+                    enableLive: true,
+                    enableDebug: false,
+                    customReleaseDate: false,
+                    releaseDate: '',
+                    programs: [],
+                    commercials: [],
+                    enableCommercials: false,
+                    commercialsPerBreak: 2,
+                    isOffline: false,
+                    socialMedia: {
+                        facebook: '',
+                        instagram: '',
+                        bluesky: '',
+                        tiktok: ''
+                    },
+                    customButton: {
+                        text: '',
+                        url: ''
+                    },
+                    url: '',
+                    createdAt: null,
+                    updatedAt: null
+                };
+                
+                currentChannelId = null;
+                editingChannel = false;
+                originalChannelName = '';
                 
                 // Se estiver na tela 6, mostrar mensagem de autenticação
                 if (isOnScreen6) {
@@ -3862,7 +3918,9 @@
                         text: '',
                         url: ''
                     },
-                    url: ''
+                    url: '',
+                    createdAt: null,
+                    updatedAt: null
                 };
                 currentChannelId = null;
                 editingChannel = false;
@@ -3984,20 +4042,23 @@
                     try {
                         const querySnapshot = await db.collection('channels')
                             .where('userId', '==', currentUser.uid)
-                            .where('name', '==', nomeCanal)
                             .get();
                         
                         if (!querySnapshot.empty) {
-                            const existingChannel = querySnapshot.docs[0].data();
-                            if (ignorarCanalAtual && existingChannel.id === currentChannelId) {
-                                return { existe: false };
+                            for (const doc of querySnapshot.docs) {
+                                const data = doc.data();
+                                if (data.channelData && data.channelData.name === nomeCanal) {
+                                    if (ignorarCanalAtual && doc.id === currentChannelId) {
+                                        continue;
+                                    }
+                                    
+                                    return {
+                                        existe: true,
+                                        tipo: 'firestore',
+                                        mensagem: 'Já existe um canal com este nome na sua conta. Por favor, escolha outro nome.'
+                                    };
+                                }
                             }
-                            
-                            return {
-                                existe: true,
-                                tipo: 'firestore',
-                                mensagem: 'Já existe um canal com este nome na sua conta. Por favor, escolha outro nome.'
-                            };
                         }
                     } catch (error) {
                         console.log('Erro na verificação do Firestore:', error);
@@ -4812,7 +4873,9 @@
             
             // Carregar canais se usuário já estiver autenticado
             if (currentUser) {
-                carregarCanais();
+                setTimeout(() => {
+                    carregarCanais();
+                }, 1000);
             }
         });
     </script>
