@@ -1392,7 +1392,7 @@
             <div id="verificationMessage" class="waiting-message" style="display: none;">
                 <div class="spinner"></div>
                 <h3>Verificando publicação...</h3>
-                <p>Aguardando o servidor disponibilizar sua página</p>
+                <p>Aguardendo o servidor disponibilizar sua página</p>
                 <div class="progress-container">
                     <div class="progress-bar" style="width: 75%;"></div>
                 </div>
@@ -3724,8 +3724,34 @@
                     document.getElementById('releaseDateContainer').style.display = 'none';
                 }
                 
-                // Atualizar preview da logo
-                updateLogoPreview();
+                // Atualizar preview da logo (CHAMADA CORRIGIDA - usando a função global)
+                if (typeof updateLogoPreview === 'function') {
+                    updateLogoPreview();
+                } else {
+                    // Fallback caso a função não esteja disponível
+                    const tvLogoInput = document.getElementById('tvLogo');
+                    const logoPreview = document.getElementById('logoPreview');
+                    const logoError = document.getElementById('logoError');
+                    
+                    const logoUrl = tvLogoInput.value;
+                    if (logoUrl) {
+                        logoPreview.src = logoUrl;
+                        logoError.style.display = 'none';
+                        
+                        logoPreview.onerror = function() {
+                            logoPreview.src = DEFAULT_LOGO;
+                            logoError.textContent = 'Não foi possível carregar a imagem. Verifique a URL.';
+                            logoError.style.display = 'block';
+                        };
+                        
+                        logoPreview.onload = function() {
+                            logoError.style.display = 'none';
+                        };
+                    } else {
+                        logoPreview.src = DEFAULT_LOGO;
+                        logoError.style.display = 'none';
+                    }
+                }
                 
                 // Limpar e recriar programas
                 const programsContainer = document.getElementById('programsContainer');
@@ -3773,7 +3799,25 @@
                 document.getElementById('customButtonUrl').value = tvData.customButton.url || '';
                 document.getElementById('customButtonTextCounter').textContent = `${tvData.customButton.text?.length || 0}/20`;
                 
-                updateCounters();
+                // Atualizar contadores (CHAMADA CORRIGIDA - usando a função global)
+                if (typeof updateCounters === 'function') {
+                    updateCounters();
+                } else {
+                    // Fallback caso a função não esteja disponível
+                    const programCount = document.getElementById('programCount');
+                    const totalSlots = 58;
+                    const addProgramBtn = document.getElementById('addProgram');
+
+                    programCount.textContent = tvData.programs.length;
+                    
+                    if (tvData.programs.length >= totalSlots) {
+                        addProgramBtn.disabled = true;
+                        addProgramBtn.textContent = "Limite de 58 programas atingido";
+                    } else {
+                        addProgramBtn.disabled = false;
+                        addProgramBtn.textContent = "+ Adicionar Novo Programa";
+                    }
+                }
                 
                 console.log("Formulário preenchido com sucesso. Indo para tela 1...");
                 showScreen('screen1');
@@ -4014,6 +4058,297 @@
                 
                 const userCard = document.getElementById('userCard');
                 if (userCard) userCard.classList.remove('active');
+            }
+        }
+
+        // ==================== FUNÇÕES AUXILIARES GLOBAIS ====================
+        
+        // Função para atualizar o preview da logo (DEFINIDA NO ESCOPO GLOBAL)
+        function updateLogoPreview() {
+            const tvLogoInput = document.getElementById('tvLogo');
+            const logoPreview = document.getElementById('logoPreview');
+            const logoError = document.getElementById('logoError');
+            
+            const logoUrl = tvLogoInput.value;
+            if (logoUrl) {
+                logoPreview.src = logoUrl;
+                tvData.logo = logoUrl;
+                logoError.style.display = 'none';
+                unsavedChanges = true;
+                
+                logoPreview.onerror = function() {
+                    logoPreview.src = DEFAULT_LOGO;
+                    logoError.textContent = 'Não foi possível carregar a imagem. Verifique a URL.';
+                    logoError.style.display = 'block';
+                };
+                
+                logoPreview.onload = function() {
+                    logoError.style.display = 'none';
+                };
+            } else {
+                logoPreview.src = DEFAULT_LOGO;
+                tvData.logo = '';
+                logoError.style.display = 'none';
+                unsavedChanges = true;
+            }
+        }
+        
+        // Função para atualizar contadores (DEFINIDA NO ESCOPO GLOBAL)
+        function updateCounters() {
+            const programCount = document.getElementById('programCount');
+            const totalSlots = 58;
+            const addProgramBtn = document.getElementById('addProgram');
+
+            programCount.textContent = tvData.programs.length;
+            
+            if (tvData.programs.length >= totalSlots) {
+                addProgramBtn.disabled = true;
+                addProgramBtn.textContent = "Limite de 58 programas atingido";
+            } else {
+                addProgramBtn.disabled = false;
+                addProgramBtn.textContent = "+ Adicionar Novo Programa";
+            }
+        }
+        
+        // Função para adicionar cartão de programa (DEFINIDA NO ESCOPO GLOBAL)
+        function addProgramCard(program, index) {
+            const programId = program.id || `program-${Date.now()}-${index}`;
+            const programCard = document.createElement('div');
+            programCard.className = 'program-card';
+            programCard.id = programId;
+            
+            programCard.innerHTML = `
+                <div class="program-header">
+                    <h3>Programa ${index + 1}</h3>
+                    <button type="button" class="remove-program" data-program="${programId}">Remover</button>
+                </div>
+                <div class="form-group">
+                    <label for="${programId}-name">Nome do Programa (máx. 50 caracteres):</label>
+                    <input type="text" id="${programId}-name" maxlength="50" value="${program.name || ''}" placeholder="Ex: Jornal da Manhã">
+                    <div class="char-counter" id="${programId}-name-counter">${program.name ? program.name.length : 0}/50</div>
+                </div>
+                <div class="form-group">
+                    <label>Episódios (Dias):</label>
+                    <ul class="video-list" id="${programId}-videos"></ul>
+                    <input type="url" id="${programId}-new-video" placeholder="URL do vídeo">
+                    <button type="button" class="add-video" data-program="${programId}">Adicionar Episódio</button>
+                </div>
+            `;
+            
+            const programsContainer = document.getElementById('programsContainer');
+            programsContainer.appendChild(programCard);
+            
+            // Atualizar contador de caracteres
+            const nameInput = document.getElementById(`${programId}-name`);
+            const nameCounter = document.getElementById(`${programId}-name-counter`);
+            nameInput.addEventListener('input', function() {
+                nameCounter.textContent = `${this.value.length}/50`;
+                if (this.value.length > 45) {
+                    nameCounter.className = 'char-counter near-limit';
+                } else if (this.value.length > 50) {
+                    nameCounter.className = 'char-counter over-limit';
+                } else {
+                    nameCounter.className = 'char-counter';
+                }
+                updatePrograms();
+                unsavedChanges = true;
+            });
+            
+            const videoList = document.getElementById(`${programId}-videos`);
+            if (program.videos && program.videos.length > 0) {
+                program.videos.forEach((videoUrl, videoIndex) => {
+                    const videoItem = document.createElement('li');
+                    videoItem.innerHTML = `
+                        <span>Vídeo - Dia ${videoIndex + 1}: ${videoUrl}</span>
+                        <button type="button" class="remove-video">Remover</button>
+                    `;
+                    videoList.appendChild(videoItem);
+                });
+            }
+            
+            document.querySelector(`#${programId} .add-video`).addEventListener('click', function() {
+                const programId = this.getAttribute('data-program');
+                const videoUrlInput = document.getElementById(`${programId}-new-video`);
+                const videoUrl = videoUrlInput.value;
+                
+                if (videoUrl) {
+                    if (!isValidUrl(videoUrl)) {
+                        alert('Por favor, insira uma URL válida para o vídeo.');
+                        return;
+                    }
+                    
+                    const videoList = document.getElementById(`${programId}-videos`);
+                    const videoItem = document.createElement('li');
+                    const dayNumber = videoList.children.length + 1;
+                    videoItem.innerHTML = `
+                        <span>Vídeo - Dia ${dayNumber}: ${videoUrl}</span>
+                        <button type="button" class="remove-video">Remover</button>
+                    `;
+                    videoList.appendChild(videoItem);
+                    videoUrlInput.value = '';
+                    updatePrograms();
+                    unsavedChanges = true;
+                }
+            });
+            
+            document.querySelector(`#${programId} .remove-program`).addEventListener('click', function() {
+                const programId = this.getAttribute('data-program');
+                document.getElementById(programId).remove();
+                updatePrograms();
+                unsavedChanges = true;
+            });
+            
+            programCard.addEventListener('click', function(e) {
+                if (e.target.classList.contains('remove-video')) {
+                    e.target.parentElement.remove();
+                    const videoList = e.target.parentElement.parentElement;
+                    Array.from(videoList.children).forEach((item, index) => {
+                        const span = item.querySelector('span');
+                        span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
+                    });
+                    updatePrograms();
+                    unsavedChanges = true;
+                }
+            });
+            
+            nameInput.addEventListener('input', updatePrograms);
+        }
+        
+        // Função para adicionar cartão de comercial (DEFINIDA NO ESCOPO GLOBAL)
+        function addCommercialCard(commercial, index) {
+            const commercialId = 'commercial-' + Date.now() + '-' + index;
+            const commercialCard = document.createElement('div');
+            commercialCard.className = 'commercial-card';
+            commercialCard.id = commercialId;
+            
+            // Se commercial for string (antigo formato), converter para objeto
+            const commercialObj = typeof commercial === 'string' ? { name: `Comercial ${index + 1}`, url: commercial } : commercial;
+            
+            commercialCard.innerHTML = `
+                <div class="commercial-header">
+                    <h4>Comercial ${index + 1}</h4>
+                    <button type="button" class="remove-commercial" data-commercial="${commercialId}">Remover</button>
+                </div>
+                <div class="form-group">
+                    <label for="${commercialId}-name">Nome (controle interno, máx. 50 caracteres):</label>
+                    <input type="text" id="${commercialId}-name" value="${commercialObj.name || ''}" placeholder="Ex: Comercial da Empresa X" maxlength="50">
+                    <div class="char-counter" id="${commercialId}-name-counter">${commercialObj.name ? commercialObj.name.length : 0}/50</div>
+                </div>
+                <div class="form-group">
+                    <label for="${commercialId}-url">URL do comercial:</label>
+                    <input type="url" id="${commercialId}-url" value="${commercialObj.url || ''}" placeholder="URL do comercial">
+                </div>
+            `;
+            
+            const commercialsContainer = document.getElementById('commercialsContainer');
+            commercialsContainer.appendChild(commercialCard);
+            
+            // Atualizar contador de caracteres
+            const nameInput = document.getElementById(`${commercialId}-name`);
+            const nameCounter = document.getElementById(`${commercialId}-name-counter`);
+            nameInput.addEventListener('input', function() {
+                nameCounter.textContent = `${this.value.length}/50`;
+                if (this.value.length > 45) {
+                    nameCounter.className = 'char-counter near-limit';
+                } else if (this.value.length > 50) {
+                    nameCounter.className = 'char-counter over-limit';
+                } else {
+                    nameCounter.className = 'char-counter';
+                }
+                updateCommercials();
+                unsavedChanges = true;
+            });
+            
+            document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
+                const commercialId = this.getAttribute('data-commercial');
+                document.getElementById(commercialId).remove();
+                updateCommercials();
+                unsavedChanges = true;
+            });
+            
+            document.getElementById(`${commercialId}-url`).addEventListener('input', function() {
+                updateCommercials();
+                unsavedChanges = true;
+            });
+        }
+        
+        // Função para atualizar programas (DEFINIDA NO ESCOPO GLOBAL)
+        function updatePrograms() {
+            tvData.programs = [];
+            const programElements = document.querySelectorAll('.program-card');
+            
+            programElements.forEach(programElement => {
+                const programId = programElement.id;
+                const name = document.getElementById(`${programId}-name`).value;
+                const videoList = document.getElementById(`${programId}-videos`);
+                const videos = Array.from(videoList.children).map(li => li.querySelector('span').textContent.replace(/Vídeo - Dia \d+:\s*/, ''));
+                
+                if (name && videos.length > 0) {
+                    tvData.programs.push({
+                        id: programId,
+                        name: name,
+                        videos: videos
+                    });
+                }
+            });
+            
+            updateCounters();
+        }
+        
+        // Função para atualizar comerciais (DEFINIDA NO ESCOPO GLOBAL)
+        function updateCommercials() {
+            tvData.commercials = [];
+            const commercialElements = document.querySelectorAll('.commercial-card');
+            
+            commercialElements.forEach(commercialElement => {
+                const commercialId = commercialElement.id;
+                const name = document.getElementById(`${commercialId}-name`).value;
+                const url = document.getElementById(`${commercialId}-url`).value;
+                
+                if (url) {
+                    tvData.commercials.push({
+                        name: name || `Comercial ${tvData.commercials.length + 1}`,
+                        url: url
+                    });
+                }
+            });
+        }
+        
+        // Função para validar URL (DEFINIDA NO ESCOPO GLOBAL)
+        function isValidUrl(string) {
+            try {
+                new URL(string);
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+        
+        // Função para validar e-mail (DEFINIDA NO ESCOPO GLOBAL)
+        function isValidEmail(email) {
+            const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+            return re.test(String(email).toLowerCase());
+        }
+        
+        // Função para validar URL de rede social específica (DEFINIDA NO ESCOPO GLOBAL)
+        function isValidSocialMediaUrl(url, platform) {
+            if (!url) return true; // Campo vazio é válido
+            if (!isValidUrl(url)) return false;
+            
+            const urlObj = new URL(url);
+            const hostname = urlObj.hostname;
+            
+            switch(platform) {
+                case 'facebook':
+                    return hostname === 'facebook.com' || hostname === 'www.facebook.com';
+                case 'instagram':
+                    return hostname === 'instagram.com' || hostname === 'www.instagram.com';
+                case 'bluesky':
+                    return hostname === 'bsky.app' || hostname === 'www.bsky.app';
+                case 'tiktok':
+                    return hostname === 'tiktok.com' || hostname === 'www.tiktok.com';
+                default:
+                    return true;
             }
         }
 
@@ -4312,31 +4647,6 @@
             });
 
             // Atualizar preview da logo
-            function updateLogoPreview() {
-                const logoUrl = tvLogoInput.value;
-                if (logoUrl) {
-                    logoPreview.src = logoUrl;
-                    tvData.logo = logoUrl;
-                    logoError.style.display = 'none';
-                    unsavedChanges = true;
-                    
-                    logoPreview.onerror = function() {
-                        logoPreview.src = DEFAULT_LOGO;
-                        logoError.textContent = 'Não foi possível carregar a imagem. Verifique a URL.';
-                        logoError.style.display = 'block';
-                    };
-                    
-                    logoPreview.onload = function() {
-                        logoError.style.display = 'none';
-                    };
-                } else {
-                    logoPreview.src = DEFAULT_LOGO;
-                    tvData.logo = '';
-                    logoError.style.display = 'none';
-                    unsavedChanges = true;
-                }
-            }
-            
             tvLogoInput.addEventListener('input', updateLogoPreview);
             tvLogoInput.addEventListener('change', updateLogoPreview);
             
@@ -4687,166 +4997,6 @@
                 showScreen('screen3');
             });
             
-            // Adicionar cartão de programa
-            function addProgramCard(program, index) {
-                const programId = program.id || `program-${Date.now()}-${index}`;
-                const programCard = document.createElement('div');
-                programCard.className = 'program-card';
-                programCard.id = programId;
-                
-                programCard.innerHTML = `
-                    <div class="program-header">
-                        <h3>Programa ${index + 1}</h3>
-                        <button type="button" class="remove-program" data-program="${programId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="${programId}-name">Nome do Programa (máx. 50 caracteres):</label>
-                        <input type="text" id="${programId}-name" maxlength="50" value="${program.name || ''}" placeholder="Ex: Jornal da Manhã">
-                        <div class="char-counter" id="${programId}-name-counter">${program.name ? program.name.length : 0}/50</div>
-                    </div>
-                    <div class="form-group">
-                        <label>Episódios (Dias):</label>
-                        <ul class="video-list" id="${programId}-videos"></ul>
-                        <input type="url" id="${programId}-new-video" placeholder="URL do vídeo">
-                        <button type="button" class="add-video" data-program="${programId}">Adicionar Episódio</button>
-                    </div>
-                `;
-                
-                programsContainer.appendChild(programCard);
-                
-                // Atualizar contador de caracteres
-                const nameInput = document.getElementById(`${programId}-name`);
-                const nameCounter = document.getElementById(`${programId}-name-counter`);
-                nameInput.addEventListener('input', function() {
-                    nameCounter.textContent = `${this.value.length}/50`;
-                    if (this.value.length > 45) {
-                        nameCounter.className = 'char-counter near-limit';
-                    } else if (this.value.length > 50) {
-                        nameCounter.className = 'char-counter over-limit';
-                    } else {
-                        nameCounter.className = 'char-counter';
-                    }
-                    updatePrograms();
-                    unsavedChanges = true;
-                });
-                
-                const videoList = document.getElementById(`${programId}-videos`);
-                if (program.videos && program.videos.length > 0) {
-                    program.videos.forEach((videoUrl, videoIndex) => {
-                        const videoItem = document.createElement('li');
-                        videoItem.innerHTML = `
-                            <span>Vídeo - Dia ${videoIndex + 1}: ${videoUrl}</span>
-                            <button type="button" class="remove-video">Remover</button>
-                        `;
-                        videoList.appendChild(videoItem);
-                    });
-                }
-                
-                document.querySelector(`#${programId} .add-video`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    const videoUrlInput = document.getElementById(`${programId}-new-video`);
-                    const videoUrl = videoUrlInput.value;
-                    
-                    if (videoUrl) {
-                        if (!isValidUrl(videoUrl)) {
-                            alert('Por favor, insira uma URL válida para o vídeo.');
-                            return;
-                        }
-                        
-                        const videoList = document.getElementById(`${programId}-videos`);
-                        const videoItem = document.createElement('li');
-                        const dayNumber = videoList.children.length + 1;
-                        videoItem.innerHTML = `
-                            <span>Vídeo - Dia ${dayNumber}: ${videoUrl}</span>
-                            <button type="button" class="remove-video">Remover</button>
-                        `;
-                        videoList.appendChild(videoItem);
-                        videoUrlInput.value = '';
-                        updatePrograms();
-                        unsavedChanges = true;
-                    }
-                });
-                
-                document.querySelector(`#${programId} .remove-program`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    document.getElementById(programId).remove();
-                    updatePrograms();
-                    unsavedChanges = true;
-                });
-                
-                programCard.addEventListener('click', function(e) {
-                    if (e.target.classList.contains('remove-video')) {
-                        e.target.parentElement.remove();
-                        const videoList = e.target.parentElement.parentElement;
-                        Array.from(videoList.children).forEach((item, index) => {
-                            const span = item.querySelector('span');
-                            span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
-                        });
-                        updatePrograms();
-                        unsavedChanges = true;
-                    }
-                });
-                
-                nameInput.addEventListener('input', updatePrograms);
-            }
-
-            // Adicionar cartão de comercial com nome
-            function addCommercialCard(commercial, index) {
-                const commercialId = 'commercial-' + Date.now() + '-' + index;
-                const commercialCard = document.createElement('div');
-                commercialCard.className = 'commercial-card';
-                commercialCard.id = commercialId;
-                
-                // Se commercial for string (antigo formato), converter para objeto
-                const commercialObj = typeof commercial === 'string' ? { name: `Comercial ${index + 1}`, url: commercial } : commercial;
-                
-                commercialCard.innerHTML = `
-                    <div class="commercial-header">
-                        <h4>Comercial ${index + 1}</h4>
-                        <button type="button" class="remove-commercial" data-commercial="${commercialId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="${commercialId}-name">Nome (controle interno, máx. 50 caracteres):</label>
-                        <input type="text" id="${commercialId}-name" value="${commercialObj.name || ''}" placeholder="Ex: Comercial da Empresa X" maxlength="50">
-                        <div class="char-counter" id="${commercialId}-name-counter">${commercialObj.name ? commercialObj.name.length : 0}/50</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="${commercialId}-url">URL do comercial:</label>
-                        <input type="url" id="${commercialId}-url" value="${commercialObj.url || ''}" placeholder="URL do comercial">
-                    </div>
-                `;
-                
-                commercialsContainer.appendChild(commercialCard);
-                
-                // Atualizar contador de caracteres
-                const nameInput = document.getElementById(`${commercialId}-name`);
-                const nameCounter = document.getElementById(`${commercialId}-name-counter`);
-                nameInput.addEventListener('input', function() {
-                    nameCounter.textContent = `${this.value.length}/50`;
-                    if (this.value.length > 45) {
-                        nameCounter.className = 'char-counter near-limit';
-                    } else if (this.value.length > 50) {
-                        nameCounter.className = 'char-counter over-limit';
-                    } else {
-                        nameCounter.className = 'char-counter';
-                    }
-                    updateCommercials();
-                    unsavedChanges = true;
-                });
-                
-                document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
-                    const commercialId = this.getAttribute('data-commercial');
-                    document.getElementById(commercialId).remove();
-                    updateCommercials();
-                    unsavedChanges = true;
-                });
-                
-                document.getElementById(`${commercialId}-url`).addEventListener('input', function() {
-                    updateCommercials();
-                    unsavedChanges = true;
-                });
-            }
-
             // Adicionar programa
             addProgramBtn.addEventListener('click', function() {
                 if (tvData.programs.length >= totalSlots) {
@@ -4855,132 +5005,15 @@
                 }
                 
                 const programId = 'program-' + Date.now();
-                const programCard = document.createElement('div');
-                programCard.className = 'program-card';
-                programCard.id = programId;
-                
-                programCard.innerHTML = `
-                    <div class="program-header">
-                        <h3>Programa ${tvData.programs.length + 1}</h3>
-                        <button type="button" class="remove-program" data-program="${programId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="${programId}-name">Nome do Programa (máx. 50 caracteres):</label>
-                        <input type="text" id="${programId}-name" maxlength="50" placeholder="Ex: Jornal da Manhã">
-                        <div class="char-counter" id="${programId}-name-counter">0/50</div>
-                    </div>
-                    <div class="form-group">
-                        <label>Episódios (Dias):</label>
-                        <ul class="video-list" id="${programId}-videos"></ul>
-                        <input type="url" id="${programId}-new-video" placeholder="URL do vídeo">
-                        <button type="button" class="add-video" data-program="${programId}">Adicionar Episódio</button>
-                    </div>
-                `;
-                
-                programsContainer.appendChild(programCard);
-                
-                // Atualizar contador de caracteres
-                const nameInput = document.getElementById(`${programId}-name`);
-                const nameCounter = document.getElementById(`${programId}-name-counter`);
-                nameInput.addEventListener('input', function() {
-                    nameCounter.textContent = `${this.value.length}/50`;
-                    if (this.value.length > 45) {
-                        nameCounter.className = 'char-counter near-limit';
-                    } else if (this.value.length > 50) {
-                        nameCounter.className = 'char-counter over-limit';
-                    } else {
-                        nameCounter.className = 'char-counter';
-                    }
-                    updatePrograms();
-                    unsavedChanges = true;
-                });
-                
-                document.querySelector(`#${programId} .add-video`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    const videoUrlInput = document.getElementById(`${programId}-new-video`);
-                    const videoUrl = videoUrlInput.value;
-                    
-                    if (videoUrl) {
-                        if (!isValidUrl(videoUrl)) {
-                            alert('Por favor, insira uma URL válida para o vídeo.');
-                            return;
-                        }
-                        
-                        const videoList = document.getElementById(`${programId}-videos`);
-                        const videoItem = document.createElement('li');
-                        const dayNumber = videoList.children.length + 1;
-                        videoItem.innerHTML = `
-                            <span>Vídeo - Dia ${dayNumber}: ${videoUrl}</span>
-                            <button type="button" class="remove-video">Remover</button>
-                        `;
-                        videoList.appendChild(videoItem);
-                        videoUrlInput.value = '';
-                        updatePrograms();
-                        unsavedChanges = true;
-                    }
-                });
-                
-                document.querySelector(`#${programId} .remove-program`).addEventListener('click', function() {
-                    const programId = this.getAttribute('data-program');
-                    document.getElementById(programId).remove();
-                    updatePrograms();
-                    unsavedChanges = true;
-                });
-                
-                programCard.addEventListener('click', function(e) {
-                    if (e.target.classList.contains('remove-video')) {
-                        e.target.parentElement.remove();
-                        const videoList = e.target.parentElement.parentElement;
-                        Array.from(videoList.children).forEach((item, index) => {
-                            const span = item.querySelector('span');
-                            span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
-                        });
-                        updatePrograms();
-                        unsavedChanges = true;
-                    }
-                });
-                
-                nameInput.addEventListener('input', updatePrograms);
+                addProgramCard({
+                    id: programId,
+                    name: '',
+                    videos: []
+                }, tvData.programs.length);
                 
                 updatePrograms();
                 unsavedChanges = true;
             });
-            
-            // Atualizar programas
-            function updatePrograms() {
-                tvData.programs = [];
-                const programElements = document.querySelectorAll('.program-card');
-                
-                programElements.forEach(programElement => {
-                    const programId = programElement.id;
-                    const name = document.getElementById(`${programId}-name`).value;
-                    const videoList = document.getElementById(`${programId}-videos`);
-                    const videos = Array.from(videoList.children).map(li => li.querySelector('span').textContent.replace(/Vídeo - Dia \d+:\s*/, ''));
-                    
-                    if (name && videos.length > 0) {
-                        tvData.programs.push({
-                            id: programId,
-                            name: name,
-                            videos: videos
-                        });
-                    }
-                });
-                
-                updateCounters();
-            }
-            
-            // Atualizar contadores
-            function updateCounters() {
-                programCount.textContent = tvData.programs.length;
-                
-                if (tvData.programs.length >= totalSlots) {
-                    addProgramBtn.disabled = true;
-                    addProgramBtn.textContent = "Limite de 58 programas atingido";
-                } else {
-                    addProgramBtn.disabled = false;
-                    addProgramBtn.textContent = "+ Adicionar Novo Programa";
-                }
-            }
             
             backToScreen2Btn.addEventListener('click', function() {
                 showScreen('screen2');
@@ -5022,77 +5055,13 @@
             // Adicionar comercial
             addCommercialBtn.addEventListener('click', function() {
                 const commercialId = 'commercial-' + Date.now();
-                const commercialCard = document.createElement('div');
-                commercialCard.className = 'commercial-card';
-                commercialCard.id = commercialId;
-                
-                commercialCard.innerHTML = `
-                    <div class="commercial-header">
-                        <h4>Comercial ${tvData.commercials.length + 1}</h4>
-                        <button type="button" class="remove-commercial" data-commercial="${commercialId}">Remover</button>
-                    </div>
-                    <div class="form-group">
-                        <label for="${commercialId}-name">Nome (controle interno, máx. 50 caracteres):</label>
-                        <input type="text" id="${commercialId}-name" placeholder="Ex: Comercial da Empresa X" maxlength="50">
-                        <div class="char-counter" id="${commercialId}-name-counter">0/50</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="${commercialId}-url">URL do comercial:</label>
-                        <input type="url" id="${commercialId}-url" placeholder="URL do comercial">
-                    </div>
-                `;
-                
-                commercialsContainer.appendChild(commercialCard);
-                
-                // Atualizar contador de caracteres
-                const nameInput = document.getElementById(`${commercialId}-name`);
-                const nameCounter = document.getElementById(`${commercialId}-name-counter`);
-                nameInput.addEventListener('input', function() {
-                    nameCounter.textContent = `${this.value.length}/50`;
-                    if (this.value.length > 45) {
-                        nameCounter.className = 'char-counter near-limit';
-                    } else if (this.value.length > 50) {
-                        nameCounter.className = 'char-counter over-limit';
-                    } else {
-                        nameCounter.className = 'char-counter';
-                    }
-                    updateCommercials();
-                    unsavedChanges = true;
-                });
-                
-                document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
-                    const commercialId = this.getAttribute('data-commercial');
-                    document.getElementById(commercialId).remove();
-                    updateCommercials();
-                    unsavedChanges = true;
-                });
-                
-                document.getElementById(`${commercialId}-url`).addEventListener('input', function() {
-                    updateCommercials();
-                    unsavedChanges = true;
-                });
+                addCommercialCard({
+                    name: '',
+                    url: ''
+                }, tvData.commercials.length);
                 
                 unsavedChanges = true;
             });
-            
-            // Atualizar comerciais
-            function updateCommercials() {
-                tvData.commercials = [];
-                const commercialElements = document.querySelectorAll('.commercial-card');
-                
-                commercialElements.forEach(commercialElement => {
-                    const commercialId = commercialElement.id;
-                    const name = document.getElementById(`${commercialId}-name`).value;
-                    const url = document.getElementById(`${commercialId}-url`).value;
-                    
-                    if (url) {
-                        tvData.commercials.push({
-                            name: name || `Comercial ${tvData.commercials.length + 1}`,
-                            url: url
-                        });
-                    }
-                });
-            }
             
             backToScreen3Btn.addEventListener('click', function() {
                 showScreen('screen3');
