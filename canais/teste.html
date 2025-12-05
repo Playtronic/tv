@@ -283,7 +283,7 @@
             background-color: rgba(255, 255, 255, 0.95);
             padding: 10px;
             border-radius: 8px;
-            border-left: 4px solid #ff6b6b;
+            border-left: 4px solid #ff6b6d;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
         
@@ -296,7 +296,7 @@
             text-align: center;
             font-weight: bold;
             display: none;
-            border-left: 4px solid #ff6b6b;
+            border-left: 4px solid #ff6b6d;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
         
@@ -852,11 +852,138 @@
             opacity: 1;
             transform: translateY(0);
         }
+        
+        /* BOTÃO DE DISQUETE (SAVE) */
+        .save-button {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            z-index: 1000;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s;
+        }
+        
+        .save-button:hover {
+            background: #2980b9;
+            transform: scale(1.05);
+        }
+        
+        .save-button:disabled {
+            background: #7f8c8d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .save-notification {
+            position: fixed;
+            top: 120px;
+            right: 20px;
+            background: #2ecc71;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            z-index: 1000;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: opacity 0.3s, transform 0.3s;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            max-width: 200px;
+        }
+        
+        .save-notification.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        /* ALERTA DE ALTERAÇÕES NÃO PUBLICADAS */
+        .unpublished-alert-icon {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 25px;
+            height: 25px;
+            object-fit: contain;
+            cursor: help;
+            z-index: 1;
+        }
+        
+        .unpublished-alert-tooltip {
+            position: absolute;
+            top: 40px;
+            right: 10px;
+            background: #e74c3c;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            z-index: 10;
+            white-space: nowrap;
+            display: none;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        
+        .unpublished-alert-icon:hover + .unpublished-alert-tooltip {
+            display: block;
+        }
+        
+        /* STATUS DO CANAL */
+        .channel-status {
+            font-size: 0.8rem;
+            padding: 3px 8px;
+            border-radius: 4px;
+            margin-top: 5px;
+            display: inline-block;
+        }
+        
+        .status-published {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+        }
+        
+        .status-unpublished {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+        
+        .status-offline {
+            background: rgba(149, 165, 166, 0.2);
+            color: #95a5a6;
+        }
+        
+        /* ÍCONES DE ESTADO */
+        .state-icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
     <!-- Botão de login -->
     <button id="loginButton" class="login-button">Entrar</button>
+
+    <!-- Botão de salvar (disquete) -->
+    <button id="saveButton" class="save-button" title="Salvar alterações" style="display: none;">
+        💾
+    </button>
+    
+    <!-- Notificação de salvamento -->
+    <div id="saveNotification" class="save-notification">
+        Canal salvo com sucesso!
+    </div>
 
     <!-- Informações do usuário -->
     <div id="userInfo" class="user-info" style="display: none;">
@@ -1290,11 +1417,12 @@
         let verificationAttempts = 0;
         const MAX_VERIFICATION_ATTEMPTS = 60;
 
-        // Sistema de gerenciamento de canais (APENAS FIRESTORE)
+        // Sistema de gerenciamento de canais (ESTRUTURA CORRIGIDA: users/{userId}/channels/{channelId})
         let channels = [];
         let currentChannelId = null;
         let editingChannel = false;
         let originalChannelName = '';
+        let unsavedChanges = false;
         
         // Dados da TV
         let tvData = {
@@ -1325,7 +1453,13 @@
                 text: '',
                 url: ''
             },
-            url: ''
+            url: '',
+            hasUnpublishedChanges: false,
+            published: false,
+            lastSaved: null,
+            userId: '',
+            createdAt: null,
+            updatedAt: null
         };
         
         let totalSlots = 58;
@@ -1334,6 +1468,7 @@
         const BRAZIL_FLAG = "https://github.com/Playtronic/tv/blob/main/template/BR.png?raw=true";
         const WORLD_ICON = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/Mundo.png";
         const FAVICON_URL = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/favicon.png";
+        const UNPUBLISHED_ALERT_ICON = "https://images.emojiterra.com/google/noto-emoji/unicode-16.0/color/1024px/26a0.png";
         
         // URLs das imagens das redes sociais
         const SOCIAL_MEDIA_IMAGES = {
@@ -2850,16 +2985,19 @@
             }
         }
 
-        // ==================== FUNÇÕES DO FIRESTORE (EXCLUSIVAS) ====================
+        // ==================== FUNÇÕES DO FIRESTORE (ESTRUTURA CORRIGIDA) ====================
 
-        // Função para salvar canal no Firestore
-        async function salvarCanalFirestore(channelData) {
+        // Função para salvar canal no Firestore (nova estrutura)
+        async function salvarCanalFirestore(channelData, isPublication = false) {
             if (!currentUser) {
                 console.error("Usuário não autenticado para salvar canal");
                 return null;
             }
             
             try {
+                const userId = currentUser.uid;
+                const now = firebase.firestore.FieldValue.serverTimestamp();
+                
                 const channelToSave = {
                     email: channelData.email,
                     name: channelData.name,
@@ -2867,24 +3005,28 @@
                     logo: channelData.logo || DEFAULT_LOGO,
                     data: channelData,
                     url: channelData.url || '',
-                    userId: currentUser.uid,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    userId: userId,
+                    updatedAt: now,
                     isPublished: !!channelData.url,
-                    isOffline: channelData.isOffline || false
+                    isOffline: channelData.isOffline || false,
+                    hasUnpublishedChanges: isPublication ? false : (channelData.hasUnpublishedChanges || true),
+                    published: !!channelData.url,
+                    lastSaved: now
                 };
                 
                 if (editingChannel && currentChannelId) {
                     // Atualizar canal existente no Firestore
-                    await db.collection('channels').doc(currentChannelId).update(channelToSave);
+                    await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).update(channelToSave);
                     console.log("Canal atualizado no Firestore:", currentChannelId);
                     return currentChannelId;
                 } else {
                     // Criar novo canal no Firestore
-                    const docRef = await db.collection('channels').add({
+                    const docRef = await db.collection('users').doc(userId).collection('channels').add({
                         ...channelToSave,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        createdAt: now
                     });
                     console.log("Novo canal criado no Firestore:", docRef.id);
+                    currentChannelId = docRef.id;
                     return docRef.id;
                 }
             } catch (error) {
@@ -2893,7 +3035,7 @@
             }
         }
 
-        // Função para carregar canais do Firestore
+        // Função para carregar canais do Firestore (nova estrutura)
         async function carregarCanaisFirestore() {
             if (!currentUser) {
                 console.log("Usuário não autenticado, não é possível carregar canais");
@@ -2903,8 +3045,8 @@
             try {
                 console.log("Carregando canais do Firestore para usuário:", currentUser.uid);
                 
-                const querySnapshot = await db.collection('channels')
-                    .where('userId', '==', currentUser.uid)
+                const querySnapshot = await db.collection('users').doc(currentUser.uid)
+                    .collection('channels')
                     .orderBy('updatedAt', 'desc')
                     .get();
                 
@@ -2925,7 +3067,7 @@
             }
         }
 
-        // Função para deletar canal do Firestore
+        // Função para deletar canal do Firestore (nova estrutura)
         async function deletarCanalFirestore(channelId) {
             if (!currentUser) {
                 console.error("Usuário não autenticado para deletar canal");
@@ -2933,7 +3075,7 @@
             }
             
             try {
-                await db.collection('channels').doc(channelId).delete();
+                await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).delete();
                 console.log("Canal deletado do Firestore:", channelId);
                 return true;
             } catch (error) {
@@ -2942,7 +3084,7 @@
             }
         }
 
-        // Função para salvar canal automaticamente (APENAS FIRESTORE)
+        // Função para salvar canal automaticamente
         async function salvarCanalAutomaticamente() {
             try {
                 if (!tvData.name || !tvData.email) {
@@ -2956,7 +3098,7 @@
                 }
                 
                 // Salvar no Firestore
-                const savedChannelId = await salvarCanalFirestore(tvData);
+                const savedChannelId = await salvarCanalFirestore(tvData, false);
                 
                 if (savedChannelId) {
                     currentChannelId = savedChannelId;
@@ -2965,6 +3107,9 @@
                     mostrarNotificacaoSalvamento();
                     
                     console.log("Canal salvo automaticamente no Firestore:", tvData.name);
+                    
+                    // Atualizar flag de alterações não salvas
+                    unsavedChanges = false;
                     
                     // Recarregar a lista de canais
                     await carregarCanais();
@@ -2984,6 +3129,23 @@
             const notification = document.getElementById('autoSaveNotification');
             if (notification) {
                 notification.classList.add('show');
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 3000);
+            }
+        }
+
+        // Função para mostrar notificação do botão de salvar
+        function mostrarNotificacaoSalvar() {
+            const notification = document.getElementById('saveNotification');
+            if (notification) {
+                notification.textContent = "Salvando...";
+                notification.classList.add('show');
+                
+                setTimeout(() => {
+                    notification.textContent = "Salvo!";
+                }, 1000);
+                
                 setTimeout(() => {
                     notification.classList.remove('show');
                 }, 3000);
@@ -3090,11 +3252,13 @@
                     backToHomeFromSuccess.style.display = 'inline-block';
                     backToScreen5Btn.style.display = 'none';
                     
-                    // Atualizar dados do canal com a URL
+                    // Atualizar dados do canal com a URL e marcar como publicado
                     tvData.url = resultado.url;
+                    tvData.hasUnpublishedChanges = false;
+                    tvData.published = true;
                     
-                    // Salvar canal no Firestore com a URL atualizada
-                    await salvarCanalAutomaticamente();
+                    // Salvar canal no Firestore com a URL atualizada (marcando como publicação)
+                    await salvarCanalFirestore(tvData, true);
                     
                     publicationStarted = false;
                 } else {
@@ -3135,7 +3299,7 @@
 
         // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
 
-        // Função para carregar todos os canais (APENAS DO FIRESTORE)
+        // Função para carregar todos os canais (nova estrutura)
         async function carregarCanais() {
             try {
                 console.log("Carregando canais do Firestore...");
@@ -3147,7 +3311,7 @@
                 channels = [];
                 if (channelsList) channelsList.innerHTML = '';
                 
-                // Carregar canais apenas do Firestore
+                // Carregar canais do Firestore
                 const canaisFirestore = await carregarCanaisFirestore();
                 console.log(`${canaisFirestore.length} canais carregados do Firestore`);
                 
@@ -3174,6 +3338,8 @@
                             // Determinar status do canal
                             const isOffline = channel.isOffline || channel.data?.isOffline || false;
                             const visibility = channel.data?.visibility || 'brazil';
+                            const hasUnpublishedChanges = channel.hasUnpublishedChanges || channel.data?.hasUnpublishedChanges || false;
+                            const isPublished = channel.published || channel.data?.published || false;
                             
                             // Usar imagem da bandeira do Brasil para visibilidade Brasil
                             // e imagem do mundo para visibilidade mundial (25x25)
@@ -3184,20 +3350,49 @@
                                 visibilityIcon = `<img src="${WORLD_ICON}" class="visibility-icon" title="Seu canal está visível no mundo todo">`;
                             }
                             
+                            // Ícone de alerta para alterações não publicadas
+                            let unpublishedAlert = '';
+                            if (hasUnpublishedChanges && !isPublished) {
+                                unpublishedAlert = `
+                                    <img src="${UNPUBLISHED_ALERT_ICON}" class="unpublished-alert-icon" title="Este canal tem alterações não publicadas">
+                                    <div class="unpublished-alert-tooltip">Este canal tem alterações não publicadas</div>
+                                `;
+                            }
+                            
+                            // Status do canal
+                            let statusText = '';
+                            let statusClass = '';
+                            if (isOffline) {
+                                statusText = 'Fora do ar';
+                                statusClass = 'status-offline';
+                            } else if (!isPublished) {
+                                statusText = 'Não publicado';
+                                statusClass = 'status-unpublished';
+                            } else if (hasUnpublishedChanges) {
+                                statusText = 'Alterações pendentes';
+                                statusClass = 'status-unpublished';
+                            } else {
+                                statusText = 'Publicado';
+                                statusClass = 'status-published';
+                            }
+                            
                             channelCard.innerHTML = `
                                 ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
                                 <div class="channel-name-with-emoji">
                                     <h3>${channel.name}</h3>
                                 </div>
                                 ${visibilityIcon}
+                                ${unpublishedAlert}
                                 <p>${channel.slogan || 'Sem slogan'}</p>
+                                <div class="channel-status ${statusClass}">${statusText}</div>
                                 <div class="channel-actions">
-                                    ${urlCanal && urlCanal !== 'https://playtronic.github.io/tv/canais/.html' ? 
+                                    ${urlCanal && urlCanal !== 'https://playtronic.github.io/tv/canais/.html' && !hasUnpublishedChanges ? 
                                         `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
                                     <button class="edit-channel" data-id="${channel.id}">Editar</button>
-                                    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
-                                        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
-                                    </button>
+                                    ${urlCanal && urlCanal !== 'https://playtronic.github.io/tv/canais/.html' && !hasUnpublishedChanges ? 
+                                        `<button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
+                                            ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
+                                        </button>` : ''}
                                     <button class="delete-channel" data-id="${channel.id}">Apagar</button>
                                 </div>
                             `;
@@ -3262,9 +3457,10 @@
             if (channel) {
                 try {
                     // Atualizar no Firestore
-                    await db.collection('channels').doc(channelId).update({
+                    await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).update({
                         isOffline: !isCurrentlyOffline,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        hasUnpublishedChanges: true
                     });
                     
                     console.log(`Canal ${channel.name} atualizado para: ${!isCurrentlyOffline ? 'Offline' : 'Online'}`);
@@ -3290,7 +3486,7 @@
             
             try {
                 // Buscar canal do Firestore
-                const doc = await db.collection('channels').doc(channelId).get();
+                const doc = await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).get();
                 
                 if (!doc.exists) {
                     alert("Canal não encontrado");
@@ -3329,12 +3525,19 @@
                         text: '',
                         url: ''
                     },
-                    url: channel.url || ''
+                    url: channel.url || '',
+                    hasUnpublishedChanges: channel.hasUnpublishedChanges || false,
+                    published: channel.published || false,
+                    lastSaved: channel.lastSaved,
+                    userId: channel.userId,
+                    createdAt: channel.createdAt,
+                    updatedAt: channel.updatedAt
                 };
                 
                 currentChannelId = channelId;
                 editingChannel = true;
                 originalChannelName = channel.name;
+                unsavedChanges = false;
                 
                 // Preencher formulário com dados do canal
                 document.getElementById('tvEmail').value = tvData.email;
@@ -3366,9 +3569,9 @@
                 document.getElementById('enableDebug').checked = tvData.enableDebug;
                 document.getElementById('customReleaseDate').checked = tvData.customReleaseDate;
                 
-                // Desabilitar edição do nome (único por usuário)
-                document.getElementById('tvName').disabled = true;
-                document.getElementById('tvName').classList.add('name-disabled');
+                // Habilitar edição do nome (pode ser editado)
+                document.getElementById('tvName').disabled = false;
+                document.getElementById('tvName').classList.remove('name-disabled');
                 
                 if (tvData.customReleaseDate && tvData.releaseDate) {
                     document.getElementById('releaseDate').value = tvData.releaseDate;
@@ -3485,6 +3688,9 @@
                 // Carregar canais do Firestore
                 await carregarCanais();
                 
+                // Mostrar botão de salvar
+                document.getElementById('saveButton').style.display = 'block';
+                
                 // Se estiver na tela 6 e usuário fizer login, iniciar publicação automaticamente
                 if (isOnScreen6) {
                     console.log("Usuário autenticado na tela 6. Iniciando publicação automática...");
@@ -3512,6 +3718,9 @@
                 
                 if (channelsList) channelsList.innerHTML = '';
                 if (emptyState) emptyState.style.display = 'block';
+                
+                // Esconder botão de salvar
+                document.getElementById('saveButton').style.display = 'none';
                 
                 // Se estiver na tela 6, mostrar mensagem de autenticação
                 if (isOnScreen6) {
@@ -3568,6 +3777,40 @@
         // Botão de login na tela de publicação
         document.getElementById('loginFromPublish').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
+        });
+
+        // Botão de salvar (disquete)
+        document.getElementById('saveButton').addEventListener('click', async () => {
+            if (!currentUser) {
+                alert("É necessário fazer login para salvar canais");
+                return;
+            }
+            
+            if (!tvData.name || !tvData.email) {
+                alert("Preencha pelo menos o nome e e-mail do canal antes de salvar");
+                return;
+            }
+            
+            // Desabilitar botão temporariamente
+            const saveBtn = document.getElementById('saveButton');
+            saveBtn.disabled = true;
+            saveBtn.textContent = "💾";
+            
+            // Mostrar notificação
+            mostrarNotificacaoSalvar();
+            
+            // Salvar canal
+            try {
+                await salvarCanalAutomaticamente();
+                unsavedChanges = false;
+            } catch (error) {
+                console.error("Erro ao salvar:", error);
+                alert("Erro ao salvar canal: " + error.message);
+            } finally {
+                // Reabilitar botão
+                saveBtn.disabled = false;
+                saveBtn.textContent = "💾";
+            }
         });
 
         // Toggle user card
@@ -3728,6 +3971,7 @@
                 } else {
                     tvNameCounter.className = 'char-counter';
                 }
+                unsavedChanges = true;
             });
             
             tvSloganInput.addEventListener('input', function() {
@@ -3739,6 +3983,7 @@
                 } else {
                     tvSloganCounter.className = 'char-counter';
                 }
+                unsavedChanges = true;
             });
             
             customButtonTextInput.addEventListener('input', function() {
@@ -3750,6 +3995,7 @@
                 } else {
                     customButtonTextCounter.className = 'char-counter';
                 }
+                unsavedChanges = true;
             });
 
             // Configurar dropdown de visibilidade
@@ -3760,6 +4006,7 @@
                 } else {
                     visibilityInfo.textContent = 'Seu canal será acessível de qualquer país (Mundo)';
                 }
+                unsavedChanges = true;
             });
 
             // Funções de navegação
@@ -3774,8 +4021,8 @@
                 if (screen === 'screen0') {
                     stepIndicator.classList.remove('active');
                     
-                    // Salvar automaticamente ao voltar para tela 0
-                    if (tvData.name && tvData.email) {
+                    // Salvar automaticamente ao voltar para tela 0 se houver alterações não salvas
+                    if (unsavedChanges && tvData.name && tvData.email) {
                         salvarCanalAutomaticamente();
                     }
                     
@@ -3852,11 +4099,18 @@
                         text: '',
                         url: ''
                     },
-                    url: ''
+                    url: '',
+                    hasUnpublishedChanges: false,
+                    published: false,
+                    lastSaved: null,
+                    userId: '',
+                    createdAt: null,
+                    updatedAt: null
                 };
                 currentChannelId = null;
                 editingChannel = false;
                 originalChannelName = '';
+                unsavedChanges = false;
                 
                 tvEmailInput.value = '';
                 tvNameInput.value = '';
@@ -3909,6 +4163,7 @@
                     logoPreview.src = logoUrl;
                     tvData.logo = logoUrl;
                     logoError.style.display = 'none';
+                    unsavedChanges = true;
                     
                     logoPreview.onerror = function() {
                         logoPreview.src = DEFAULT_LOGO;
@@ -3923,6 +4178,7 @@
                     logoPreview.src = DEFAULT_LOGO;
                     tvData.logo = '';
                     logoError.style.display = 'none';
+                    unsavedChanges = true;
                 }
             }
             
@@ -3972,14 +4228,16 @@
                 // Verificação no Firestore (apenas para o usuário atual)
                 if (currentUser) {
                     try {
-                        const querySnapshot = await db.collection('channels')
-                            .where('userId', '==', currentUser.uid)
+                        const querySnapshot = await db.collection('users').doc(currentUser.uid)
+                            .collection('channels')
                             .where('name', '==', nomeCanal)
                             .get();
                         
                         if (!querySnapshot.empty) {
                             const existingChannel = querySnapshot.docs[0].data();
-                            if (ignorarCanalAtual && existingChannel.id === currentChannelId) {
+                            const existingChannelId = querySnapshot.docs[0].id;
+                            
+                            if (ignorarCanalAtual && existingChannelId === currentChannelId) {
                                 return { existe: false };
                             }
                             
@@ -4129,6 +4387,7 @@
                 if (editingChannel) return;
                 
                 limparErroNomeDuplicado();
+                unsavedChanges = true;
                 
                 clearTimeout(timeoutVerificacao);
                 const nome = this.value.trim();
@@ -4145,8 +4404,12 @@
             
             // Navegação
             backToHomeBtn.addEventListener('click', function() {
-                if (editingChannel) {
-                    if (confirm('Deseja descartar as alterações?')) {
+                if (editingChannel && unsavedChanges) {
+                    if (confirm('Deseja salvar as alterações antes de voltar?')) {
+                        salvarCanalAutomaticamente().then(() => {
+                            showScreen('screen0');
+                        });
+                    } else if (confirm('Deseja descartar as alterações?')) {
                         showScreen('screen0');
                     }
                 } else {
@@ -4155,8 +4418,12 @@
             });
             
             backToHomeFromScreen2Btn.addEventListener('click', function() {
-                if (editingChannel) {
-                    if (confirm('Deseja descartar as alterações?')) {
+                if (editingChannel && unsavedChanges) {
+                    if (confirm('Deseja salvar as alterações antes de voltar?')) {
+                        salvarCanalAutomaticamente().then(() => {
+                            showScreen('screen0');
+                        });
+                    } else if (confirm('Deseja descartar as alterações?')) {
                         showScreen('screen0');
                     }
                 } else {
@@ -4165,8 +4432,12 @@
             });
             
             backToHomeFromScreen3Btn.addEventListener('click', function() {
-                if (editingChannel) {
-                    if (confirm('Deseja descartar as alterações?')) {
+                if (editingChannel && unsavedChanges) {
+                    if (confirm('Deseja salvar as alterações antes de voltar?')) {
+                        salvarCanalAutomaticamente().then(() => {
+                            showScreen('screen0');
+                        });
+                    } else if (confirm('Deseja descartar as alterações?')) {
                         showScreen('screen0');
                     }
                 } else {
@@ -4175,8 +4446,12 @@
             });
             
             backToHomeFromScreen4Btn.addEventListener('click', function() {
-                if (editingChannel) {
-                    if (confirm('Deseja descartar as alterações?')) {
+                if (editingChannel && unsavedChanges) {
+                    if (confirm('Deseja salvar as alterações antes de voltar?')) {
+                        salvarCanalAutomaticamente().then(() => {
+                            showScreen('screen0');
+                        });
+                    } else if (confirm('Deseja descartar as alterações?')) {
                         showScreen('screen0');
                     }
                 } else {
@@ -4185,8 +4460,12 @@
             });
             
             backToHomeFromScreen5Btn.addEventListener('click', function() {
-                if (editingChannel) {
-                    if (confirm('Deseja descartar as alterações?')) {
+                if (editingChannel && unsavedChanges) {
+                    if (confirm('Deseja salvar as alterações antes de voltar?')) {
+                        salvarCanalAutomaticamente().then(() => {
+                            showScreen('screen0');
+                        });
+                    } else if (confirm('Deseja descartar as alterações?')) {
                         showScreen('screen0');
                     }
                 } else {
@@ -4197,26 +4476,32 @@
             // Configurações da tela 2
             showTimeCheckbox.addEventListener('change', function() {
                 tvData.showTime = this.checked;
+                unsavedChanges = true;
             });
             
             enableRewind10Checkbox.addEventListener('change', function() {
                 tvData.enableRewind10 = this.checked;
+                unsavedChanges = true;
             });
             
             enableRestartCheckbox.addEventListener('change', function() {
                 tvData.enableRestart = this.checked;
+                unsavedChanges = true;
             });
             
             enableLiveCheckbox.addEventListener('change', function() {
                 tvData.enableLive = this.checked;
+                unsavedChanges = true;
             });
             
             enableDebugCheckbox.addEventListener('change', function() {
                 tvData.enableDebug = this.checked;
+                unsavedChanges = true;
             });
             
             customReleaseDateCheckbox.addEventListener('change', function() {
                 tvData.customReleaseDate = this.checked;
+                unsavedChanges = true;
                 if (this.checked) {
                     releaseDateContainer.style.display = 'block';
                     const today = new Date().toISOString().split('T')[0];
@@ -4230,6 +4515,7 @@
             
             releaseDateInput.addEventListener('change', function() {
                 tvData.releaseDate = this.value;
+                unsavedChanges = true;
             });
             
             backToScreen1Btn.addEventListener('click', function() {
@@ -4280,6 +4566,7 @@
                         nameCounter.className = 'char-counter';
                     }
                     updatePrograms();
+                    unsavedChanges = true;
                 });
                 
                 const videoList = document.getElementById(`${programId}-videos`);
@@ -4315,6 +4602,7 @@
                         videoList.appendChild(videoItem);
                         videoUrlInput.value = '';
                         updatePrograms();
+                        unsavedChanges = true;
                     }
                 });
                 
@@ -4322,6 +4610,7 @@
                     const programId = this.getAttribute('data-program');
                     document.getElementById(programId).remove();
                     updatePrograms();
+                    unsavedChanges = true;
                 });
                 
                 programCard.addEventListener('click', function(e) {
@@ -4333,6 +4622,7 @@
                             span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
                         });
                         updatePrograms();
+                        unsavedChanges = true;
                     }
                 });
                 
@@ -4380,15 +4670,20 @@
                         nameCounter.className = 'char-counter';
                     }
                     updateCommercials();
+                    unsavedChanges = true;
                 });
                 
                 document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
                     const commercialId = this.getAttribute('data-commercial');
                     document.getElementById(commercialId).remove();
                     updateCommercials();
+                    unsavedChanges = true;
                 });
                 
-                document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
+                document.getElementById(`${commercialId}-url`).addEventListener('input', function() {
+                    updateCommercials();
+                    unsavedChanges = true;
+                });
             }
 
             // Adicionar programa
@@ -4436,6 +4731,7 @@
                         nameCounter.className = 'char-counter';
                     }
                     updatePrograms();
+                    unsavedChanges = true;
                 });
                 
                 document.querySelector(`#${programId} .add-video`).addEventListener('click', function() {
@@ -4459,6 +4755,7 @@
                         videoList.appendChild(videoItem);
                         videoUrlInput.value = '';
                         updatePrograms();
+                        unsavedChanges = true;
                     }
                 });
                 
@@ -4466,6 +4763,7 @@
                     const programId = this.getAttribute('data-program');
                     document.getElementById(programId).remove();
                     updatePrograms();
+                    unsavedChanges = true;
                 });
                 
                 programCard.addEventListener('click', function(e) {
@@ -4477,12 +4775,14 @@
                             span.textContent = span.textContent.replace(/Vídeo - Dia \d+:/, `Vídeo - Dia ${index + 1}:`);
                         });
                         updatePrograms();
+                        unsavedChanges = true;
                     }
                 });
                 
                 nameInput.addEventListener('input', updatePrograms);
                 
                 updatePrograms();
+                unsavedChanges = true;
             });
             
             // Atualizar programas
@@ -4539,6 +4839,7 @@
             
             enableCommercialsCheckbox.addEventListener('change', function() {
                 tvData.enableCommercials = this.checked;
+                unsavedChanges = true;
                 
                 if (this.checked) {
                     commercialSettings.style.display = 'block';
@@ -4551,6 +4852,7 @@
             
             commercialsPerBreakInput.addEventListener('input', function() {
                 tvData.commercialsPerBreak = parseInt(this.value);
+                unsavedChanges = true;
             });
             
             // Adicionar comercial
@@ -4591,15 +4893,22 @@
                         nameCounter.className = 'char-counter';
                     }
                     updateCommercials();
+                    unsavedChanges = true;
                 });
                 
                 document.querySelector(`#${commercialId} .remove-commercial`).addEventListener('click', function() {
                     const commercialId = this.getAttribute('data-commercial');
                     document.getElementById(commercialId).remove();
                     updateCommercials();
+                    unsavedChanges = true;
                 });
                 
-                document.getElementById(`${commercialId}-url`).addEventListener('input', updateCommercials);
+                document.getElementById(`${commercialId}-url`).addEventListener('input', function() {
+                    updateCommercials();
+                    unsavedChanges = true;
+                });
+                
+                unsavedChanges = true;
             });
             
             // Atualizar comerciais
@@ -4646,6 +4955,7 @@
                 } else {
                     facebookError.style.display = 'none';
                 }
+                unsavedChanges = true;
             });
             
             instagramUrlInput.addEventListener('blur', function() {
@@ -4655,6 +4965,7 @@
                 } else {
                     instagramError.style.display = 'none';
                 }
+                unsavedChanges = true;
             });
             
             blueskyUrlInput.addEventListener('blur', function() {
@@ -4664,6 +4975,7 @@
                 } else {
                     blueskyError.style.display = 'none';
                 }
+                unsavedChanges = true;
             });
             
             tiktokUrlInput.addEventListener('blur', function() {
@@ -4673,6 +4985,7 @@
                 } else {
                     tiktokError.style.display = 'none';
                 }
+                unsavedChanges = true;
             });
             
             customButtonUrlInput.addEventListener('blur', function() {
@@ -4682,31 +4995,38 @@
                 } else {
                     customButtonError.style.display = 'none';
                 }
+                unsavedChanges = true;
             });
             
             // Atualizar redes sociais
             facebookUrlInput.addEventListener('input', function() {
                 tvData.socialMedia.facebook = this.value;
+                unsavedChanges = true;
             });
             
             instagramUrlInput.addEventListener('input', function() {
                 tvData.socialMedia.instagram = this.value;
+                unsavedChanges = true;
             });
             
             blueskyUrlInput.addEventListener('input', function() {
                 tvData.socialMedia.bluesky = this.value;
+                unsavedChanges = true;
             });
             
             tiktokUrlInput.addEventListener('input', function() {
                 tvData.socialMedia.tiktok = this.value;
+                unsavedChanges = true;
             });
             
             customButtonTextInput.addEventListener('input', function() {
                 tvData.customButton.text = this.value;
+                unsavedChanges = true;
             });
             
             customButtonUrlInput.addEventListener('input', function() {
                 tvData.customButton.url = this.value;
+                unsavedChanges = true;
             });
             
             backToScreen4Btn.addEventListener('click', function() {
