@@ -3060,6 +3060,55 @@
             }
         }
 
+        // Função para normalizar dados do canal (CORREÇÃO CRÍTICA)
+        function normalizarDadosCanal(channelData) {
+            // Garantir que todos os campos obrigatórios existam
+            return {
+                email: channelData.email || '',
+                name: channelData.name || '',
+                slogan: channelData.slogan || '',
+                logo: channelData.logo || DEFAULT_LOGO,
+                visibility: channelData.visibility || 'brazil',
+                showTime: channelData.showTime !== undefined ? channelData.showTime : true,
+                enableRewind10: channelData.enableRewind10 !== undefined ? channelData.enableRewind10 : true,
+                enableRestart: channelData.enableRestart !== undefined ? channelData.enableRestart : true,
+                enableLive: channelData.enableLive !== undefined ? channelData.enableLive : true,
+                enableDebug: channelData.enableDebug || false,
+                customReleaseDate: channelData.customReleaseDate || false,
+                releaseDate: channelData.releaseDate || '',
+                programs: Array.isArray(channelData.programs) ? channelData.programs : [],
+                commercials: Array.isArray(channelData.commercials) ? channelData.commercials : [],
+                enableCommercials: channelData.enableCommercials || false,
+                commercialsPerBreak: channelData.commercialsPerBreak || 2,
+                isOffline: channelData.isOffline || false,
+                socialMedia: typeof channelData.socialMedia === 'object' ? {
+                    facebook: channelData.socialMedia.facebook || '',
+                    instagram: channelData.socialMedia.instagram || '',
+                    bluesky: channelData.socialMedia.bluesky || '',
+                    tiktok: channelData.socialMedia.tiktok || ''
+                } : {
+                    facebook: '',
+                    instagram: '',
+                    bluesky: '',
+                    tiktok: ''
+                },
+                customButton: typeof channelData.customButton === 'object' ? {
+                    text: channelData.customButton.text || '',
+                    url: channelData.customButton.url || ''
+                } : {
+                    text: '',
+                    url: ''
+                },
+                url: channelData.url || '',
+                userId: channelData.userId || '',
+                hasUnpublishedChanges: channelData.hasUnpublishedChanges || false,
+                published: channelData.published || false,
+                lastSaved: channelData.lastSaved || null,
+                createdAt: channelData.createdAt || null,
+                updatedAt: channelData.updatedAt || null
+            };
+        }
+
         // Função para salvar canal no Firestore (CORRIGIDA)
         async function salvarCanalFirestore(channelData, isPublication = false) {
             if (!currentUser) {
@@ -3071,8 +3120,11 @@
                 const userId = currentUser.uid;
                 const now = firebase.firestore.FieldValue.serverTimestamp();
                 
+                // Normalizar dados antes de salvar
+                const dadosNormalizados = normalizarDadosCanal(channelData);
+                
                 // Buscar canal existente com o mesmo nome
-                const canalExistente = await buscarCanalPorNome(channelData.name, userId);
+                const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
                 
                 // Se já existe um canal com o mesmo nome E não estamos editando esse mesmo canal
                 if (canalExistente && canalExistente.id !== currentChannelId) {
@@ -3081,32 +3133,13 @@
                     editingChannel = true;
                 }
                 
-                // Estrutura simplificada para Firestore
+                // Estrutura para Firestore
                 const channelToSave = {
-                    email: channelData.email,
-                    name: channelData.name,
-                    slogan: channelData.slogan,
-                    logo: channelData.logo || DEFAULT_LOGO,
-                    visibility: channelData.visibility,
-                    showTime: channelData.showTime,
-                    enableRewind10: channelData.enableRewind10,
-                    enableRestart: channelData.enableRestart,
-                    enableLive: channelData.enableLive,
-                    enableDebug: channelData.enableDebug,
-                    customReleaseDate: channelData.customReleaseDate,
-                    releaseDate: channelData.releaseDate,
-                    programs: channelData.programs,
-                    commercials: channelData.commercials,
-                    enableCommercials: channelData.enableCommercials,
-                    commercialsPerBreak: channelData.commercialsPerBreak,
-                    isOffline: channelData.isOffline || false,
-                    socialMedia: channelData.socialMedia,
-                    customButton: channelData.customButton,
-                    url: channelData.url || '',
+                    ...dadosNormalizados,
                     userId: userId,
                     updatedAt: now,
-                    published: !!channelData.url,
-                    hasUnpublishedChanges: isPublication ? false : (channelData.hasUnpublishedChanges || true),
+                    published: !!dadosNormalizados.url,
+                    hasUnpublishedChanges: isPublication ? false : (dadosNormalizados.hasUnpublishedChanges || true),
                     lastSaved: now
                 };
                 
@@ -3131,7 +3164,7 @@
             }
         }
 
-        // Função para carregar canais do Firestore (SIMPLIFICADA)
+        // Função para carregar canais do Firestore (CORRIGIDA)
         async function carregarCanaisFirestore() {
             if (!currentUser) {
                 console.log("Usuário não autenticado, não é possível carregar canais");
@@ -3149,47 +3182,15 @@
                 const channels = [];
                 querySnapshot.forEach(doc => {
                     const data = doc.data();
-                    // Garantir que a estrutura seja consistente
+                    // Normalizar cada canal para garantir estrutura consistente
+                    const canalNormalizado = normalizarDadosCanal(data);
                     channels.push({
                         id: doc.id,
-                        email: data.email || '',
-                        name: data.name || '',
-                        slogan: data.slogan || '',
-                        logo: data.logo || DEFAULT_LOGO,
-                        visibility: data.visibility || 'brazil',
-                        showTime: data.showTime !== undefined ? data.showTime : true,
-                        enableRewind10: data.enableRewind10 !== undefined ? data.enableRewind10 : true,
-                        enableRestart: data.enableRestart !== undefined ? data.enableRestart : true,
-                        enableLive: data.enableLive !== undefined ? data.enableLive : true,
-                        enableDebug: data.enableDebug || false,
-                        customReleaseDate: data.customReleaseDate || false,
-                        releaseDate: data.releaseDate || '',
-                        programs: data.programs || [],
-                        commercials: data.commercials || [],
-                        enableCommercials: data.enableCommercials || false,
-                        commercialsPerBreak: data.commercialsPerBreak || 2,
-                        isOffline: data.isOffline || false,
-                        socialMedia: data.socialMedia || {
-                            facebook: '',
-                            instagram: '',
-                            bluesky: '',
-                            tiktok: ''
-                        },
-                        customButton: data.customButton || {
-                            text: '',
-                            url: ''
-                        },
-                        url: data.url || '',
-                        hasUnpublishedChanges: data.hasUnpublishedChanges || false,
-                        published: data.published || false,
-                        lastSaved: data.lastSaved,
-                        userId: data.userId,
-                        createdAt: data.createdAt,
-                        updatedAt: data.updatedAt
+                        ...canalNormalizado
                     });
                 });
                 
-                console.log(`${channels.length} canais carregados do Firestore`);
+                console.log(`${channels.length} canais carregados do Firestore (normalizados)`);
                 return channels;
             } catch (error) {
                 console.error("Erro ao carregar canais do Firestore:", error);
@@ -3236,8 +3237,11 @@
                     return false;
                 }
                 
+                // Normalizar dados antes de salvar
+                const dadosParaSalvar = normalizarDadosCanal(tvData);
+                
                 // Salvar no Firestore
-                const savedChannelId = await salvarCanalFirestore(tvData, false);
+                const savedChannelId = await salvarCanalFirestore(dadosParaSalvar, false);
                 
                 if (savedChannelId) {
                     currentChannelId = savedChannelId;
@@ -3308,9 +3312,12 @@
             // Parar qualquer verificação em andamento
             urlVerificationActive = false;
             
+            // Normalizar dados antes de publicar
+            const dadosNormalizados = normalizarDadosCanal(tvData);
+            
             // Preparar dados
             const GRADE = [];
-            const totalPrograms = tvData.programs.length;
+            const totalPrograms = dadosNormalizados.programs.length;
             
             if (totalPrograms === 0) {
                 for (let i = 0; i < totalSlots; i++) {
@@ -3322,33 +3329,33 @@
                 }
             }
             
-            const releaseDate = tvData.customReleaseDate && tvData.releaseDate 
-                ? tvData.releaseDate 
+            const releaseDate = dadosNormalizados.customReleaseDate && dadosNormalizados.releaseDate 
+                ? dadosNormalizados.releaseDate 
                 : new Date().toISOString().split('T')[0];
             
             const dadosParaEnvio = {
-                name: tvData.name,
-                email: tvData.email,
-                slogan: tvData.slogan,
-                logo: tvData.logo || DEFAULT_LOGO,
-                visibility: tvData.visibility,
-                programas: tvData.programs.map(program => ({
+                name: dadosNormalizados.name,
+                email: dadosNormalizados.email,
+                slogan: dadosNormalizados.slogan,
+                logo: dadosNormalizados.logo || DEFAULT_LOGO,
+                visibility: dadosNormalizados.visibility,
+                programas: dadosNormalizados.programs.map(program => ({
                     name: program.name,
                     videos: program.videos || []
                 })),
                 grade: GRADE,
-                comerciais: tvData.commercials,
+                comerciais: dadosNormalizados.commercials,
                 release: releaseDate,
-                showTime: tvData.showTime,
-                enableRewind10: tvData.enableRewind10,
-                enableRestart: tvData.enableRestart,
-                enableLive: tvData.enableLive,
-                enableDebug: tvData.enableDebug,
-                enableCommercials: tvData.enableCommercials,
-                commercialsPerBreak: tvData.commercialsPerBreak,
-                isOffline: tvData.isOffline || false,
-                socialMedia: tvData.socialMedia,
-                customButton: tvData.customButton
+                showTime: dadosNormalizados.showTime,
+                enableRewind10: dadosNormalizados.enableRewind10,
+                enableRestart: dadosNormalizados.enableRestart,
+                enableLive: dadosNormalizados.enableLive,
+                enableDebug: dadosNormalizados.enableDebug,
+                enableCommercials: dadosNormalizados.enableCommercials,
+                commercialsPerBreak: dadosNormalizados.commercialsPerBreak,
+                isOffline: dadosNormalizados.isOffline || false,
+                socialMedia: dadosNormalizados.socialMedia,
+                customButton: dadosNormalizados.customButton
             };
 
             try {
@@ -3367,7 +3374,7 @@
                 document.querySelector('#processingMessage .progress-bar').style.width = '50%';
                 
                 console.log("Enviando para publicação...");
-                const resultado = await publicarCanalGithub(tvData.name, dadosParaEnvio);
+                const resultado = await publicarCanalGithub(dadosNormalizados.name, dadosParaEnvio);
                 
                 // Fase 3: Verificando disponibilidade
                 processingMessage.style.display = 'none';
@@ -3388,7 +3395,7 @@
                     
                     successMessage.innerHTML = `
                         <h3>${mensagemSucesso}</h3>
-                        <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${tvData.name}</a>
+                        <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
                     `;
                     
                     backToHomeFromSuccess.style.display = 'inline-block';
@@ -3587,7 +3594,7 @@
             }
         }
 
-        // Alternar estado "fora do ar" do canal (CORRIGIDA E SIMPLIFICADA)
+        // Alternar estado "fora do ar" do canal (CORRIGIDA)
         async function toggleChannelOffline(channelId, isCurrentlyOffline) {
             if (!currentUser) {
                 alert("É necessário fazer login para modificar canais");
@@ -3604,6 +3611,7 @@
                 }
                 
                 const channel = doc.data();
+                const dadosNormalizados = normalizarDadosCanal(channel);
                 
                 // Alternar estado offline
                 const novoEstadoOffline = !isCurrentlyOffline;
@@ -3615,52 +3623,19 @@
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 
-                console.log(`Canal ${channel.name} atualizado para: ${novoEstadoOffline ? 'Offline' : 'Online'}`);
+                console.log(`Canal ${dadosNormalizados.name} atualizado para: ${novoEstadoOffline ? 'Offline' : 'Online'}`);
                 
                 // Recarregar a lista de canais
                 await carregarCanais();
                 
-                // Agora, vamos carregar os dados do canal em tvData e ir para a tela 6 para publicar
-                tvData = {
-                    email: channel.email || '',
-                    name: channel.name || '',
-                    slogan: channel.slogan || '',
-                    logo: channel.logo || DEFAULT_LOGO,
-                    visibility: channel.visibility || 'brazil',
-                    showTime: channel.showTime !== undefined ? channel.showTime : true,
-                    enableRewind10: channel.enableRewind10 !== undefined ? channel.enableRewind10 : true,
-                    enableRestart: channel.enableRestart !== undefined ? channel.enableRestart : true,
-                    enableLive: channel.enableLive !== undefined ? channel.enableLive : true,
-                    enableDebug: channel.enableDebug || false,
-                    customReleaseDate: channel.customReleaseDate || false,
-                    releaseDate: channel.releaseDate || '',
-                    programs: channel.programs || [],
-                    commercials: channel.commercials || [],
-                    enableCommercials: channel.enableCommercials || false,
-                    commercialsPerBreak: channel.commercialsPerBreak || 2,
-                    isOffline: novoEstadoOffline,
-                    socialMedia: channel.socialMedia || {
-                        facebook: '',
-                        instagram: '',
-                        bluesky: '',
-                        tiktok: ''
-                    },
-                    customButton: channel.customButton || {
-                        text: '',
-                        url: ''
-                    },
-                    url: channel.url || '',
-                    hasUnpublishedChanges: true,
-                    published: channel.published || false,
-                    lastSaved: channel.lastSaved,
-                    userId: channel.userId,
-                    createdAt: channel.createdAt,
-                    updatedAt: channel.updatedAt
-                };
+                // Carregar dados normalizados em tvData
+                tvData = dadosNormalizados;
+                tvData.isOffline = novoEstadoOffline;
+                tvData.hasUnpublishedChanges = true;
                 
                 currentChannelId = channelId;
                 editingChannel = true;
-                originalChannelName = channel.name;
+                originalChannelName = dadosNormalizados.name;
                 unsavedChanges = true;
                 
                 // Ir diretamente para a tela 6 para publicar
@@ -3672,8 +3647,10 @@
             }
         }
         
-        // Editar canal (CORRIGIDA E SIMPLIFICADA)
+        // Editar canal (CORREÇÃO COMPLETA - ESTE É O PROBLEMA PRINCIPAL)
         async function editChannel(channelId) {
+            console.log("Iniciando edição do canal:", channelId);
+            
             if (!currentUser) {
                 alert("É necessário fazer login para editar canais");
                 return;
@@ -3684,54 +3661,27 @@
                 const doc = await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).get();
                 
                 if (!doc.exists) {
+                    console.error("Documento não encontrado no Firestore");
                     alert("Canal não encontrado");
                     return;
                 }
                 
                 const channel = doc.data();
+                console.log("Dados brutos do Firestore:", channel);
                 
-                // Preencher tvData com os dados do canal (estrutura simplificada)
-                tvData = {
-                    email: channel.email || '',
-                    name: channel.name || '',
-                    slogan: channel.slogan || '',
-                    logo: channel.logo || DEFAULT_LOGO,
-                    visibility: channel.visibility || 'brazil',
-                    showTime: channel.showTime !== undefined ? channel.showTime : true,
-                    enableRewind10: channel.enableRewind10 !== undefined ? channel.enableRewind10 : true,
-                    enableRestart: channel.enableRestart !== undefined ? channel.enableRestart : true,
-                    enableLive: channel.enableLive !== undefined ? channel.enableLive : true,
-                    enableDebug: channel.enableDebug || false,
-                    customReleaseDate: channel.customReleaseDate || false,
-                    releaseDate: channel.releaseDate || '',
-                    programs: channel.programs || [],
-                    commercials: channel.commercials || [],
-                    enableCommercials: channel.enableCommercials || false,
-                    commercialsPerBreak: channel.commercialsPerBreak || 2,
-                    isOffline: channel.isOffline || false,
-                    socialMedia: channel.socialMedia || {
-                        facebook: '',
-                        instagram: '',
-                        bluesky: '',
-                        tiktok: ''
-                    },
-                    customButton: channel.customButton || {
-                        text: '',
-                        url: ''
-                    },
-                    url: channel.url || '',
-                    hasUnpublishedChanges: channel.hasUnpublishedChanges || false,
-                    published: channel.published || false,
-                    lastSaved: channel.lastSaved,
-                    userId: channel.userId,
-                    createdAt: channel.createdAt,
-                    updatedAt: channel.updatedAt
-                };
+                // NORMALIZAR DADOS - CORREÇÃO CRÍTICA
+                const dadosNormalizados = normalizarDadosCanal(channel);
+                console.log("Dados normalizados:", dadosNormalizados);
+                
+                // Preencher tvData com os dados normalizados
+                tvData = { ...dadosNormalizados };
                 
                 currentChannelId = channelId;
                 editingChannel = true;
-                originalChannelName = channel.name;
+                originalChannelName = dadosNormalizados.name;
                 unsavedChanges = false;
+                
+                console.log("Preenchendo formulário...");
                 
                 // Preencher formulário com dados do canal
                 document.getElementById('tvEmail').value = tvData.email;
@@ -3780,17 +3730,26 @@
                 // Limpar e recriar programas
                 const programsContainer = document.getElementById('programsContainer');
                 programsContainer.innerHTML = '';
-                tvData.programs.forEach((program, index) => {
-                    addProgramCard(program, index);
-                });
+                
+                if (tvData.programs && tvData.programs.length > 0) {
+                    tvData.programs.forEach((program, index) => {
+                        addProgramCard(program, index);
+                    });
+                }
                 
                 // Limpar e recriar comerciais
                 const commercialsContainer = document.getElementById('commercialsContainer');
                 commercialsContainer.innerHTML = '';
-                tvData.commercials.forEach((commercial, index) => {
-                    const commercialTitle = commercial.name || `Comercial ${index + 1}`;
-                    addCommercialCard({...commercial, name: commercialTitle}, index);
-                });
+                
+                if (tvData.commercials && tvData.commercials.length > 0) {
+                    tvData.commercials.forEach((commercial, index) => {
+                        // Converter comerciais antigos (strings) para objetos
+                        const commercialObj = typeof commercial === 'string' ? 
+                            { name: `Comercial ${index + 1}`, url: commercial } : 
+                            commercial;
+                        addCommercialCard(commercialObj, index);
+                    });
+                }
                 
                 document.getElementById('enableCommercials').checked = tvData.enableCommercials;
                 document.getElementById('commercialsPerBreak').value = tvData.commercialsPerBreak;
@@ -3816,11 +3775,13 @@
                 
                 updateCounters();
                 
+                console.log("Formulário preenchido com sucesso. Indo para tela 1...");
                 showScreen('screen1');
                 
             } catch (error) {
-                console.error("Erro ao carregar canal para edição:", error);
-                alert("Erro ao carregar canal. Tente novamente.");
+                console.error("Erro detalhado ao carregar canal para edição:", error);
+                console.error("Stack trace:", error.stack);
+                alert("Erro ao carregar canal. Tente novamente. Detalhes no console.");
             }
         }
         
