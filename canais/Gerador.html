@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gerador de TV Online</title>
+    <!-- Favicon para o sistema -->
+    <link rel="icon" href="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/favicon.png" type="image/png">
     <style>
         /* RESET E ESTILOS GERAIS */
         * {
@@ -252,11 +254,12 @@
             margin-top: 30px;
         }
         
-        /* INDICADOR DE ETAPAS */
+        /* INDICADOR DE ETAPAS - MELHORADO */
         .step-indicator {
             display: none;
             justify-content: center;
             margin-bottom: 30px;
+            flex-wrap: wrap;
         }
         
         .step-indicator.active {
@@ -264,23 +267,35 @@
         }
         
         .step {
-            width: 30px;
-            height: 30px;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.2);
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 10px;
+            margin: 0 5px;
+            font-weight: bold;
+            font-size: 1.2rem;
+            transition: all 0.3s;
+            border: 2px solid transparent;
         }
         
         .step.active {
             background: #fdbb2d;
             color: #000;
+            border-color: #000;
+            transform: scale(1.1);
+            box-shadow: 0 0 15px rgba(253, 187, 45, 0.5);
+        }
+        
+        .step.completed {
+            background: rgba(253, 187, 45, 0.5);
+            color: white;
         }
         
         .step-line {
-            width: 50px;
+            width: 40px;
             height: 2px;
             background: rgba(255, 255, 255, 0.2);
             margin: 0 5px;
@@ -292,6 +307,7 @@
             margin-top: 5px;
             font-size: 12px;
             text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+            min-width: 80px;
         }
         
         /* MENSAGENS DE ERRO */
@@ -907,6 +923,15 @@
             margin-right: 5px;
             vertical-align: middle;
         }
+        
+        /* VERSÃO DO SISTEMA */
+        .version-info {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            opacity: 0.8;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -968,34 +993,34 @@
             </div>
         </div>
         
-        <!-- Indicador de etapas -->
+        <!-- Indicador de etapas - MELHORADO -->
         <div class="step-indicator" id="stepIndicator">
-            <div>
+            <div class="step-container">
                 <div class="step" id="step1">1</div>
                 <div class="step-label">Configuração</div>
             </div>
             <div class="step-line"></div>
-            <div>
+            <div class="step-container">
                 <div class="step" id="step2">2</div>
                 <div class="step-label">Opções</div>
             </div>
             <div class="step-line"></div>
-            <div>
+            <div class="step-container">
                 <div class="step" id="step3">3</div>
                 <div class="step-label">Programação</div>
             </div>
             <div class="step-line"></div>
-            <div>
+            <div class="step-container">
                 <div class="step" id="step4">4</div>
                 <div class="step-label">Comerciais</div>
             </div>
             <div class="step-line"></div>
-            <div>
+            <div class="step-container">
                 <div class="step" id="step5">5</div>
                 <div class="step-label">Redes Sociais</div>
             </div>
             <div class="step-line"></div>
-            <div>
+            <div class="step-container">
                 <div class="step" id="step6">6</div>
                 <div class="step-label">Publicação</div>
             </div>
@@ -1013,11 +1038,12 @@
             </div>
             
             <div class="form-group">
-                <label for="tvName">Nome da TV (máx. 50 caracteres):</label>
+                <label for="tvName">Nome da TV (mín. 3 caracteres, máx. 50 caracteres):</label>
                 <input type="text" id="tvName" maxlength="50" placeholder="Ex: TV X-Gen">
                 <div class="char-counter" id="tvNameCounter">0/50</div>
-                <div class="error-message" id="nameError">Por favor, insira um nome para a TV.</div>
+                <div class="error-message" id="nameError">Por favor, insira um nome para a TV (mínimo 3 caracteres).</div>
                 <div class="error-message" id="nameDuplicateError"></div>
+                <div class="field-info" id="nameCheckStatus" style="display: none; color: #fdbb2d;"></div>
             </div>
             
             <div class="form-group">
@@ -1039,7 +1065,7 @@
             
             <div class="navigation">
                 <button class="secondary back-to-home-btn" id="backToHome">Voltar para Início</button>
-                <button id="toScreen2">Continuar para Opções</button>
+                <button id="toScreen2" disabled>Continuar para Opções</button>
             </div>
         </div>
         
@@ -1367,7 +1393,9 @@
             published: false,
             userId: '',
             createdAt: null,
-            updatedAt: null
+            updatedAt: null,
+            // NOVO: Adicionar sistema de versão
+            version: "1.0.0.0"
         };
         
         let totalSlots = 58;
@@ -1421,8 +1449,34 @@
             // Atualizar indicador de etapas se não for a tela 0
             if (screenId !== 'screen0') {
                 document.getElementById('stepIndicator').classList.add('active');
+                // Atualizar os passos destacados
+                updateStepIndicator(screenId);
             } else {
                 document.getElementById('stepIndicator').classList.remove('active');
+            }
+        }
+
+        // NOVA FUNÇÃO: Atualizar indicador de etapas
+        function updateStepIndicator(screenId) {
+            const steps = document.querySelectorAll('.step');
+            const screenNumber = screenId.replace('screen', '');
+            
+            steps.forEach(step => {
+                step.classList.remove('active', 'completed');
+            });
+            
+            // Marcar todos os passos anteriores como completos
+            for (let i = 1; i < screenNumber; i++) {
+                const prevStep = document.getElementById(`step${i}`);
+                if (prevStep) {
+                    prevStep.classList.add('completed');
+                }
+            }
+            
+            // Marcar o passo atual como ativo
+            const currentStep = document.getElementById(`step${screenNumber}`);
+            if (currentStep) {
+                currentStep.classList.add('active');
             }
         }
 
@@ -1554,41 +1608,40 @@
             // Gerar lista de comerciais para o player (apenas URLs)
             const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
             
-            // Redes sociais (somente se não estiver offline)
+            // Redes sociais - SEMPRE EXIBIR, MESMO QUANDO OFFLINE (CORREÇÃO)
             let socialMediaHTML = '';
-            if (!isOffline) {
-                const socialMedia = dados.socialMedia || {};
-                const hasSocialMedia = socialMedia.facebook || socialMedia.instagram || socialMedia.bluesky || socialMedia.tiktok;
-                
-                if (hasSocialMedia) {
-                    socialMediaHTML = `
-                    <div class="social-media-links" style="text-align: center; margin: 20px 0;">
-                        <h3 style="margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">Siga-nos nas redes sociais</h3>
-                        <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
-                            ${socialMedia.facebook ? `<a href="${socialMedia.facebook}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.facebook}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Facebook"></a>` : ''}
-                            ${socialMedia.instagram ? `<a href="${socialMedia.instagram}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.instagram}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Instagram"></a>` : ''}
-                            ${socialMedia.bluesky ? `<a href="${socialMedia.bluesky}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.bluesky}" style="width: 50px; height: 50px; border-radius: 8px;" alt="BlueSky"></a>` : ''}
-                            ${socialMedia.tiktok ? `<a href="${socialMedia.tiktok}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.tiktok}" style="width: 50px; height: 50px; border-radius: 8px;" alt="TikTok"></a>` : ''}
-                        </div>
-                    </div>`;
-                }
+            const socialMedia = dados.socialMedia || {};
+            const hasSocialMedia = socialMedia.facebook || socialMedia.instagram || socialMedia.bluesky || socialMedia.tiktok;
+            
+            if (hasSocialMedia) {
+                socialMediaHTML = `
+                <div class="social-media-links" style="text-align: center; margin: 20px 0;">
+                    <h3 style="margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">Siga-nos nas redes sociais</h3>
+                    <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
+                        ${socialMedia.facebook ? `<a href="${socialMedia.facebook}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.facebook}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Facebook"></a>` : ''}
+                        ${socialMedia.instagram ? `<a href="${socialMedia.instagram}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.instagram}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Instagram"></a>` : ''}
+                        ${socialMedia.bluesky ? `<a href="${socialMedia.bluesky}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.bluesky}" style="width: 50px; height: 50px; border-radius: 8px;" alt="BlueSky"></a>` : ''}
+                        ${socialMedia.tiktok ? `<a href="${socialMedia.tiktok}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.tiktok}" style="width: 50px; height: 50px; border-radius: 8px;" alt="TikTok"></a>` : ''}
+                    </div>
+                </div>`;
             }
             
-            // Botão personalizado HTML (somente se não estiver offline)
+            // Botão personalizado HTML - SEMPRE EXIBIR, MESMO QUANDO OFFLINE (CORREÇÃO)
             let customButtonHTML = '';
-            if (!isOffline) {
-                const customButton = dados.customButton || {};
-                const hasCustomButton = customButton.text && customButton.url;
-                
-                if (hasCustomButton) {
-                    customButtonHTML = `
-                    <div style="text-align: center; margin: 20px 0;">
-                        <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
-                            ${customButton.text}
-                        </a>
-                    </div>`;
-                }
+            const customButton = dados.customButton || {};
+            const hasCustomButton = customButton.text && customButton.url;
+            
+            if (hasCustomButton) {
+                customButtonHTML = `
+                <div style="text-align: center; margin: 20px 0;">
+                    <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
+                        ${customButton.text}
+                    </a>
+                </div>`;
             }
+            
+            // Adicionar informação de versão acima do e-mail (NOVO)
+            const versionInfo = dados.version ? `<div class="version-info" style="text-align: center; margin: 10px 0; font-size: 0.9rem; opacity: 0.7;">Versão ${dados.version}</div>` : '';
             
             // HTML do canal com sistema completo de programação
             const html = `<!DOCTYPE html>
@@ -2058,6 +2111,15 @@
             background: rgba(255, 107, 107, 0.1);
             margin: 10px 0;
         }
+        
+        /* NOVO: Estilo para informação de versão */
+        .version-info {
+            text-align: center;
+            margin: 5px 0;
+            font-size: 0.8rem;
+            opacity: 0.6;
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+        }
     </style>
 </head>
 <body>
@@ -2067,6 +2129,9 @@
             <h1 class="channel-name">${dados.name}</h1>
         </div>
         <p class="subtitle">${dados.slogan}</p>
+        
+        <!-- NOVO: Adicionar informação de versão -->
+        ${versionInfo}
         
         <div class="video-wrapper" oncontextmenu="return false;">
             ${isOffline ? `
@@ -2150,6 +2215,7 @@
         
         const RELEASE_DATE = "${releaseDate}";
         const IS_OFFLINE = ${isOffline};
+        const CHANNEL_VERSION = "${dados.version || '1.0.0.0'}";
         
         // VARIÁVEIS DE ESTADO
         let currentState = 'program'; // 'program' ou 'commercial'
@@ -2811,45 +2877,116 @@
             return html;
         }
 
-        // Função para verificar disponibilidade do canal
+        // NOVA FUNÇÃO: Verificar disponibilidade do canal SEM TIMEOUT
         async function verificarDisponibilidadeCanal(url) {
+            console.log("Verificando disponibilidade do canal (sem timeout)...");
+            let tentativa = 0;
+            
             return new Promise((resolve) => {
-                let tentativas = 0;
-                const maxTentativas = 30; // 60 segundos (30 * 2 segundos)
-                
                 const verificar = async () => {
                     try {
                         const response = await fetch(url, { 
                             method: 'HEAD',
-                            cache: 'no-cache'
+                            cache: 'no-cache',
+                            headers: {
+                                'Cache-Control': 'no-cache',
+                                'Pragma': 'no-cache'
+                            }
                         });
                         
                         if (response.status === 200) {
+                            console.log(`Canal disponível na tentativa ${tentativa + 1}`);
                             resolve(true);
                             return;
-                        } else if (response.status === 404) {
-                            tentativas++;
-                            if (tentativas < maxTentativas) {
-                                setTimeout(verificar, 2000); // Tentar novamente em 2 segundos
-                            } else {
-                                resolve(false);
-                            }
                         } else {
-                            // Outro status, considerar como indisponível
-                            resolve(false);
+                            tentativa++;
+                            console.log(`Tentativa ${tentativa}: Canal ainda não disponível (status ${response.status}), tentando novamente em 3 segundos...`);
+                            setTimeout(verificar, 3000); // Tentar novamente em 3 segundos
                         }
                     } catch (error) {
-                        tentativas++;
-                        if (tentativas < maxTentativas) {
-                            setTimeout(verificar, 2000);
-                        } else {
-                            resolve(false);
-                        }
+                        tentativa++;
+                        console.log(`Tentativa ${tentativa}: Erro na verificação (${error.message}), tentando novamente em 3 segundos...`);
+                        setTimeout(verificar, 3000); // Tentar novamente em 3 segundos
                     }
                 };
                 
                 verificar();
             });
+        }
+
+        // NOVA FUNÇÃO: Verificar versão do canal publicada SEM TIMEOUT
+        async function verificarVersaoCanal(url, versaoEsperada) {
+            console.log(`Verificando versão do canal (esperada: ${versaoEsperada})...`);
+            
+            return new Promise(async (resolve) => {
+                const verificarVersao = async () => {
+                    try {
+                        // Primeiro verificar se o canal está disponível
+                        const response = await fetch(url, { 
+                            method: 'GET',
+                            cache: 'no-cache'
+                        });
+                        
+                        if (response.status === 200) {
+                            const html = await response.text();
+                            
+                            // Extrair a versão do HTML
+                            const versaoMatch = html.match(/Versão\s+([\d.]+)/i);
+                            
+                            if (versaoMatch) {
+                                const versaoPublicada = versaoMatch[1];
+                                console.log(`Versão publicada: ${versaoPublicada}, Versão esperada: ${versaoEsperada}`);
+                                
+                                if (versaoPublicada === versaoEsperada) {
+                                    console.log("Versão verificada com sucesso!");
+                                    resolve({ sucesso: true, versao: versaoPublicada });
+                                    return;
+                                } else {
+                                    console.log(`Versão não corresponde (publicada: ${versaoPublicada}, esperada: ${versaoEsperada}), verificando novamente em 3 segundos...`);
+                                    setTimeout(verificarVersao, 3000);
+                                }
+                            } else {
+                                console.log("Versão não encontrada no HTML, verificando novamente em 3 segundos...");
+                                setTimeout(verificarVersao, 3000);
+                            }
+                        } else {
+                            console.log(`Canal não disponível (status ${response.status}), verificando novamente em 3 segundos...`);
+                            setTimeout(verificarVersao, 3000);
+                        }
+                    } catch (error) {
+                        console.log(`Erro na verificação de versão (${error.message}), verificando novamente em 3 segundos...`);
+                        setTimeout(verificarVersao, 3000);
+                    }
+                };
+                
+                verificarVersao();
+            });
+        }
+
+        // NOVA FUNÇÃO: Incrementar versão
+        function incrementarVersao(versaoAtual) {
+            const partes = versaoAtual.split('.').map(Number);
+            
+            // Incrementar a última parte (0.0.0.1)
+            partes[3] += 1;
+            
+            // Se a última parte passar de 9, ajustar
+            if (partes[3] > 9) {
+                partes[3] = 0;
+                partes[2] += 1;
+                
+                if (partes[2] > 9) {
+                    partes[2] = 0;
+                    partes[1] += 1;
+                    
+                    if (partes[1] > 9) {
+                        partes[1] = 0;
+                        partes[0] += 1;
+                    }
+                }
+            }
+            
+            return partes.join('.');
         }
 
         // Função para publicar canal no GitHub
@@ -2955,7 +3092,7 @@
         // Função para normalizar dados do canal
         function normalizarDadosCanal(channelData) {
             // Garantir que todos os campos obrigatórios existam
-            return {
+            const dadosNormalizados = {
                 email: channelData.email || '',
                 name: channelData.name || '',
                 slogan: channelData.slogan || '',
@@ -2997,6 +3134,18 @@
                 createdAt: channelData.createdAt || null,
                 updatedAt: channelData.updatedAt || null
             };
+            
+            // NOVO: Adicionar sistema de versão
+            if (channelData.version) {
+                dadosNormalizados.version = channelData.version;
+            } else if (channelData.published) {
+                // Se já está publicado mas não tem versão, começar com 1.0.0.0
+                dadosNormalizados.version = "1.0.0.0";
+            } else {
+                dadosNormalizados.version = "1.0.0.0";
+            }
+            
+            return dadosNormalizados;
         }
 
         // Função para salvar canal no Firestore
@@ -3012,6 +3161,12 @@
                 
                 // Normalizar dados antes de salvar
                 const dadosNormalizados = normalizarDadosCanal(channelData);
+                
+                // Se for uma publicação (não apenas salvar rascunho), incrementar versão
+                if (isPublication && dadosNormalizados.published) {
+                    dadosNormalizados.version = incrementarVersao(dadosNormalizados.version);
+                    console.log(`Nova versão do canal: ${dadosNormalizados.version}`);
+                }
                 
                 // Buscar canal existente com o mesmo nome
                 const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
@@ -3144,6 +3299,7 @@
                 slogan: dadosNormalizados.slogan,
                 logo: dadosNormalizados.logo || DEFAULT_LOGO,
                 visibility: dadosNormalizados.visibility,
+                version: dadosNormalizados.version, // NOVO: Incluir versão
                 programas: dadosNormalizados.programs.map(program => ({
                     name: program.name,
                     videos: program.videos || []
@@ -3194,54 +3350,79 @@
                 console.log("Enviando para publicação...");
                 const resultado = await publicarCanalGithub(dadosNormalizados.name, dadosParaEnvio);
                 
-                // Fase 3: Verificando disponibilidade
-                processingMessage.innerHTML = `
-                    <div class="spinner"></div>
-                    <h3>Verificando disponibilidade...</h3>
-                    <p>Verificando se o canal já está acessível. Esta verificação pode levar até 1 minuto.</p>
-                    <div class="progress-container">
-                        <div class="progress-bar" style="width: 80%;"></div>
-                    </div>
-                `;
-                
-                // Verificar disponibilidade do canal
-                const canalDisponivel = await verificarDisponibilidadeCanal(resultado.url);
-                
-                if (canalDisponivel) {
-                    // Fase 4: Sucesso (canal disponível)
-                    processingMessage.style.display = 'none';
-                    successMessage.style.display = 'block';
-                    
-                    const mensagemSucesso = editingChannel 
-                        ? `Canal Atualizado com Sucesso!<br><small>Seu canal pode levar alguns minutos para ficar disponível.</small>`
-                        : `Seu canal já está no ar!`;
-                    
-                    successMessage.innerHTML = `
-                        <h3>${mensagemSucesso}</h3>
-                        <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
-                    `;
-                    
-                    backToHomeFromSuccess.style.display = 'inline-block';
-                    backToScreen5Btn.style.display = 'none';
-                    
-                    // Atualizar dados do canal com a URL e marcar como publicado
-                    tvData.url = resultado.url;
-                    tvData.published = true;
-                } else {
-                    // Canal não ficou disponível após 1 minuto
-                    processingMessage.style.display = 'none';
-                    successMessage.style.display = 'block';
-                    successMessage.innerHTML = `
-                        <h3>Publicação em processamento</h3>
-                        <p>Seu canal pode levar alguns minutos para ficar disponível.</p>
-                        <p><small>O GitHub Pages pode demorar até 5 minutos para atualizar.</small></p>
-                        <a href="${resultado.url}" class="channel-link" target="_blank">Tentar abrir ${dadosNormalizados.name}</a>
-                    `;
-                    backToHomeFromSuccess.style.display = 'inline-block';
-                }
+                // Atualizar dados do canal com a URL e marcar como publicado
+                tvData.url = resultado.url;
+                tvData.published = true;
                 
                 // Salvar canal no Firestore com a URL atualizada
-                await salvarCanalFirestore(tvData, true);
+                const channelId = await salvarCanalFirestore(tvData, true);
+                
+                if (channelId) {
+                    // Fase 3: Verificando disponibilidade (SEM TIMEOUT)
+                    processingMessage.innerHTML = `
+                        <div class="spinner"></div>
+                        <h3>Verificando disponibilidade...</h3>
+                        <p>Aguardando o canal ficar disponível online.</p>
+                        <div class="progress-container">
+                            <div class="progress-bar" style="width: 80%;"></div>
+                        </div>
+                    `;
+                    
+                    // Verificar disponibilidade do canal (SEM TIMEOUT)
+                    await verificarDisponibilidadeCanal(resultado.url);
+                    
+                    // Fase 4: Verificando versão (SEM TIMEOUT)
+                    processingMessage.innerHTML = `
+                        <div class="spinner"></div>
+                        <h3>Verificando versão...</h3>
+                        <p>Verificando se a versão mais recente está disponível.</p>
+                        <div class="progress-container">
+                            <div class="progress-bar" style="width: 90%;"></div>
+                        </div>
+                    `;
+                    
+                    // Obter a versão atual (após incremento)
+                    const versaoAtual = tvData.version;
+                    
+                    // Verificar se a versão publicada é a mesma (SEM TIMEOUT)
+                    const verificacaoVersao = await verificarVersaoCanal(resultado.url, versaoAtual);
+                    
+                    if (verificacaoVersao.sucesso) {
+                        // Fase 5: Sucesso (canal disponível e versão correta)
+                        processingMessage.style.display = 'none';
+                        successMessage.style.display = 'block';
+                        
+                        const mensagemSucesso = editingChannel 
+                            ? `Canal Atualizado com Sucesso!<br><small>Versão ${versaoAtual} publicada.</small>`
+                            : `Seu canal já está no ar!<br><small>Versão ${versaoAtual}.</small>`;
+                        
+                        successMessage.innerHTML = `
+                            <h3>${mensagemSucesso}</h3>
+                            <p><small>O canal foi verificado e está disponível com a versão mais recente.</small></p>
+                            <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
+                        `;
+                        
+                        backToHomeFromSuccess.style.display = 'inline-block';
+                        backToScreen5Btn.style.display = 'none';
+                        
+                        // Atualizar dados locais
+                        tvData.version = versaoAtual;
+                        
+                    } else {
+                        // Versão não corresponde (não deve acontecer com a verificação sem timeout)
+                        processingMessage.style.display = 'none';
+                        successMessage.style.display = 'block';
+                        successMessage.innerHTML = `
+                            <h3>Publicação em processamento</h3>
+                            <p>Seu canal pode levar alguns minutos para atualizar completamente.</p>
+                            <p><small>Versão atual: ${versaoAtual}</small></p>
+                            <a href="${resultado.url}" class="channel-link" target="_blank">Tentar abrir ${dadosNormalizados.name}</a>
+                        `;
+                        backToHomeFromSuccess.style.display = 'inline-block';
+                    }
+                } else {
+                    throw new Error("Falha ao salvar canal no banco de dados");
+                }
                 
                 publicationStarted = false;
                 
@@ -3345,6 +3526,9 @@
                                 statusClass = 'status-published';
                             }
                             
+                            // Informação de versão
+                            const versionInfo = channel.version ? `<div style="font-size: 0.7rem; opacity: 0.7; margin-top: 5px;">v${channel.version}</div>` : '';
+                            
                             channelCard.innerHTML = `
                                 ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
                                 <div class="channel-name-with-emoji">
@@ -3352,6 +3536,7 @@
                                 </div>
                                 ${visibilityIcon}
                                 <p>${channel.slogan || 'Sem slogan'}</p>
+                                ${versionInfo}
                                 <div class="channel-status ${statusClass}">${statusText}</div>
                                 <div class="channel-actions">
                                     ${urlCanal && urlCanal !== 'https://playtronic.github.io/tv/canais/.html' ? 
@@ -3517,9 +3702,17 @@
                 document.getElementById('enableDebug').checked = tvData.enableDebug;
                 document.getElementById('customReleaseDate').checked = tvData.customReleaseDate;
                 
-                // Habilitar edição do nome (pode ser editado)
-                document.getElementById('tvName').disabled = false;
-                document.getElementById('tvName').classList.remove('name-disabled');
+                // Habilitar ou desabilitar edição do nome baseado no status de publicação
+                if (tvData.published) {
+                    // Canal já publicado - bloquear edição do nome
+                    document.getElementById('tvName').disabled = true;
+                    document.getElementById('tvName').classList.add('name-disabled');
+                    document.getElementById('tvName').title = "O nome não pode ser alterado após a publicação";
+                } else {
+                    // Canal não publicado - permitir edição
+                    document.getElementById('tvName').disabled = false;
+                    document.getElementById('tvName').classList.remove('name-disabled');
+                }
                 
                 if (tvData.customReleaseDate && tvData.releaseDate) {
                     document.getElementById('releaseDate').value = tvData.releaseDate;
@@ -4082,6 +4275,7 @@
             const emailError = document.getElementById('emailError');
             const nameError = document.getElementById('nameError');
             const nameDuplicateError = document.getElementById('nameDuplicateError');
+            const nameCheckStatus = document.getElementById('nameCheckStatus');
             const logoError = document.getElementById('logoError');
             const toScreen2Btn = document.getElementById('toScreen2');
             const backToHomeBtn = document.getElementById('backToHome');
@@ -4155,12 +4349,6 @@
             
             // Elementos do indicador de etapas
             const stepIndicator = document.getElementById('stepIndicator');
-            const step1 = document.getElementById('step1');
-            const step2 = document.getElementById('step2');
-            const step3 = document.getElementById('step3');
-            const step4 = document.getElementById('step4');
-            const step5 = document.getElementById('step5');
-            const step6 = document.getElementById('step6');
 
             // Configurar contadores de caracteres
             tvNameInput.addEventListener('input', function() {
@@ -4171,6 +4359,33 @@
                     tvNameCounter.className = 'char-counter over-limit';
                 } else {
                     tvNameCounter.className = 'char-counter';
+                }
+                
+                // Verificação em tempo real do nome
+                const nome = this.value.trim();
+                const toScreen2Btn = document.getElementById('toScreen2');
+                
+                // Limpar mensagens de erro
+                nameError.style.display = 'none';
+                nameDuplicateError.style.display = 'none';
+                nameCheckStatus.style.display = 'none';
+                
+                // Validar comprimento mínimo
+                if (nome.length > 0 && nome.length < 3) {
+                    nameError.textContent = 'O nome do canal deve ter pelo menos 3 caracteres.';
+                    nameError.style.display = 'block';
+                    toScreen2Btn.disabled = true;
+                    return;
+                }
+                
+                // Se tiver pelo menos 3 caracteres, verificar disponibilidade
+                if (nome.length >= 3 && !editingChannel) {
+                    verificarNomeEmTempoReal(nome, toScreen2Btn);
+                } else if (nome.length >= 3) {
+                    // Se estiver editando, apenas validar comprimento
+                    toScreen2Btn.disabled = false;
+                } else {
+                    toScreen2Btn.disabled = true;
                 }
             });
             
@@ -4240,7 +4455,8 @@
                     published: false,
                     userId: '',
                     createdAt: null,
-                    updatedAt: null
+                    updatedAt: null,
+                    version: "1.0.0.0" // NOVO: Inicializar versão
                 };
                 currentChannelId = null;
                 editingChannel = false;
@@ -4281,9 +4497,14 @@
                 tvNameCounter.textContent = '0/50';
                 tvSloganCounter.textContent = '0/100';
                 
+                // Habilitar edição do nome (novo canal)
                 tvNameInput.disabled = false;
                 tvNameInput.classList.remove('name-disabled');
+                tvNameInput.title = "";
                 limparErroNomeDuplicado();
+                
+                // Desabilitar botão de continuar até que o nome seja válido
+                toScreen2Btn.disabled = true;
                 
                 updateCounters();
                 
@@ -4333,7 +4554,11 @@
                     
                     const response = await fetch(urlCanal, { 
                         method: 'HEAD',
-                        cache: 'no-cache'
+                        cache: 'no-cache',
+                        headers: {
+                            'Cache-Control': 'no-cache',
+                            'Pragma': 'no-cache'
+                        }
                     });
                     
                     if (response.status === 200) {
@@ -4358,12 +4583,45 @@
                 return { existe: false };
             }
 
+            // Função para verificar nome em tempo real
+            let timeoutVerificacao;
+            async function verificarNomeEmTempoReal(nome, toScreen2Btn) {
+                clearTimeout(timeoutVerificacao);
+                
+                timeoutVerificacao = setTimeout(async () => {
+                    nameCheckStatus.textContent = 'Verificando disponibilidade...';
+                    nameCheckStatus.style.display = 'block';
+                    nameCheckStatus.style.color = '#fdbb2d';
+                    
+                    try {
+                        const verificacao = await verificarNomeCanalExistente(nome, false);
+                        
+                        if (verificacao.existe) {
+                            mostrarErroNomeDuplicado(verificacao.mensagem);
+                            toScreen2Btn.disabled = true;
+                            nameCheckStatus.style.display = 'none';
+                        } else {
+                            limparErroNomeDuplicado();
+                            nameCheckStatus.textContent = 'Nome disponível ✓';
+                            nameCheckStatus.style.color = '#2ecc71';
+                            toScreen2Btn.disabled = false;
+                        }
+                    } catch (error) {
+                        console.error('Erro na verificação:', error);
+                        nameCheckStatus.textContent = 'Erro na verificação. Tente novamente.';
+                        nameCheckStatus.style.color = '#ff6b6b';
+                        toScreen2Btn.disabled = true;
+                    }
+                }, 1000); // Aguardar 1 segundo após a última digitação
+            }
+
             // Função para mostrar erro de nome duplicado
             function mostrarErroNomeDuplicado(mensagem) {
                 nameDuplicateError.textContent = mensagem;
                 nameDuplicateError.style.display = 'block';
                 tvNameInput.style.border = '2px solid #ff6b6b';
                 tvNameInput.style.background = 'rgba(255, 107, 107, 0.1)';
+                nameCheckStatus.style.display = 'none';
             }
 
             // Função para limpar erro de nome duplicado
@@ -4381,6 +4639,7 @@
                 emailError.style.display = 'none';
                 nameError.style.display = 'none';
                 logoError.style.display = 'none';
+                nameCheckStatus.style.display = 'none';
                 
                 // Validar e-mail
                 if (!tvEmailInput.value.trim()) {
@@ -4398,6 +4657,11 @@
                 // Validar nome
                 const nomeCanal = tvNameInput.value.trim();
                 if (!nomeCanal) {
+                    nameError.textContent = 'Por favor, insira um nome para a TV.';
+                    nameError.style.display = 'block';
+                    hasError = true;
+                } else if (nomeCanal.length < 3) {
+                    nameError.textContent = 'O nome do canal deve ter pelo menos 3 caracteres.';
                     nameError.style.display = 'block';
                     hasError = true;
                 } else if (nomeCanal.length > 50) {
@@ -4424,7 +4688,7 @@
                     return;
                 }
                 
-                // Verificação de nome duplicado
+                // Verificação final de nome duplicado (para garantir)
                 if (!editingChannel) {
                     toScreen2Btn.disabled = true;
                     toScreen2Btn.textContent = 'Verificando nome...';
@@ -4442,6 +4706,13 @@
                         }
                     } catch (error) {
                         console.error('Erro na verificação:', error);
+                        nameCheckStatus.textContent = 'Erro na verificação. Tente novamente.';
+                        nameCheckStatus.style.color = '#ff6b6b';
+                        nameCheckStatus.style.display = 'block';
+                        toScreen2Btn.disabled = false;
+                        toScreen2Btn.textContent = 'Continuar para Opções';
+                        tvNameInput.classList.remove('name-checking');
+                        return;
                     } finally {
                         toScreen2Btn.disabled = false;
                         toScreen2Btn.textContent = 'Continuar para Opções';
@@ -4450,26 +4721,6 @@
                 }
                 
                 showScreen('screen2');
-            });
-            
-            // Verificação em tempo real do nome
-            let timeoutVerificacao;
-            tvNameInput.addEventListener('input', function() {
-                if (editingChannel) return;
-                
-                limparErroNomeDuplicado();
-                
-                clearTimeout(timeoutVerificacao);
-                const nome = this.value.trim();
-                
-                if (nome.length > 2) {
-                    timeoutVerificacao = setTimeout(async () => {
-                        const verificacao = await verificarNomeCanalExistente(nome, false);
-                        if (verificacao.existe) {
-                            mostrarErroNomeDuplicado(verificacao.mensagem);
-                        }
-                    }, 1500);
-                }
             });
             
             // Navegação
