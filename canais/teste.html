@@ -854,7 +854,7 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            min-height: 220px;
+            min-height: 240px;
             width: 100%;
         }
         
@@ -2918,9 +2918,9 @@
             return html;
         }
 
-        // FUNÇÃO MELHORADA: Verificar disponibilidade do canal COM VERIFICAÇÃO CONTÍNUA DE VERSÃO
-        function verificarDisponibilidadeCanal(url, expectedVersion, callback) {
-            console.log(`Iniciando verificação contínua de versão. Esperada: ${expectedVersion}`);
+        // FUNÇÃO MELHORADA: Verificar disponibilidade do canal CORRIGIDA
+        function verificarDisponibilidadeCanal(url, expectedVersion, isNewChannel, callback) {
+            console.log(`Iniciando verificação. URL: ${url}, Nova versão esperada: ${expectedVersion}, É novo canal: ${isNewChannel}`);
             
             // Parar qualquer verificação anterior
             if (versionCheckInterval) {
@@ -2928,12 +2928,13 @@
                 versionCheckInterval = null;
             }
             
-            let isChecking = false;
+            let attempts = 0;
+            const maxAttempts = 60; // 60 tentativas * 5 segundos = 5 minutos
             
             // Função de verificação
-            const checkVersion = async () => {
-                if (isChecking) return;
-                isChecking = true;
+            const checkAvailability = async () => {
+                attempts++;
+                console.log(`Tentativa ${attempts}/${maxAttempts} de verificação...`);
                 
                 try {
                     const response = await fetch(url, { 
@@ -2948,6 +2949,18 @@
                     if (response.status === 200) {
                         const html = await response.text();
                         
+                        // Se for um NOVO canal, basta verificar se a página existe (status 200)
+                        if (isNewChannel) {
+                            console.log(`✅ NOVO CANAL DISPONÍVEL! Status: ${response.status}`);
+                            if (versionCheckInterval) {
+                                clearInterval(versionCheckInterval);
+                                versionCheckInterval = null;
+                            }
+                            callback(true, '1.0.0.0');
+                            return;
+                        }
+                        
+                        // Se for ATUALIZAÇÃO, verificar a versão
                         // Extrair versão do HTML
                         const versionMatch = html.match(/Versão\s+([\d.]+)/);
                         const publishedVersion = versionMatch ? versionMatch[1] : null;
@@ -2959,38 +2972,45 @@
                         // Usar a versão mais recente encontrada
                         const foundVersion = publishedVersion || metaVersion;
                         
-                        console.log(`Versão encontrada: ${foundVersion}, Versão esperada: ${expectedVersion}`);
+                        console.log(`Versão encontrada no canal: ${foundVersion}, Versão esperada: ${expectedVersion}`);
                         
                         if (foundVersion === expectedVersion) {
-                            console.log(`✅ Versão confirmada! Canal publicado com sucesso.`);
-                            // Parar a verificação
+                            console.log(`✅ ATUALIZAÇÃO CONFIRMADA! Versão ${foundVersion} disponível.`);
                             if (versionCheckInterval) {
                                 clearInterval(versionCheckInterval);
                                 versionCheckInterval = null;
                             }
                             callback(true, foundVersion);
-                        } else if (foundVersion && foundVersion < expectedVersion) {
-                            console.log(`⏳ Versão encontrada (${foundVersion}) é menor que a esperada (${expectedVersion}), continuando verificação...`);
-                            // Continua verificando
-                        } else if (!foundVersion) {
-                            console.log(`⚠️ Versão não encontrada no HTML, continuando verificação...`);
+                        } else {
+                            console.log(`⏳ Versão encontrada (${foundVersion}) não é a esperada (${expectedVersion}), continuando verificação...`);
                             // Continua verificando
                         }
+                    } else if (response.status === 404 && !isNewChannel) {
+                        console.log(`📡 Canal não encontrado (404), mas esperado para atualização. Continuando...`);
+                        // Continua verificando
                     } else {
-                        console.log(`📡 Canal ainda não disponível (status ${response.status}), continuando verificação...`);
+                        console.log(`📡 Status inesperado: ${response.status}, continuando verificação...`);
                     }
                 } catch (error) {
                     console.log(`❌ Erro na verificação (${error.message}), continuando verificação...`);
-                } finally {
-                    isChecking = false;
+                }
+                
+                // Se excedeu o número máximo de tentativas
+                if (attempts >= maxAttempts) {
+                    console.log(`⏰ Timeout de verificação após ${maxAttempts} tentativas.`);
+                    if (versionCheckInterval) {
+                        clearInterval(versionCheckInterval);
+                        versionCheckInterval = null;
+                    }
+                    callback(false, null);
                 }
             };
             
             // Iniciar verificação imediatamente
-            checkVersion();
+            checkAvailability();
             
-            // Configurar verificação a cada 2 segundos
-            versionCheckInterval = setInterval(checkVersion, 2000);
+            // Configurar verificação a cada 5 segundos
+            versionCheckInterval = setInterval(checkAvailability, 5000);
             
             // Retornar função para cancelar
             return () => {
@@ -3292,7 +3312,7 @@
             }
         }
 
-        // Função principal de publicação (ATUALIZADA COM VERIFICAÇÃO CONTÍNUA DE VERSÃO)
+        // Função principal de publicação (ATUALIZADA COM VERIFICAÇÃO CORRIGIDA)
         async function iniciarPublicacao() {
             console.log("Iniciando publicação...");
             
@@ -3396,31 +3416,37 @@
                     const canalAtualizado = await buscarCanalPorNome(dadosNormalizados.name, currentUser.uid);
                     const versaoAtual = canalAtualizado ? canalAtualizado.version : dadosNormalizados.version;
                     
-                    // Fase 3: Verificando atualização COM VERIFICAÇÃO CONTÍNUA
+                    // Fase 3: Verificando atualização COM VERIFICAÇÃO CORRIGIDA
                     processingMessage.innerHTML = `
                         <div class="spinner"></div>
-                        <h3>Verificando atualização...</h3>
-                        <p>Confirmando que a versão mais recente está disponível.</p>
+                        <h3>Verificando publicação...</h3>
+                        <p>Confirmando que seu canal está disponível.</p>
                         <div class="progress-container">
                             <div class="progress-bar" style="width: 80%;"></div>
                         </div>
                     `;
                     
-                    // Iniciar verificação contínua de versão
-                    const stopChecking = verificarDisponibilidadeCanal(resultado.url, versaoAtual, (success, foundVersion) => {
+                    // Iniciar verificação correta
+                    // Para novo canal: verificar se a página existe (status 200)
+                    // Para atualização: verificar se a versão no canal é igual à nova versão
+                    const isNewChannel = !editingChannel;
+                    const stopChecking = verificarDisponibilidadeCanal(resultado.url, versaoAtual, isNewChannel, (success, foundVersion) => {
                         if (success) {
-                            // Fase 4: Sucesso (canal disponível e versão confirmada)
+                            // Fase 4: Sucesso
                             processingMessage.style.display = 'none';
                             successMessage.style.display = 'block';
                             
-                            const mensagemSucesso = editingChannel 
-                                ? `Canal Atualizado com Sucesso!<br><small>Seu canal já está disponível com todas as atualizações enviadas!</small>`
-                                : `Seu canal já está no ar!<br><small>O canal foi verificado e está disponível.</small>`;
+                            // Mensagens diferentes para novo canal vs atualização
+                            let mensagemSucesso = '';
+                            if (isNewChannel) {
+                                mensagemSucesso = `Seu canal já está no ar!<br><small>O canal foi verificado e está disponível para seus espectadores.</small>`;
+                            } else {
+                                mensagemSucesso = `Canal Atualizado!<br><small>A nova versão do seu canal já está disponível para seus espectadores.</small>`;
+                            }
                             
                             successMessage.innerHTML = `
                                 <h3>${mensagemSucesso}</h3>
                                 <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
-                                <p style="margin-top: 15px; font-size: 0.9rem;">Versão ${foundVersion} publicada</p>
                             `;
                             
                             backToHomeFromSuccess.style.display = 'inline-block';
@@ -3430,6 +3456,26 @@
                             
                             // Recarregar canais após publicação
                             carregarCanais();
+                        } else {
+                            // Verificação falhou após várias tentativas
+                            processingMessage.style.display = 'none';
+                            successMessage.style.display = 'block';
+                            
+                            let mensagemTimeout = '';
+                            if (isNewChannel) {
+                                mensagemTimeout = `Seu canal foi publicado!<br><small>Pode levar alguns minutos para que o canal esteja completamente disponível.</small>`;
+                            } else {
+                                mensagemTimeout = `Canal atualizado!<br><small>Pode levar alguns minutos para que todas as atualizações estejam visíveis.</small>`;
+                            }
+                            
+                            successMessage.innerHTML = `
+                                <h3>${mensagemTimeout}</h3>
+                                <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
+                            `;
+                            
+                            backToHomeFromSuccess.style.display = 'inline-block';
+                            backToScreen5Btn.style.display = 'none';
+                            publicationStarted = false;
                         }
                     });
                     
@@ -3439,15 +3485,20 @@
                             console.log("Parando verificação após timeout de 5 minutos");
                             stopChecking();
                             
-                            // Mostrar mensagem de sucesso mesmo sem confirmação de versão
+                            // Mostrar mensagem de sucesso mesmo sem confirmação
                             processingMessage.style.display = 'none';
                             successMessage.style.display = 'block';
                             
+                            let mensagemTimeout = '';
+                            if (!editingChannel) {
+                                mensagemTimeout = `Seu canal foi publicado!<br><small>Pode levar alguns minutos para que o canal esteja completamente disponível.</small>`;
+                            } else {
+                                mensagemTimeout = `Canal atualizado!<br><small>Pode levar alguns minutos para que todas as atualizações estejam visíveis.</small>`;
+                            }
+                            
                             successMessage.innerHTML = `
-                                <h3>Canal Publicado!</h3>
-                                <p>Seu canal foi enviado para publicação. Pode levar alguns minutos para que todas as atualizações estejam visíveis.</p>
+                                <h3>${mensagemTimeout}</h3>
                                 <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
-                                <p style="margin-top: 15px; font-size: 0.9rem;">Versão ${versaoAtual} enviada</p>
                             `;
                             
                             backToHomeFromSuccess.style.display = 'inline-block';
