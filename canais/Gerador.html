@@ -1503,8 +1503,8 @@
             // Determinar data de estreia
             const releaseDate = dados.release || new Date().toISOString().split('T')[0];
             
-            // Seção de debug
-            const debugSection = dados.enableDebug ? `
+            // Seção de debug (somente se não estiver offline e debug habilitado)
+            const debugSection = (!isOffline && dados.enableDebug) ? `
             <div class="debug-info">
                 <div class="program-item">
                     <div class="program-label">Dias desde a estreia:</div>
@@ -1554,37 +1554,40 @@
             // Gerar lista de comerciais para o player (apenas URLs)
             const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
             
-            // Redes sociais
-            const socialMedia = dados.socialMedia || {};
-            const hasSocialMedia = socialMedia.facebook || socialMedia.instagram || socialMedia.bluesky || socialMedia.tiktok;
-            
-            // Botão personalizado
-            const customButton = dados.customButton || {};
-            const hasCustomButton = customButton.text && customButton.url;
-            
+            // Redes sociais (somente se não estiver offline)
             let socialMediaHTML = '';
-            if (hasSocialMedia) {
-                socialMediaHTML = `
-                <div class="social-media-links" style="text-align: center; margin: 20px 0;">
-                    <h3 style="margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">Siga-nos nas redes sociais</h3>
-                    <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
-                        ${socialMedia.facebook ? `<a href="${socialMedia.facebook}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.facebook}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Facebook"></a>` : ''}
-                        ${socialMedia.instagram ? `<a href="${socialMedia.instagram}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.instagram}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Instagram"></a>` : ''}
-                        ${socialMedia.bluesky ? `<a href="${socialMedia.bluesky}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.bluesky}" style="width: 50px; height: 50px; border-radius: 8px;" alt="BlueSky"></a>` : ''}
-                        ${socialMedia.tiktok ? `<a href="${socialMedia.tiktok}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.tiktok}" style="width: 50px; height: 50px; border-radius: 8px;" alt="TikTok"></a>` : ''}
-                    </div>
-                </div>`;
+            if (!isOffline) {
+                const socialMedia = dados.socialMedia || {};
+                const hasSocialMedia = socialMedia.facebook || socialMedia.instagram || socialMedia.bluesky || socialMedia.tiktok;
+                
+                if (hasSocialMedia) {
+                    socialMediaHTML = `
+                    <div class="social-media-links" style="text-align: center; margin: 20px 0;">
+                        <h3 style="margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">Siga-nos nas redes sociais</h3>
+                        <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
+                            ${socialMedia.facebook ? `<a href="${socialMedia.facebook}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.facebook}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Facebook"></a>` : ''}
+                            ${socialMedia.instagram ? `<a href="${socialMedia.instagram}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.instagram}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Instagram"></a>` : ''}
+                            ${socialMedia.bluesky ? `<a href="${socialMedia.bluesky}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.bluesky}" style="width: 50px; height: 50px; border-radius: 8px;" alt="BlueSky"></a>` : ''}
+                            ${socialMedia.tiktok ? `<a href="${socialMedia.tiktok}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.tiktok}" style="width: 50px; height: 50px; border-radius: 8px;" alt="TikTok"></a>` : ''}
+                        </div>
+                    </div>`;
+                }
             }
             
-            // Botão personalizado HTML
+            // Botão personalizado HTML (somente se não estiver offline)
             let customButtonHTML = '';
-            if (hasCustomButton) {
-                customButtonHTML = `
-                <div style="text-align: center; margin: 20px 0;">
-                    <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
-                        ${customButton.text}
-                    </a>
-                </div>`;
+            if (!isOffline) {
+                const customButton = dados.customButton || {};
+                const hasCustomButton = customButton.text && customButton.url;
+                
+                if (hasCustomButton) {
+                    customButtonHTML = `
+                    <div style="text-align: center; margin: 20px 0;">
+                        <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
+                            ${customButton.text}
+                        </a>
+                    </div>`;
+                }
             }
             
             // HTML do canal com sistema completo de programação
@@ -1990,7 +1993,7 @@
         `}
         
         .program-info {
-            display: flex;
+            display: ${isOffline ? 'none' : 'flex'};
             justify-content: space-between;
             background: rgba(255,255,255,0.1);
             padding: 15px;
@@ -2808,6 +2811,47 @@
             return html;
         }
 
+        // Função para verificar disponibilidade do canal
+        async function verificarDisponibilidadeCanal(url) {
+            return new Promise((resolve) => {
+                let tentativas = 0;
+                const maxTentativas = 30; // 60 segundos (30 * 2 segundos)
+                
+                const verificar = async () => {
+                    try {
+                        const response = await fetch(url, { 
+                            method: 'HEAD',
+                            cache: 'no-cache'
+                        });
+                        
+                        if (response.status === 200) {
+                            resolve(true);
+                            return;
+                        } else if (response.status === 404) {
+                            tentativas++;
+                            if (tentativas < maxTentativas) {
+                                setTimeout(verificar, 2000); // Tentar novamente em 2 segundos
+                            } else {
+                                resolve(false);
+                            }
+                        } else {
+                            // Outro status, considerar como indisponível
+                            resolve(false);
+                        }
+                    } catch (error) {
+                        tentativas++;
+                        if (tentativas < maxTentativas) {
+                            setTimeout(verificar, 2000);
+                        } else {
+                            resolve(false);
+                        }
+                    }
+                };
+                
+                verificar();
+            });
+        }
+
         // Função para publicar canal no GitHub
         async function publicarCanalGithub(nomeCanal, dadosGerador) {
             try {
@@ -3150,26 +3194,51 @@
                 console.log("Enviando para publicação...");
                 const resultado = await publicarCanalGithub(dadosNormalizados.name, dadosParaEnvio);
                 
-                // Fase 3: Sucesso
-                processingMessage.style.display = 'none';
-                successMessage.style.display = 'block';
-                document.querySelector('#processingMessage .progress-bar').style.width = '100%';
-                
-                const mensagemSucesso = editingChannel 
-                    ? `Canal Atualizado com Sucesso!<br><small>Talvez demore alguns minutos para o servidor disponibilizar as mudanças.</small>`
-                    : `Seu canal já está no ar!`;
-                
-                successMessage.innerHTML = `
-                    <h3>${mensagemSucesso}</h3>
-                    <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
+                // Fase 3: Verificando disponibilidade
+                processingMessage.innerHTML = `
+                    <div class="spinner"></div>
+                    <h3>Verificando disponibilidade...</h3>
+                    <p>Verificando se o canal já está acessível. Esta verificação pode levar até 1 minuto.</p>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: 80%;"></div>
+                    </div>
                 `;
                 
-                backToHomeFromSuccess.style.display = 'inline-block';
-                backToScreen5Btn.style.display = 'none';
+                // Verificar disponibilidade do canal
+                const canalDisponivel = await verificarDisponibilidadeCanal(resultado.url);
                 
-                // Atualizar dados do canal com a URL e marcar como publicado
-                tvData.url = resultado.url;
-                tvData.published = true;
+                if (canalDisponivel) {
+                    // Fase 4: Sucesso (canal disponível)
+                    processingMessage.style.display = 'none';
+                    successMessage.style.display = 'block';
+                    
+                    const mensagemSucesso = editingChannel 
+                        ? `Canal Atualizado com Sucesso!<br><small>O canal já está disponível online.</small>`
+                        : `Seu canal já está no ar!`;
+                    
+                    successMessage.innerHTML = `
+                        <h3>${mensagemSucesso}</h3>
+                        <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
+                    `;
+                    
+                    backToHomeFromSuccess.style.display = 'inline-block';
+                    backToScreen5Btn.style.display = 'none';
+                    
+                    // Atualizar dados do canal com a URL e marcar como publicado
+                    tvData.url = resultado.url;
+                    tvData.published = true;
+                } else {
+                    // Canal não ficou disponível após 1 minuto
+                    processingMessage.style.display = 'none';
+                    successMessage.style.display = 'block';
+                    successMessage.innerHTML = `
+                        <h3>Publicação em processamento</h3>
+                        <p>Seu canal pode levar alguns minutos para ficar disponível.</p>
+                        <p><small>O GitHub Pages pode demorar até 5 minutos para atualizar.</small></p>
+                        <a href="${resultado.url}" class="channel-link" target="_blank">Tentar abrir ${dadosNormalizados.name}</a>
+                    `;
+                    backToHomeFromSuccess.style.display = 'inline-block';
+                }
                 
                 // Salvar canal no Firestore com a URL atualizada
                 await salvarCanalFirestore(tvData, true);
@@ -3366,16 +3435,16 @@
                 // Alternar estado offline
                 const novoEstadoOffline = !isCurrentlyOffline;
                 
-                // Atualizar o canal no Firestore
-                await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).update({
-                    isOffline: novoEstadoOffline,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
+                // Atualizar os dados do canal para a publicação
+                tvData = { ...dadosNormalizados };
+                tvData.isOffline = novoEstadoOffline;
                 
-                console.log(`Canal ${dadosNormalizados.name} atualizado para: ${novoEstadoOffline ? 'Offline' : 'Online'}`);
+                currentChannelId = channelId;
+                editingChannel = true;
+                originalChannelName = dadosNormalizados.name;
                 
-                // Recarregar a lista de canais
-                await carregarCanais();
+                // Redirecionar para a tela 6 para publicar as alterações
+                showScreen('screen6');
                 
             } catch (error) {
                 console.error("Erro ao alternar estado do canal:", error);
