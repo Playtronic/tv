@@ -266,6 +266,13 @@
             display: flex;
         }
         
+        .step-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0 5px;
+        }
+        
         .step {
             width: 40px;
             height: 40px;
@@ -274,7 +281,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 5px;
+            margin: 0;
             font-weight: bold;
             font-size: 1.2rem;
             transition: all 0.3s;
@@ -284,7 +291,6 @@
         .step.active {
             background: #fdbb2d;
             color: #000;
-            border-color: #000;
             transform: scale(1.1);
             box-shadow: 0 0 15px rgba(253, 187, 45, 0.5);
         }
@@ -308,6 +314,7 @@
             font-size: 12px;
             text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
             min-width: 80px;
+            color: rgba(255, 255, 255, 0.8);
         }
         
         /* MENSAGENS DE ERRO */
@@ -912,8 +919,10 @@
         }
         
         .status-offline {
-            background: rgba(149, 165, 166, 0.2);
-            color: #95a5a6;
+            background: #000000;
+            color: #ffffff;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
         }
         
         /* ÍCONES DE ESTADO */
@@ -924,13 +933,15 @@
             vertical-align: middle;
         }
         
-        /* VERSÃO DO SISTEMA */
-        .version-info {
+        /* LIMITE DE CANAIS */
+        .channel-limit-message {
+            background: rgba(231, 76, 60, 0.2);
+            border: 1px solid #e74c3c;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
             text-align: center;
-            margin-bottom: 10px;
-            font-size: 0.9rem;
-            opacity: 0.8;
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            font-weight: bold;
         }
     </style>
 </head>
@@ -977,6 +988,10 @@
             <p style="text-align: center; margin-bottom: 30px; font-size: 1.2rem; text-shadow: 1px 1px 3px rgba(0,0,0,0.5);">
                 Crie e gerencie seus próprios canais de TV online
             </p>
+            
+            <div id="channelLimitMessage" class="channel-limit-message" style="display: none;">
+                Você atingiu o limite máximo de 15 canais. Exclua alguns canais para criar novos.
+            </div>
             
             <div style="text-align: center; margin-bottom: 30px;">
                 <button id="createNewChannel">Criar Novo Canal</button>
@@ -1039,7 +1054,7 @@
             
             <div class="form-group">
                 <label for="tvName">Nome da TV (mín. 3 caracteres, máx. 50 caracteres):</label>
-                <input type="text" id="tvName" maxlength="50" placeholder="Ex: TV X-Gen">
+                <input type="text" id="tvName" maxlength="50" placeholder="Ex: TV Power Guido">
                 <div class="char-counter" id="tvNameCounter">0/50</div>
                 <div class="error-message" id="nameError">Por favor, insira um nome para a TV (mínimo 3 caracteres).</div>
                 <div class="error-message" id="nameDuplicateError"></div>
@@ -1275,6 +1290,39 @@
         <div id="screen6" class="screen">
             <h1>Publicando seu Canal</h1>
             
+            <!-- Indicador de etapas na tela 6 (corrigido para ser igual às outras telas) -->
+            <div class="step-indicator active">
+                <div class="step-container">
+                    <div class="step completed">1</div>
+                    <div class="step-label">Configuração</div>
+                </div>
+                <div class="step-line"></div>
+                <div class="step-container">
+                    <div class="step completed">2</div>
+                    <div class="step-label">Opções</div>
+                </div>
+                <div class="step-line"></div>
+                <div class="step-container">
+                    <div class="step completed">3</div>
+                    <div class="step-label">Programação</div>
+                </div>
+                <div class="step-line"></div>
+                <div class="step-container">
+                    <div class="step completed">4</div>
+                    <div class="step-label">Comerciais</div>
+                </div>
+                <div class="step-line"></div>
+                <div class="step-container">
+                    <div class="step completed">5</div>
+                    <div class="step-label">Redes Sociais</div>
+                </div>
+                <div class="step-line"></div>
+                <div class="step-container">
+                    <div class="step active">6</div>
+                    <div class="step-label">Publicação</div>
+                </div>
+            </div>
+            
             <div id="publishingStatus" class="publishing-status">
                 <div class="spinner"></div>
                 <h3>Iniciando publicação...</h3>
@@ -1290,6 +1338,15 @@
                 <p>Seu canal está sendo publicado</p>
                 <div class="progress-container">
                     <div class="progress-bar" style="width: 50%;"></div>
+                </div>
+            </div>
+            
+            <div id="versionCheckMessage" class="waiting-message" style="display: none;">
+                <div class="spinner"></div>
+                <h3>Verificando atualização...</h3>
+                <p>Aguardando a nova versão ficar disponível</p>
+                <div class="progress-container">
+                    <div class="progress-bar" style="width: 80%;"></div>
                 </div>
             </div>
             
@@ -1366,6 +1423,7 @@
             name: '',
             slogan: '',
             logo: '',
+            version: '1.0.0.0', // Adicionado sistema de versão
             visibility: 'brazil',
             showTime: true,
             enableRewind10: true,
@@ -1393,12 +1451,11 @@
             published: false,
             userId: '',
             createdAt: null,
-            updatedAt: null,
-            // NOVO: Adicionar sistema de versão
-            version: "1.0.0.0"
+            updatedAt: null
         };
         
         let totalSlots = 58;
+        const MAX_CHANNELS_PER_USER = 15; // Limite de 15 canais por usuário
         const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
         const OFFLINE_IMAGE = "https://github.com/Playtronic/tv/blob/main/template/TesteDeCores.png?raw=true";
         const BRAZIL_FLAG = "https://github.com/Playtronic/tv/blob/main/template/BR.png?raw=true";
@@ -1488,6 +1545,7 @@
             // Mostrar status inicial
             const publishingStatus = document.getElementById('publishingStatus');
             const processingMessage = document.getElementById('processingMessage');
+            const versionCheckMessage = document.getElementById('versionCheckMessage');
             const successMessage = document.getElementById('successMessage');
             const serverResult = document.getElementById('serverResult');
             const authRequiredMessage = document.getElementById('authRequiredMessage');
@@ -1497,6 +1555,7 @@
             
             if (publishingStatus) publishingStatus.style.display = 'block';
             if (processingMessage) processingMessage.style.display = 'none';
+            if (versionCheckMessage) versionCheckMessage.style.display = 'none';
             if (successMessage) successMessage.style.display = 'none';
             if (serverResult) serverResult.style.display = 'none';
             if (authRequiredMessage) authRequiredMessage.style.display = 'none';
@@ -1517,6 +1576,7 @@
             const authRequiredMessage = document.getElementById('authRequiredMessage');
             const publishingStatus = document.getElementById('publishingStatus');
             const processingMessage = document.getElementById('processingMessage');
+            const versionCheckMessage = document.getElementById('versionCheckMessage');
             const successMessage = document.getElementById('successMessage');
             const serverResult = document.getElementById('serverResult');
             const backToScreen5Btn = document.getElementById('backToScreen5');
@@ -1526,6 +1586,7 @@
             if (authRequiredMessage) authRequiredMessage.style.display = 'block';
             if (publishingStatus) publishingStatus.style.display = 'none';
             if (processingMessage) processingMessage.style.display = 'none';
+            if (versionCheckMessage) versionCheckMessage.style.display = 'none';
             if (successMessage) successMessage.style.display = 'none';
             if (serverResult) serverResult.style.display = 'none';
             if (backToScreen5Btn) backToScreen5Btn.style.display = 'inline-block';
@@ -1535,10 +1596,11 @@
             publicationStarted = false;
         }
 
-        // Função para gerar HTML do canal
+        // Função para gerar HTML do canal (COM SISTEMA DE VERSÃO)
         function gerarHTMLdoCanal(dados) {
             const isOffline = dados.isOffline || false;
             const visibility = dados.visibility || 'brazil';
+            const version = dados.version || '1.0.0.0';
             
             // Gerar grade de programação baseada nos programas do usuário
             const GRADE = [];
@@ -1608,7 +1670,7 @@
             // Gerar lista de comerciais para o player (apenas URLs)
             const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
             
-            // Redes sociais - SEMPRE EXIBIR, MESMO QUANDO OFFLINE (CORREÇÃO)
+            // Redes sociais
             let socialMediaHTML = '';
             const socialMedia = dados.socialMedia || {};
             const hasSocialMedia = socialMedia.facebook || socialMedia.instagram || socialMedia.bluesky || socialMedia.tiktok;
@@ -1626,12 +1688,12 @@
                 </div>`;
             }
             
-            // Botão personalizado HTML - SEMPRE EXIBIR, MESMO QUANDO OFFLINE (CORREÇÃO)
+            // Botão personalizado HTML - NÃO EXIBIR SE O CANAL ESTIVER OFFLINE
             let customButtonHTML = '';
             const customButton = dados.customButton || {};
             const hasCustomButton = customButton.text && customButton.url;
             
-            if (hasCustomButton) {
+            if (hasCustomButton && !isOffline) {
                 customButtonHTML = `
                 <div style="text-align: center; margin: 20px 0;">
                     <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
@@ -1640,8 +1702,11 @@
                 </div>`;
             }
             
-            // Adicionar informação de versão acima do e-mail (NOVO)
-            const versionInfo = dados.version ? `<div class="version-info" style="text-align: center; margin: 10px 0; font-size: 0.9rem; opacity: 0.7;">Versão ${dados.version}</div>` : '';
+            // Adicionar versão ao HTML do canal
+            const versionHTML = `
+            <div style="text-align: center; margin: 10px 0; font-size: 0.9rem; opacity: 0.7;">
+                Versão ${version}
+            </div>`;
             
             // HTML do canal com sistema completo de programação
             const html = `<!DOCTYPE html>
@@ -2112,12 +2177,12 @@
             margin: 10px 0;
         }
         
-        /* NOVO: Estilo para informação de versão */
         .version-info {
             text-align: center;
-            margin: 5px 0;
-            font-size: 0.8rem;
-            opacity: 0.6;
+            margin: 10px 0;
+            font-size: 0.9rem;
+            opacity: 0.7;
+            color: white;
             text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
         }
     </style>
@@ -2129,9 +2194,6 @@
             <h1 class="channel-name">${dados.name}</h1>
         </div>
         <p class="subtitle">${dados.slogan}</p>
-        
-        <!-- NOVO: Adicionar informação de versão -->
-        ${versionInfo}
         
         <div class="video-wrapper" oncontextmenu="return false;">
             ${isOffline ? `
@@ -2192,6 +2254,8 @@
         
         ${socialMediaHTML}
         
+        ${versionHTML}
+        
         <div class="contact-info">Contato: ${dados.email}</div>
     </div>
 
@@ -2215,7 +2279,6 @@
         
         const RELEASE_DATE = "${releaseDate}";
         const IS_OFFLINE = ${isOffline};
-        const CHANNEL_VERSION = "${dados.version || '1.0.0.0'}";
         
         // VARIÁVEIS DE ESTADO
         let currentState = 'program'; // 'program' ou 'commercial'
@@ -2877,16 +2940,16 @@
             return html;
         }
 
-        // NOVA FUNÇÃO: Verificar disponibilidade do canal SEM TIMEOUT
-        async function verificarDisponibilidadeCanal(url) {
-            console.log("Verificando disponibilidade do canal (sem timeout)...");
+        // NOVA FUNÇÃO: Verificar versão do canal publicado
+        async function verificarVersaoCanal(url, versaoEsperada) {
+            console.log(`Verificando versão do canal (esperada: ${versaoEsperada})...`);
             let tentativa = 0;
             
             return new Promise((resolve) => {
                 const verificar = async () => {
                     try {
                         const response = await fetch(url, { 
-                            method: 'HEAD',
+                            method: 'GET',
                             cache: 'no-cache',
                             headers: {
                                 'Cache-Control': 'no-cache',
@@ -2895,98 +2958,42 @@
                         });
                         
                         if (response.status === 200) {
-                            console.log(`Canal disponível na tentativa ${tentativa + 1}`);
-                            resolve(true);
-                            return;
+                            const html = await response.text();
+                            
+                            // Extrair versão do HTML
+                            const versionMatch = html.match(/Versão\s+(\d+\.\d+\.\d+\.\d+)/);
+                            if (versionMatch && versionMatch[1]) {
+                                const versaoPublicada = versionMatch[1];
+                                console.log(`Tentativa ${tentativa + 1}: Versão publicada: ${versaoPublicada}, Versão esperada: ${versaoEsperada}`);
+                                
+                                if (versaoPublicada === versaoEsperada) {
+                                    console.log(`Versão confirmada! Canal atualizado com sucesso.`);
+                                    resolve(true);
+                                    return;
+                                } else {
+                                    tentativa++;
+                                    console.log(`Tentativa ${tentativa}: Versão ainda não atualizada, tentando novamente em 2 segundos...`);
+                                    setTimeout(verificar, 2000);
+                                }
+                            } else {
+                                tentativa++;
+                                console.log(`Tentativa ${tentativa}: Não foi possível extrair a versão, tentando novamente em 2 segundos...`);
+                                setTimeout(verificar, 2000);
+                            }
                         } else {
                             tentativa++;
-                            console.log(`Tentativa ${tentativa}: Canal ainda não disponível (status ${response.status}), tentando novamente em 3 segundos...`);
-                            setTimeout(verificar, 3000); // Tentar novamente em 3 segundos
+                            console.log(`Tentativa ${tentativa}: Canal ainda não disponível (status ${response.status}), tentando novamente em 2 segundos...`);
+                            setTimeout(verificar, 2000);
                         }
                     } catch (error) {
                         tentativa++;
-                        console.log(`Tentativa ${tentativa}: Erro na verificação (${error.message}), tentando novamente em 3 segundos...`);
-                        setTimeout(verificar, 3000); // Tentar novamente em 3 segundos
+                        console.log(`Tentativa ${tentativa}: Erro na verificação (${error.message}), tentando novamente em 2 segundos...`);
+                        setTimeout(verificar, 2000);
                     }
                 };
                 
                 verificar();
             });
-        }
-
-        // NOVA FUNÇÃO: Verificar versão do canal publicada SEM TIMEOUT
-        async function verificarVersaoCanal(url, versaoEsperada) {
-            console.log(`Verificando versão do canal (esperada: ${versaoEsperada})...`);
-            
-            return new Promise(async (resolve) => {
-                const verificarVersao = async () => {
-                    try {
-                        // Primeiro verificar se o canal está disponível
-                        const response = await fetch(url, { 
-                            method: 'GET',
-                            cache: 'no-cache'
-                        });
-                        
-                        if (response.status === 200) {
-                            const html = await response.text();
-                            
-                            // Extrair a versão do HTML
-                            const versaoMatch = html.match(/Versão\s+([\d.]+)/i);
-                            
-                            if (versaoMatch) {
-                                const versaoPublicada = versaoMatch[1];
-                                console.log(`Versão publicada: ${versaoPublicada}, Versão esperada: ${versaoEsperada}`);
-                                
-                                if (versaoPublicada === versaoEsperada) {
-                                    console.log("Versão verificada com sucesso!");
-                                    resolve({ sucesso: true, versao: versaoPublicada });
-                                    return;
-                                } else {
-                                    console.log(`Versão não corresponde (publicada: ${versaoPublicada}, esperada: ${versaoEsperada}), verificando novamente em 3 segundos...`);
-                                    setTimeout(verificarVersao, 3000);
-                                }
-                            } else {
-                                console.log("Versão não encontrada no HTML, verificando novamente em 3 segundos...");
-                                setTimeout(verificarVersao, 3000);
-                            }
-                        } else {
-                            console.log(`Canal não disponível (status ${response.status}), verificando novamente em 3 segundos...`);
-                            setTimeout(verificarVersao, 3000);
-                        }
-                    } catch (error) {
-                        console.log(`Erro na verificação de versão (${error.message}), verificando novamente em 3 segundos...`);
-                        setTimeout(verificarVersao, 3000);
-                    }
-                };
-                
-                verificarVersao();
-            });
-        }
-
-        // NOVA FUNÇÃO: Incrementar versão
-        function incrementarVersao(versaoAtual) {
-            const partes = versaoAtual.split('.').map(Number);
-            
-            // Incrementar a última parte (0.0.0.1)
-            partes[3] += 1;
-            
-            // Se a última parte passar de 9, ajustar
-            if (partes[3] > 9) {
-                partes[3] = 0;
-                partes[2] += 1;
-                
-                if (partes[2] > 9) {
-                    partes[2] = 0;
-                    partes[1] += 1;
-                    
-                    if (partes[1] > 9) {
-                        partes[1] = 0;
-                        partes[0] += 1;
-                    }
-                }
-            }
-            
-            return partes.join('.');
         }
 
         // Função para publicar canal no GitHub
@@ -3097,6 +3104,7 @@
                 name: channelData.name || '',
                 slogan: channelData.slogan || '',
                 logo: channelData.logo || DEFAULT_LOGO,
+                version: channelData.version || '1.0.0.0', // Adicionado sistema de versão
                 visibility: channelData.visibility || 'brazil',
                 showTime: channelData.showTime !== undefined ? channelData.showTime : true,
                 enableRewind10: channelData.enableRewind10 !== undefined ? channelData.enableRewind10 : true,
@@ -3135,17 +3143,31 @@
                 updatedAt: channelData.updatedAt || null
             };
             
-            // NOVO: Adicionar sistema de versão
-            if (channelData.version) {
-                dadosNormalizados.version = channelData.version;
-            } else if (channelData.published) {
-                // Se já está publicado mas não tem versão, começar com 1.0.0.0
-                dadosNormalizados.version = "1.0.0.0";
-            } else {
-                dadosNormalizados.version = "1.0.0.0";
-            }
-            
             return dadosNormalizados;
+        }
+
+        // Função para incrementar versão
+        function incrementarVersao(versaoAtual) {
+            const partes = versaoAtual.split('.').map(Number);
+            if (partes.length === 4) {
+                // Incrementar o último número (0.0.0.1)
+                partes[3] += 1;
+                // Se o último número passar de 9, ajustar o anterior
+                if (partes[3] > 9) {
+                    partes[3] = 0;
+                    partes[2] += 1;
+                    if (partes[2] > 9) {
+                        partes[2] = 0;
+                        partes[1] += 1;
+                        if (partes[1] > 9) {
+                            partes[1] = 0;
+                            partes[0] += 1;
+                        }
+                    }
+                }
+                return partes.join('.');
+            }
+            return '1.0.0.0';
         }
 
         // Função para salvar canal no Firestore
@@ -3162,12 +3184,6 @@
                 // Normalizar dados antes de salvar
                 const dadosNormalizados = normalizarDadosCanal(channelData);
                 
-                // Se for uma publicação (não apenas salvar rascunho), incrementar versão
-                if (isPublication && dadosNormalizados.published) {
-                    dadosNormalizados.version = incrementarVersao(dadosNormalizados.version);
-                    console.log(`Nova versão do canal: ${dadosNormalizados.version}`);
-                }
-                
                 // Buscar canal existente com o mesmo nome
                 const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
                 
@@ -3176,6 +3192,20 @@
                     // Atualizar o canal existente em vez de criar um novo
                     currentChannelId = canalExistente.id;
                     editingChannel = true;
+                }
+                
+                // Se for uma publicação (não apenas salvar rascunho)
+                if (isPublication) {
+                    // Se estiver editando um canal existente, incrementar versão
+                    if (currentChannelId && editingChannel) {
+                        // Buscar a versão atual do canal
+                        const canalAtual = await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).get();
+                        if (canalAtual.exists) {
+                            const dadosAtuais = canalAtual.data();
+                            const versaoAtual = dadosAtuais.version || '1.0.0.0';
+                            dadosNormalizados.version = incrementarVersao(versaoAtual);
+                        }
+                    }
                 }
                 
                 // Estrutura para Firestore
@@ -3189,7 +3219,7 @@
                 if (currentChannelId) {
                     // Atualizar canal existente no Firestore
                     await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).update(channelToSave);
-                    console.log("Canal atualizado no Firestore:", currentChannelId);
+                    console.log("Canal atualizado no Firestore:", currentChannelId, "Versão:", dadosNormalizados.version);
                     return currentChannelId;
                 } else {
                     // Criar novo canal no Firestore
@@ -3197,7 +3227,7 @@
                         ...channelToSave,
                         createdAt: now
                     });
-                    console.log("Novo canal criado no Firestore:", docRef.id);
+                    console.log("Novo canal criado no Firestore:", docRef.id, "Versão:", dadosNormalizados.version);
                     currentChannelId = docRef.id;
                     return docRef.id;
                 }
@@ -3298,8 +3328,8 @@
                 email: dadosNormalizados.email,
                 slogan: dadosNormalizados.slogan,
                 logo: dadosNormalizados.logo || DEFAULT_LOGO,
+                version: dadosNormalizados.version, // Incluir versão nos dados enviados
                 visibility: dadosNormalizados.visibility,
-                version: dadosNormalizados.version, // NOVO: Incluir versão
                 programas: dadosNormalizados.programs.map(program => ({
                     name: program.name,
                     videos: program.videos || []
@@ -3323,6 +3353,7 @@
                 // Fase 1: Iniciando publicação
                 const publishingStatus = document.getElementById('publishingStatus');
                 const processingMessage = document.getElementById('processingMessage');
+                const versionCheckMessage = document.getElementById('versionCheckMessage');
                 const successMessage = document.getElementById('successMessage');
                 const serverResult = document.getElementById('serverResult');
                 const backToScreen5Btn = document.getElementById('backToScreen5');
@@ -3331,6 +3362,7 @@
                 
                 publishingStatus.style.display = 'block';
                 processingMessage.style.display = 'none';
+                versionCheckMessage.style.display = 'none';
                 successMessage.style.display = 'none';
                 serverResult.style.display = 'none';
                 backToScreen5Btn.style.display = 'none';
@@ -3358,68 +3390,34 @@
                 const channelId = await salvarCanalFirestore(tvData, true);
                 
                 if (channelId) {
-                    // Fase 3: Verificando disponibilidade (SEM TIMEOUT)
-                    processingMessage.innerHTML = `
-                        <div class="spinner"></div>
-                        <h3>Verificando disponibilidade...</h3>
-                        <p>Aguardando o canal ficar disponível online.</p>
-                        <div class="progress-container">
-                            <div class="progress-bar" style="width: 80%;"></div>
-                        </div>
+                    // Obter a versão atual após salvar (pode ter sido incrementada)
+                    const canalSalvo = await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).get();
+                    const versaoAtual = canalSalvo.data().version || dadosNormalizados.version;
+                    
+                    // Fase 3: Verificando versão
+                    processingMessage.style.display = 'none';
+                    versionCheckMessage.style.display = 'block';
+                    document.querySelector('#versionCheckMessage .progress-bar').style.width = '80%';
+                    
+                    // Verificar versão do canal publicado (SEM TIMEOUT)
+                    await verificarVersaoCanal(resultado.url, versaoAtual);
+                    
+                    // Fase 4: Sucesso (versão confirmada)
+                    versionCheckMessage.style.display = 'none';
+                    successMessage.style.display = 'block';
+                    
+                    const mensagemSucesso = editingChannel 
+                        ? `Canal Atualizado com Sucesso!<br><small>Versão ${versaoAtual} publicada e verificada.</small>`
+                        : `Seu canal já está no ar!<br><small>Versão ${versaoAtual} publicada e verificada.</small>`;
+                    
+                    successMessage.innerHTML = `
+                        <h3>${mensagemSucesso}</h3>
+                        <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
                     `;
                     
-                    // Verificar disponibilidade do canal (SEM TIMEOUT)
-                    await verificarDisponibilidadeCanal(resultado.url);
+                    backToHomeFromSuccess.style.display = 'inline-block';
+                    backToScreen5Btn.style.display = 'none';
                     
-                    // Fase 4: Verificando versão (SEM TIMEOUT)
-                    processingMessage.innerHTML = `
-                        <div class="spinner"></div>
-                        <h3>Verificando versão...</h3>
-                        <p>Verificando se a versão mais recente está disponível.</p>
-                        <div class="progress-container">
-                            <div class="progress-bar" style="width: 90%;"></div>
-                        </div>
-                    `;
-                    
-                    // Obter a versão atual (após incremento)
-                    const versaoAtual = tvData.version;
-                    
-                    // Verificar se a versão publicada é a mesma (SEM TIMEOUT)
-                    const verificacaoVersao = await verificarVersaoCanal(resultado.url, versaoAtual);
-                    
-                    if (verificacaoVersao.sucesso) {
-                        // Fase 5: Sucesso (canal disponível e versão correta)
-                        processingMessage.style.display = 'none';
-                        successMessage.style.display = 'block';
-                        
-                        const mensagemSucesso = editingChannel 
-                            ? `Canal Atualizado com Sucesso!<br><small>Versão ${versaoAtual} publicada.</small>`
-                            : `Seu canal já está no ar!<br><small>Versão ${versaoAtual}.</small>`;
-                        
-                        successMessage.innerHTML = `
-                            <h3>${mensagemSucesso}</h3>
-                            <p><small>O canal foi verificado e está disponível com a versão mais recente.</small></p>
-                            <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
-                        `;
-                        
-                        backToHomeFromSuccess.style.display = 'inline-block';
-                        backToScreen5Btn.style.display = 'none';
-                        
-                        // Atualizar dados locais
-                        tvData.version = versaoAtual;
-                        
-                    } else {
-                        // Versão não corresponde (não deve acontecer com a verificação sem timeout)
-                        processingMessage.style.display = 'none';
-                        successMessage.style.display = 'block';
-                        successMessage.innerHTML = `
-                            <h3>Publicação em processamento</h3>
-                            <p>Seu canal pode levar alguns minutos para atualizar completamente.</p>
-                            <p><small>Versão atual: ${versaoAtual}</small></p>
-                            <a href="${resultado.url}" class="channel-link" target="_blank">Tentar abrir ${dadosNormalizados.name}</a>
-                        `;
-                        backToHomeFromSuccess.style.display = 'inline-block';
-                    }
                 } else {
                     throw new Error("Falha ao salvar canal no banco de dados");
                 }
@@ -3435,6 +3433,7 @@
                 // Fase de erro
                 const publishingStatus = document.getElementById('publishingStatus');
                 const processingMessage = document.getElementById('processingMessage');
+                const versionCheckMessage = document.getElementById('versionCheckMessage');
                 const successMessage = document.getElementById('successMessage');
                 const serverResult = document.getElementById('serverResult');
                 const backToScreen5Btn = document.getElementById('backToScreen5');
@@ -3443,6 +3442,7 @@
                 
                 publishingStatus.style.display = 'none';
                 processingMessage.style.display = 'none';
+                versionCheckMessage.style.display = 'none';
                 successMessage.style.display = 'none';
                 
                 serverResult.innerHTML = `
@@ -3462,6 +3462,19 @@
 
         // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
 
+        // Função para verificar limite de canais
+        async function verificarLimiteCanais() {
+            if (!currentUser) return false;
+            
+            try {
+                const canais = await carregarCanaisFirestore();
+                return canais.length >= MAX_CHANNELS_PER_USER;
+            } catch (error) {
+                console.error("Erro ao verificar limite de canais:", error);
+                return false;
+            }
+        }
+
         // Função para carregar todos os canais
         async function carregarCanais() {
             try {
@@ -3469,6 +3482,8 @@
                 
                 const channelsList = document.getElementById('channelsList');
                 const emptyState = document.getElementById('emptyState');
+                const channelLimitMessage = document.getElementById('channelLimitMessage');
+                const createNewChannelBtn = document.getElementById('createNewChannel');
                 
                 // Limpar lista atual
                 channels = [];
@@ -3479,6 +3494,29 @@
                 console.log(`${canaisFirestore.length} canais carregados do Firestore`);
                 
                 channels = canaisFirestore;
+                
+                // Verificar limite de canais
+                const atingiuLimite = canaisFirestore.length >= MAX_CHANNELS_PER_USER;
+                
+                // Atualizar mensagem de limite
+                if (channelLimitMessage) {
+                    if (atingiuLimite) {
+                        channelLimitMessage.style.display = 'block';
+                    } else {
+                        channelLimitMessage.style.display = 'none';
+                    }
+                }
+                
+                // Atualizar botão de criação
+                if (createNewChannelBtn) {
+                    if (atingiuLimite) {
+                        createNewChannelBtn.disabled = true;
+                        createNewChannelBtn.title = `Limite de ${MAX_CHANNELS_PER_USER} canais atingido`;
+                    } else {
+                        createNewChannelBtn.disabled = false;
+                        createNewChannelBtn.title = '';
+                    }
+                }
                 
                 // Exibir canais
                 if (channels.length === 0) {
@@ -3502,9 +3540,9 @@
                             const isOffline = channel.isOffline || false;
                             const visibility = channel.visibility || 'brazil';
                             const isPublished = channel.published || false;
+                            const version = channel.version || '1.0.0.0';
                             
                             // Usar imagem da bandeira do Brasil para visibilidade Brasil
-                            // e imagem do mundo para visibilidade mundial
                             let visibilityIcon = '';
                             if (visibility === 'brazil') {
                                 visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil">`;
@@ -3526,9 +3564,6 @@
                                 statusClass = 'status-published';
                             }
                             
-                            // Informação de versão
-                            const versionInfo = channel.version ? `<div style="font-size: 0.7rem; opacity: 0.7; margin-top: 5px;">v${channel.version}</div>` : '';
-                            
                             channelCard.innerHTML = `
                                 ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
                                 <div class="channel-name-with-emoji">
@@ -3536,8 +3571,7 @@
                                 </div>
                                 ${visibilityIcon}
                                 <p>${channel.slogan || 'Sem slogan'}</p>
-                                ${versionInfo}
-                                <div class="channel-status ${statusClass}">${statusText}</div>
+                                <div class="channel-status ${statusClass}">${statusText} (v${version})</div>
                                 <div class="channel-actions">
                                     ${urlCanal && urlCanal !== 'https://playtronic.github.io/tv/canais/.html' ? 
                                         `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
@@ -3702,16 +3736,22 @@
                 document.getElementById('enableDebug').checked = tvData.enableDebug;
                 document.getElementById('customReleaseDate').checked = tvData.customReleaseDate;
                 
-                // Habilitar ou desabilitar edição do nome baseado no status de publicação
+                // IMPORTANTE: Se estiver editando um canal publicado, NÃO desabilitar o botão de avançar
+                // O campo do nome fica desabilitado, mas o botão deve funcionar
                 if (tvData.published) {
                     // Canal já publicado - bloquear edição do nome
                     document.getElementById('tvName').disabled = true;
                     document.getElementById('tvName').classList.add('name-disabled');
                     document.getElementById('tvName').title = "O nome não pode ser alterado após a publicação";
+                    
+                    // IMPORTANTE: Habilitar o botão para a tela 2 imediatamente
+                    // Não precisamos verificar disponibilidade do nome pois é o mesmo canal
+                    document.getElementById('toScreen2').disabled = false;
                 } else {
                     // Canal não publicado - permitir edição
                     document.getElementById('tvName').disabled = false;
                     document.getElementById('tvName').classList.remove('name-disabled');
+                    document.getElementById('toScreen2').disabled = true; // Começa desabilitado, será habilitado na verificação
                 }
                 
                 if (tvData.customReleaseDate && tvData.releaseDate) {
@@ -4262,6 +4302,7 @@
             // Elementos da tela 0
             const screen0 = document.getElementById('screen0');
             const createNewChannelBtn = document.getElementById('createNewChannel');
+            const channelLimitMessage = document.getElementById('channelLimitMessage');
             
             // Elementos da tela 1
             const screen1 = document.getElementById('screen1');
@@ -4339,6 +4380,7 @@
             const screen6 = document.getElementById('screen6');
             const publishingStatus = document.getElementById('publishingStatus');
             const processingMessage = document.getElementById('processingMessage');
+            const versionCheckMessage = document.getElementById('versionCheckMessage');
             const successMessage = document.getElementById('successMessage');
             const serverResult = document.getElementById('serverResult');
             const authRequiredMessage = document.getElementById('authRequiredMessage');
@@ -4364,6 +4406,14 @@
                 // Verificação em tempo real do nome
                 const nome = this.value.trim();
                 const toScreen2Btn = document.getElementById('toScreen2');
+                
+                // IMPORTANTE: Se o campo estiver desabilitado (canal publicado em edição), não verificar
+                if (tvNameInput.disabled) {
+                    // Se o campo estiver desabilitado (editando canal publicado), o nome não pode ser alterado
+                    // Mas o botão deve estar habilitado para permitir avançar
+                    toScreen2Btn.disabled = false;
+                    return;
+                }
                 
                 // Limpar mensagens de erro
                 nameError.style.display = 'none';
@@ -4422,12 +4472,22 @@
             });
             
             // Criar novo canal
-            createNewChannelBtn.addEventListener('click', function() {
+            createNewChannelBtn.addEventListener('click', async function() {
+                // Verificar limite de canais
+                if (currentUser) {
+                    const atingiuLimite = await verificarLimiteCanais();
+                    if (atingiuLimite) {
+                        alert(`Você atingiu o limite máximo de ${MAX_CHANNELS_PER_USER} canais. Exclua alguns canais para criar novos.`);
+                        return;
+                    }
+                }
+                
                 tvData = {
                     email: '',
                     name: '',
                     slogan: '',
                     logo: '',
+                    version: '1.0.0.0', // Versão inicial
                     visibility: 'brazil',
                     showTime: true,
                     enableRewind10: true,
@@ -4455,8 +4515,7 @@
                     published: false,
                     userId: '',
                     createdAt: null,
-                    updatedAt: null,
-                    version: "1.0.0.0" // NOVO: Inicializar versão
+                    updatedAt: null
                 };
                 currentChannelId = null;
                 editingChannel = false;
@@ -4689,7 +4748,8 @@
                 }
                 
                 // Verificação final de nome duplicado (para garantir)
-                if (!editingChannel) {
+                // IMPORTANTE: Se estiver editando um canal publicado (campo desabilitado), pular esta verificação
+                if (!editingChannel || !tvNameInput.disabled) {
                     toScreen2Btn.disabled = true;
                     toScreen2Btn.textContent = 'Verificando nome...';
                     tvNameInput.classList.add('name-checking');
