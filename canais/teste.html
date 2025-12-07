@@ -1589,7 +1589,7 @@
             return parts.join('.');
         }
 
-        // Função para gerar HTML do canal (CORRIGIDA: AUTENTICAÇÃO FUNCIONA MESMO OFFLINE)
+        // Função para gerar HTML do canal (CORRIGIDA: SISTEMA DE CURTIDAS/DESCURTIDAS)
         function gerarHTMLdoCanal(dados) {
             const isOffline = dados.isOffline || false;
             const visibility = dados.visibility || 'brazil';
@@ -1633,7 +1633,7 @@
                 </div>
                 <div class="program-item">
                     <div class="program-label">Nota do Canal:</div>
-                    <div class="program-name" id="channelRating">-</div>
+                    <div class="program-name" id="channelRating">N/D</div>
                 </div>
             </div>` : '';
             
@@ -2159,10 +2159,10 @@
             margin-left: 0;
         }
         
-        /* ESTILOS PARA SISTEMA DE CURTIDAS/DESCURTIDAS */
+        /* SISTEMA DE CURTIDAS/DESCURTIDAS - CORRIGIDO */
         .like-dislike-container {
             position: absolute;
-            top: 60px;
+            top: 10px; /* Alinhado com a hora */
             right: 10px;
             display: none;
             z-index: 10;
@@ -2175,7 +2175,7 @@
         }
         
         .like-btn, .dislike-btn {
-            background: transparent;
+            background: #555555; /* Cinza para estado não votado */
             border: none;
             color: white;
             font-size: 1.2rem;
@@ -2183,30 +2183,32 @@
             display: flex;
             align-items: center;
             gap: 5px;
-            padding: 5px;
+            padding: 5px 10px;
             border-radius: 5px;
-            transition: background 0.3s;
+            transition: all 0.3s;
         }
         
         .like-btn:hover {
-            background: rgba(0, 255, 0, 0.3);
+            background: #666666;
         }
         
         .dislike-btn:hover {
-            background: rgba(255, 0, 0, 0.3);
+            background: #666666;
         }
         
         .like-btn.active {
-            background: rgba(0, 255, 0, 0.7);
+            background: #2ecc71; /* Verde para like ativo */
         }
         
         .dislike-btn.active {
-            background: rgba(255, 0, 0, 0.7);
+            background: #e74c3c; /* Vermelho para dislike ativo */
         }
         
         .like-count, .dislike-count {
             font-size: 0.9rem;
             font-weight: bold;
+            min-width: 20px;
+            text-align: center;
         }
         `}
         
@@ -2336,7 +2338,7 @@
             <div class="commercial-indicator" id="commercialIndicator">INTERVALO COMERCIAL</div>
             ${dados.showTime ? '<div class="time-display" id="timeDisplay"></div>' : ''}
             
-            <!-- CONTAINER DE CURTIDAS/DESCURTIDAS -->
+            <!-- CONTAINER DE CURTIDAS/DESCURTIDAS - CORRIGIDO -->
             <div class="like-dislike-container" id="likeDislikeContainer">
                 <button id="likeBtn" class="like-btn" title="Curtir">
                     <span id="likeCount" class="like-count">0</span> 👍
@@ -2461,7 +2463,7 @@
         // VARIÁVEIS PARA AUTENTICAÇÃO (CORRIGIDO: FUNCIONA OFFLINE)
         let currentUserChannel = null;
         
-        // VARIÁVEIS PARA SISTEMA DE CURTIDAS
+        // VARIÁVEIS PARA SISTEMA DE CURTIDAS - CORRIGIDO
         let likeDislikeContainer = null;
         let likeBtn = null;
         let dislikeBtn = null;
@@ -2653,34 +2655,38 @@
             updateAuthUIChannel();
         }
         
-        // ==================== SISTEMA DE CURTIDAS/DESCURTIDAS ====================
+        // ==================== SISTEMA DE CURTIDAS/DESCURTIDAS - CORRIGIDO ====================
         
-        // Atualizar interface de curtidas
+        // Atualizar interface de curtidas - CORRIGIDO
         function updateLikeDislikeUI() {
             if (likeCount) likeCount.textContent = currentLikes;
             if (dislikeCount) dislikeCount.textContent = currentDislikes;
             
+            // Resetar classes ativas
             if (likeBtn) likeBtn.classList.remove('active');
             if (dislikeBtn) dislikeBtn.classList.remove('active');
             
+            // Adicionar classe ativa conforme o voto atual
             if (currentUserVote === 'like' && likeBtn) {
                 likeBtn.classList.add('active');
             } else if (currentUserVote === 'dislike' && dislikeBtn) {
                 dislikeBtn.classList.add('active');
             }
             
+            // Calcular nota - CORRIGIDO: Mostrar N/D se não houver votos
             const totalVotes = currentLikes + currentDislikes;
-            let rating = 0;
+            let ratingText = 'N/D';
             if (totalVotes > 0) {
-                rating = (currentLikes / totalVotes) * 10;
+                const rating = (currentLikes / totalVotes) * 10;
+                ratingText = rating.toFixed(1);
             }
             
             if (channelRatingElement) {
-                channelRatingElement.textContent = rating.toFixed(1);
+                channelRatingElement.textContent = ratingText;
             }
         }
         
-        // Carregar estatísticas do canal
+        // Carregar estatísticas do canal - CORRIGIDO
         function loadChannelStats() {
             if (!CHANNEL_ID) return;
             
@@ -2688,13 +2694,23 @@
             
             channelStatsRef.on('value', (snapshot) => {
                 const stats = snapshot.val();
-                currentLikes = stats?.likes || 0;
-                currentDislikes = stats?.dislikes || 0;
+                if (stats) {
+                    currentLikes = stats.likes || 0;
+                    currentDislikes = stats.dislikes || 0;
+                } else {
+                    currentLikes = 0;
+                    currentDislikes = 0;
+                }
+                updateLikeDislikeUI();
+            }, (error) => {
+                console.error('Erro ao carregar estatísticas:', error);
+                currentLikes = 0;
+                currentDislikes = 0;
                 updateLikeDislikeUI();
             });
         }
         
-        // Carregar voto do usuário atual
+        // Carregar voto do usuário atual - CORRIGIDO
         function loadUserVote() {
             if (!currentUserChannel || !CHANNEL_ID) {
                 currentUserVote = null;
@@ -2706,10 +2722,14 @@
             userVoteRef.on('value', (snapshot) => {
                 currentUserVote = snapshot.val();
                 updateLikeDislikeUI();
+            }, (error) => {
+                console.error('Erro ao carregar voto do usuário:', error);
+                currentUserVote = null;
+                updateLikeDislikeUI();
             });
         }
         
-        // Configurar botões de like/dislike
+        // Configurar botões de like/dislike - CORRIGIDO
         function setupLikeDislikeButtons() {
             if (!likeBtn || !dislikeBtn) return;
             
@@ -2717,7 +2737,7 @@
             dislikeBtn.addEventListener('click', () => handleVote('dislike'));
         }
         
-        // Lidar com voto
+        // Lidar com voto - CORRIGIDO
         async function handleVote(voteType) {
             if (!currentUserChannel) {
                 document.getElementById('loginOverlayChannel').style.display = 'flex';
@@ -2731,33 +2751,69 @@
             const likesRef = database.ref('channelStats/' + CHANNEL_ID + '/likes');
             const dislikesRef = database.ref('channelStats/' + CHANNEL_ID + '/dislikes');
             
-            const snapshot = await userVoteRef.once('value');
-            const currentVote = snapshot.val();
-            
-            if (currentVote === voteType) {
-                await userVoteRef.remove();
-                if (voteType === 'like') {
-                    await likesRef.transaction((current) => (current || 0) - 1);
+            try {
+                const snapshot = await userVoteRef.once('value');
+                const currentVote = snapshot.val();
+                
+                // Se o usuário está clicando no mesmo botão, remove o voto
+                if (currentVote === voteType) {
+                    await userVoteRef.remove();
+                    if (voteType === 'like') {
+                        await likesRef.transaction((current) => {
+                            return (current || 0) - 1;
+                        });
+                    } else {
+                        await dislikesRef.transaction((current) => {
+                            return (current || 0) - 1;
+                        });
+                    }
                 } else {
-                    await dislikesRef.transaction((current) => (current || 0) - 1);
-                }
-            } else {
-                if (currentVote === 'like') {
-                    await likesRef.transaction((current) => (current || 0) - 1);
-                } else if (currentVote === 'dislike') {
-                    await dislikesRef.transaction((current) => (current || 0) - 1);
+                    // Se o usuário está mudando o voto
+                    // Primeiro remove o voto anterior (se existir)
+                    if (currentVote === 'like') {
+                        await likesRef.transaction((current) => {
+                            return (current || 0) - 1;
+                        });
+                    } else if (currentVote === 'dislike') {
+                        await dislikesRef.transaction((current) => {
+                            return (current || 0) - 1;
+                        });
+                    }
+                    
+                    // Define o novo voto
+                    await userVoteRef.set(voteType);
+                    
+                    // Incrementa o contador do novo voto
+                    if (voteType === 'like') {
+                        await likesRef.transaction((current) => {
+                            return (current || 0) + 1;
+                        });
+                    } else {
+                        await dislikesRef.transaction((current) => {
+                            return (current || 0) + 1;
+                        });
+                    }
                 }
                 
-                await userVoteRef.set(voteType);
+                // Atualizar UI imediatamente
                 if (voteType === 'like') {
-                    await likesRef.transaction((current) => (current || 0) + 1);
+                    currentLikes = currentVote === 'like' ? currentLikes - 1 : (currentVote === 'dislike' ? currentLikes + 1 : currentLikes + 1);
+                    currentDislikes = currentVote === 'dislike' ? currentDislikes - 1 : currentDislikes;
                 } else {
-                    await dislikesRef.transaction((current) => (current || 0) + 1);
+                    currentDislikes = currentVote === 'dislike' ? currentDislikes - 1 : (currentVote === 'like' ? currentDislikes + 1 : currentDislikes + 1);
+                    currentLikes = currentVote === 'like' ? currentLikes - 1 : currentLikes;
                 }
+                
+                currentUserVote = currentVote === voteType ? null : voteType;
+                updateLikeDislikeUI();
+                
+                showControls();
+                resetControlsTimer();
+                
+            } catch (error) {
+                console.error('Erro ao processar voto:', error);
+                alert('Erro ao registrar voto. Tente novamente.');
             }
-            
-            showControls();
-            resetControlsTimer();
         }
         
         // ==================== SISTEMA DE CONTAGEM DE ESPECTADORES ====================
