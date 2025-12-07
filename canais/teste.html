@@ -1568,7 +1568,7 @@
             }
         }
 
-        // Função para gerar HTML do canal (COM SISTEMA DE AUTENTICAÇÃO ADICIONADO)
+        // ==================== FUNÇÃO GERAR HTML DO CANAL COM SISTEMA DE LIKES ====================
         function gerarHTMLdoCanal(dados) {
             const isOffline = dados.isOffline || false;
             const visibility = dados.visibility || 'brazil';
@@ -1590,7 +1590,7 @@
             // Determinar data de estreia
             const releaseDate = dados.release || new Date().toISOString().split('T')[0];
             
-            // Gerar channelId para contagem de espectadores
+            // Gerar channelId para contagem de espectadores e likes
             const channelId = dados.name.toLowerCase()
                 .replace(/[^a-z0-9]/g, '-')
                 .replace(/-+/g, '-');
@@ -1609,6 +1609,10 @@
                 <div class="program-item">
                     <div class="program-label">Espectadores online:</div>
                     <div class="program-name" id="onlineViewers">-</div>
+                </div>
+                <div class="program-item">
+                    <div class="program-label">Nota do canal:</div>
+                    <div class="program-name" id="channelRating">-</div>
                 </div>
             </div>` : '';
             
@@ -1726,7 +1730,24 @@
             </div>
             `;
             
-            // HTML do canal com sistema completo de programação e autenticação
+            // ============= SISTEMA DE LIKES/DISLIKES =============
+            const likeDislikeHTML = !isOffline ? `
+            <!-- Sistema de Likes/Dislikes -->
+            <div class="like-dislike-container" id="likeDislikeContainer" style="position: absolute; top: 10px; right: 10px; z-index: 15; opacity: 0; transition: opacity 0.3s;">
+                <div class="like-dislike-controls" style="display: flex; background: rgba(0, 0, 0, 0.7); border-radius: 20px; padding: 5px; backdrop-filter: blur(5px);">
+                    <button class="like-btn" id="likeBtn" title="Curtir" style="background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; padding: 5px 10px; display: flex; align-items: center; gap: 5px; transition: all 0.3s;">
+                        <span class="like-icon">👍</span>
+                        <span class="like-count" id="likeCount">0</span>
+                    </button>
+                    <button class="dislike-btn" id="dislikeBtn" title="Não Curtir" style="background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; padding: 5px 10px; display: flex; align-items: center; gap: 5px; transition: all 0.3s;">
+                        <span class="dislike-icon">👎</span>
+                        <span class="dislike-count" id="dislikeCount">0</span>
+                    </button>
+                </div>
+            </div>
+            ` : '';
+            
+            // HTML do canal com sistema completo de programação, autenticação e likes
             const html = `<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -1734,7 +1755,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${dados.name}</title>
     <link rel="icon" href="${FAVICON_URL}" type="image/png">
-    <!-- SDKs Firebase para contagem de espectadores e autenticação -->
+    <!-- SDKs Firebase para contagem de espectadores, autenticação e likes -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"><\/script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"><\/script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"><\/script>
@@ -2133,6 +2154,30 @@
         .commercial-controls .volume-controls {
             margin-left: 0;
         }
+        
+        /* Estilos para o sistema de likes */
+        .like-btn.active {
+            color: #2ecc71;
+        }
+        
+        .dislike-btn.active {
+            color: #e74c3c;
+        }
+        
+        .like-btn:hover, .dislike-btn:hover {
+            transform: scale(1.1);
+        }
+        
+        .like-count, .dislike-count {
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+        
+        /* Controles de like/dislike aparecem com hover */
+        .video-wrapper:hover .like-dislike-container,
+        .video-wrapper:fullscreen:hover .like-dislike-container {
+            opacity: 1;
+        }
         `}
         
         .program-info {
@@ -2252,6 +2297,8 @@
             <div class="commercial-indicator" id="commercialIndicator">INTERVALO COMERCIAL</div>
             ${dados.showTime ? '<div class="time-display" id="timeDisplay"></div>' : ''}
             
+            ${likeDislikeHTML}
+            
             <video id="myVideo" playsinline style="display: none;">
                 Seu navegador não suporta a reprodução de vídeos HTML5.
             </video>
@@ -2326,7 +2373,7 @@
         const CHANNEL_VERSION = "${version}";
         const CHANNEL_ID = "${channelId}";
         
-        // ==================== CONFIGURAÇÃO DO FIREBASE PARA AUTENTICAÇÃO ====================
+        // ==================== CONFIGURAÇÃO DO FIREBASE PARA AUTENTICAÇÃO E LIKES ====================
         const firebaseConfig = {
             apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
             authDomain: "playtronic-tv.firebaseapp.com",
@@ -2369,6 +2416,12 @@
         // VARIÁVEIS PARA AUTENTICAÇÃO
         let currentUserChannel = null;
         
+        // VARIÁVEIS PARA SISTEMA DE LIKES
+        let likesRef = null;
+        let dislikesRef = null;
+        let userVoteRef = null;
+        let currentVote = null; // 'like', 'dislike' ou null
+        
         // ELEMENTOS DO PLAYER
         let videoElement = null;
         let youtubeContainer = null;
@@ -2386,10 +2439,18 @@
         let debugDays = null;
         let debugProgram = null;
         let onlineViewersElement = null;
+        let channelRatingElement = null;
         let commercialIndicator = null;
         let playbackControls = null;
         let customControls = null;
         let loadingMessage = null;
+        
+        // ELEMENTOS DO SISTEMA DE LIKES
+        let likeBtn = null;
+        let dislikeBtn = null;
+        let likeCountElement = null;
+        let dislikeCountElement = null;
+        let likeDislikeContainer = null;
         
         // ==================== SISTEMA DE AUTENTICAÇÃO ====================
         
@@ -2487,10 +2548,14 @@
             currentUserChannel = user;
             updateAuthUIChannel();
             
+            // Reinicializar sistema de likes quando o usuário fizer login/logout
+            if (!IS_OFFLINE) {
+                inicializarSistemaLikes();
+            }
+            
             // Aqui você pode adicionar lógica adicional baseada no usuário autenticado
             if (user) {
                 console.log('Usuário autenticado no canal:', user.email);
-                // Futuramente: habilitar funcionalidades exclusivas para usuários autenticados
             } else {
                 console.log('Usuário não autenticado no canal');
             }
@@ -2537,7 +2602,218 @@
             }, 30000); // Atualizar a cada 30 segundos
         }
         
-        // ==================== FUNÇÕES PRINCIPAIS ====================
+        // ==================== SISTEMA DE LIKES/DISLIKES ====================
+        
+        // Inicializar sistema de likes
+        function inicializarSistemaLikes() {
+            if (IS_OFFLINE) {
+                // Se o canal estiver offline, ocultar o container
+                if (likeDislikeContainer) {
+                    likeDislikeContainer.style.display = 'none';
+                }
+                return;
+            }
+            
+            // Obter elementos
+            likeBtn = document.getElementById('likeBtn');
+            dislikeBtn = document.getElementById('dislikeBtn');
+            likeCountElement = document.getElementById('likeCount');
+            dislikeCountElement = document.getElementById('dislikeCount');
+            likeDislikeContainer = document.getElementById('likeDislikeContainer');
+            channelRatingElement = document.getElementById('channelRating');
+            
+            // Referências do Firebase para likes
+            likesRef = database.ref('channelStats/' + CHANNEL_ID + '/likes');
+            dislikesRef = database.ref('channelStats/' + CHANNEL_ID + '/dislikes');
+            
+            // Inicializar contadores com 0 se não existirem
+            likesRef.once('value').then(snapshot => {
+                if (!snapshot.exists()) {
+                    likesRef.set(0);
+                }
+            });
+            
+            dislikesRef.once('value').then(snapshot => {
+                if (!snapshot.exists()) {
+                    dislikesRef.set(0);
+                }
+            });
+            
+            // Atualizar contagens em tempo real
+            likesRef.on('value', (snapshot) => {
+                const count = snapshot.val() || 0;
+                if (likeCountElement) {
+                    likeCountElement.textContent = count;
+                }
+                atualizarNotaCanal();
+            });
+            
+            dislikesRef.on('value', (snapshot) => {
+                const count = snapshot.val() || 0;
+                if (dislikeCountElement) {
+                    dislikeCountElement.textContent = count;
+                }
+                atualizarNotaCanal();
+            });
+            
+            // Configurar referência do voto do usuário se estiver autenticado
+            if (currentUserChannel) {
+                userVoteRef = database.ref('channelStats/' + CHANNEL_ID + '/userVotes/' + currentUserChannel.uid);
+                
+                // Verificar voto atual do usuário
+                userVoteRef.on('value', (snapshot) => {
+                    const vote = snapshot.val();
+                    currentVote = vote;
+                    atualizarBotoesLikeDislike();
+                });
+            } else {
+                currentVote = null;
+                atualizarBotoesLikeDislike();
+            }
+            
+            // Event listeners para os botões
+            if (likeBtn) {
+                likeBtn.addEventListener('click', () => handleVote('like'));
+            }
+            
+            if (dislikeBtn) {
+                dislikeBtn.addEventListener('click', () => handleVote('dislike'));
+            }
+            
+            // Mostrar/ocultar controles de like com o mouse
+            if (videoWrapper && likeDislikeContainer) {
+                videoWrapper.addEventListener('mousemove', () => {
+                    likeDislikeContainer.style.opacity = '1';
+                    resetControlsTimer();
+                });
+            }
+        }
+        
+        // Atualizar aparência dos botões de like/dislike
+        function atualizarBotoesLikeDislike() {
+            if (!likeBtn || !dislikeBtn) return;
+            
+            // Resetar ambos
+            likeBtn.classList.remove('active');
+            dislikeBtn.classList.remove('active');
+            
+            // Ativar o botão correspondente ao voto atual
+            if (currentVote === 'like') {
+                likeBtn.classList.add('active');
+            } else if (currentVote === 'dislike') {
+                dislikeBtn.classList.add('active');
+            }
+        }
+        
+        // Lidar com voto
+        function handleVote(voteType) {
+            // Se não estiver autenticado, mostrar modal de login
+            if (!currentUserChannel) {
+                document.getElementById('loginOverlayChannel').style.display = 'flex';
+                return;
+            }
+            
+            // Se já votou no mesmo tipo, remover o voto (toggle)
+            if (currentVote === voteType) {
+                removerVoto();
+            } else {
+                // Caso contrário, registrar novo voto
+                registrarVoto(voteType);
+            }
+        }
+        
+        // Registrar voto no Firebase
+        function registrarVoto(voteType) {
+            if (!userVoteRef || !currentUserChannel) return;
+            
+            const updates = {};
+            const userId = currentUserChannel.uid;
+            
+            // Primeiro, verificar se o usuário já votou antes
+            userVoteRef.once('value').then(snapshot => {
+                const previousVote = snapshot.val();
+                
+                // Atualizar o voto do usuário
+                userVoteRef.set(voteType);
+                
+                // Atualizar contagens
+                if (previousVote === 'like') {
+                    // Se antes era like, decrementar like
+                    updates['likes'] = firebase.database.ServerValue.increment(-1);
+                } else if (previousVote === 'dislike') {
+                    // Se antes era dislike, decrementar dislike
+                    updates['dislikes'] = firebase.database.ServerValue.increment(-1);
+                }
+                
+                // Incrementar o novo voto
+                if (voteType === 'like') {
+                    updates['likes'] = firebase.database.ServerValue.increment(1);
+                } else if (voteType === 'dislike') {
+                    updates['dislikes'] = firebase.database.ServerValue.increment(1);
+                }
+                
+                // Aplicar todas as atualizações
+                const channelStatsRef = database.ref('channelStats/' + CHANNEL_ID);
+                channelStatsRef.update(updates).catch(error => {
+                    console.error('Erro ao atualizar contagens:', error);
+                });
+            }).catch(error => {
+                console.error('Erro ao verificar voto anterior:', error);
+            });
+        }
+        
+        // Remover voto
+        function removerVoto() {
+            if (!userVoteRef || !currentUserChannel) return;
+            
+            // Verificar qual era o voto atual
+            userVoteRef.once('value').then(snapshot => {
+                const previousVote = snapshot.val();
+                const updates = {};
+                
+                // Remover o voto do usuário
+                userVoteRef.remove();
+                
+                // Decrementar a contagem apropriada
+                if (previousVote === 'like') {
+                    updates['likes'] = firebase.database.ServerValue.increment(-1);
+                } else if (previousVote === 'dislike') {
+                    updates['dislikes'] = firebase.database.ServerValue.increment(-1);
+                }
+                
+                // Aplicar atualizações
+                if (Object.keys(updates).length > 0) {
+                    const channelStatsRef = database.ref('channelStats/' + CHANNEL_ID);
+                    channelStatsRef.update(updates).catch(error => {
+                        console.error('Erro ao remover voto:', error);
+                    });
+                }
+            }).catch(error => {
+                console.error('Erro ao remover voto:', error);
+            });
+        }
+        
+        // Atualizar nota do canal
+        function atualizarNotaCanal() {
+            if (!channelRatingElement) return;
+            
+            const likes = parseInt(likeCountElement ? likeCountElement.textContent : 0) || 0;
+            const dislikes = parseInt(dislikeCountElement ? dislikeCountElement.textContent : 0) || 0;
+            const total = likes + dislikes;
+            
+            if (total === 0) {
+                channelRatingElement.textContent = '-';
+                return;
+            }
+            
+            // Calcular porcentagem de likes
+            const percentage = (likes / total) * 100;
+            // Converter para nota de 0 a 10 (ex: 92% = 9.2)
+            const rating = (percentage / 10).toFixed(1);
+            channelRatingElement.textContent = rating;
+        }
+        
+        // ==================== FUNÇÕES PRINCIPAIS DO PLAYER ====================
         
         // Calcular dias desde a estreia (muda às 6h)
         function calcularDiasDesdeEstreia() {
@@ -2873,12 +3149,22 @@
                 controlsVisible = true;
                 resetControlsTimer();
             }
+            
+            // Mostrar controles de like/dislike também
+            if (likeDislikeContainer && !IS_OFFLINE) {
+                likeDislikeContainer.style.opacity = '1';
+            }
         }
         
         function hideControls() {
             if (customControls) {
                 customControls.style.opacity = '0';
                 controlsVisible = false;
+            }
+            
+            // Ocultar controles de like/dislike também
+            if (likeDislikeContainer && !IS_OFFLINE) {
+                likeDislikeContainer.style.opacity = '0';
             }
         }
         
@@ -3071,6 +3357,7 @@
             debugDays = document.getElementById('debugDays');
             debugProgram = document.getElementById('debugProgram');
             onlineViewersElement = document.getElementById('onlineViewers');
+            channelRatingElement = document.getElementById('channelRating');
             commercialIndicator = document.getElementById('commercialIndicator');
             playbackControls = document.getElementById('playbackControls');
             customControls = document.getElementById('custom-controls');
@@ -3104,6 +3391,9 @@
                     return false;
                 });
             }
+            
+            // Inicializar sistema de likes
+            inicializarSistemaLikes();
             
             // Iniciar com slot atual, mas pausado
             const slotAtual = calcularSlotAtual();
@@ -3141,21 +3431,26 @@
                 atualizarHora();
                 setInterval(atualizarHora, 1000);
             }
+            
+            // Inicializar contagem de espectadores se debug estiver habilitado
+            if (CHANNEL_ID && ENABLE_DEBUG) {
+                inicializarContagemEspectadores();
+            }
         }
         
         // Verificar se o canal está offline
         if (IS_OFFLINE) {
-            // Canal offline - não carregar player
+            // Canal offline - não carregar player, mas permitir autenticação
             document.querySelector('.program-info').style.display = 'none';
             console.log("Canal offline - player desativado");
+            
+            // Inicializar sistema de autenticação mesmo offline
+            document.addEventListener('DOMContentLoaded', function() {
+                // O sistema de autenticação já foi inicializado no observador acima
+            });
         } else {
             // Inicializar quando a página carregar
             document.addEventListener('DOMContentLoaded', function() {
-                // Inicializar contagem de espectadores
-                if (CHANNEL_ID && ENABLE_DEBUG) {
-                    inicializarContagemEspectadores();
-                }
-                
                 // Inicializar player
                 inicializarPlayer();
             });
@@ -3168,7 +3463,20 @@
             return html;
         }
 
-        // FUNÇÃO CORRIGIDA: Verificar disponibilidade do canal
+        // [O RESTANTE DO CÓDIGO PERMANECE EXATAMENTE IGUAL AO ORIGINAL...]
+        // [APENAS A FUNÇÃO gerarHTMLdoCanal FOI MODIFICADA]
+        // [PARA ECONOMIZAR ESPAÇO, NÃO VOU REPETIR O CÓDIGO COMPLETO AQUI]
+        // [AS FUNÇÕES RESTANTES SÃO IDÊNTICAS ÀS DO CÓDIGO ORIGINAL]
+
+        // ==================== RESTANTE DO CÓDIGO ORIGINAL ====================
+        // [TODAS AS OUTRAS FUNÇÕES PERMANECEM EXATAMENTE IGUAIS]
+        // [INCLUINDO: verificarDisponibilidadeCanal, publicarCanalGithub, 
+        //  apagarCanalGithub, salvarCanalFirestore, carregarCanaisFirestore,
+        //  deletarCanalFirestore, iniciarPublicacao, carregarCanais, etc.]
+
+        // [CONTINUAÇÃO DO CÓDIGO ORIGINAL...]
+
+        // Função para verificar disponibilidade do canal
         function verificarDisponibilidadeCanal(url, expectedVersion, isNewChannel, callback) {
             console.log(`Iniciando verificação. URL: ${url}, Versão esperada: ${expectedVersion}, É novo canal: ${isNewChannel}`);
             
