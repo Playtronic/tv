@@ -1355,7 +1355,8 @@
             storageBucket: "playtronic-tv.firebasestorage.app",
             messagingSenderId: "272337341020",
             appId: "1:272337341020:web:a30d949985fd614b5c7499",
-            measurementId: "G-1QRKY0NN0W"
+            measurementId: "G-1QRKY0NN0W",
+            databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
         };
 
         // Inicializar Firebase
@@ -1429,7 +1430,7 @@
             facebook: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiLklXnMmWgvL5np0f-H1QFAuGbRu6nCqR1ieoPg5biBAHX9a_pNrzu-qlWCMm4M0GcnAtt-BUrqCTvr7_rWW6gRuAbOxcQlMFQNJ8sXNR0bdYlr2lETRgdm3323a27PmTScYjOxuga1lBwF59sLZ1gwe9FjqSlNMm5EIbq3KfRJEEp91iMXFMwtagI5g/w92-h92/off-v_9.png",
             instagram: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEizqp69OCUzdNqzumt68hod8fsjWW6RG0g6fR9N5hd_yxFyS1E97M9IHOjXCf465ZC1RvSp_y0-Cc4maWY7Xg5cdUtTkaMObnQjyIEhpsOnPu7dXGzSDBDCP9Hc6iJ05oDWK8z2ZlfWDNCXiCjuqJf07HQHOYUEOLJxgpK28sUApdfyb6cFuuARA1434Q/w92-h92/Animation%201(1).png",
             bluesky: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEh1uwMM2dSDjU1uMpL2HxAmqq9fjlgRadIgcNfupSfHBmuibin5SC7LhTcbYJF0INS6VRh7DInSpxMs7QWp9ulVJBYGqRrqWOqEUqZOY-I7X15Bw49MA1vGjLbOX27wgWHvp4-Z3QkzZe0QC-SSWJwiE_RJGSfW78B7FCeLWdlZ2VlUVSyDt-zPaGdrRVcD/w200-h200/Screenshot%202024-09-15%20at%2014-33-49%20Novo%20projeto.png",
-            tiktok: "https://img.elo7.com.br/product/zoom/306C54F/painel-redondo-tik-tok-festa-de-criança.jpg",
+            tiktok: "https://img.elo7.com.br/product/zoom/306C54F/painel-redondo-tik-tok-festa-de-crianca.jpg",
             twitter: "https://upload.wikimedia.org/wikipedia/commons/0/01/X-Logo-Round-Color.png"
         };
 
@@ -1567,11 +1568,10 @@
             }
         }
 
-        // FUNÇÃO ATUALIZADA: Gerar HTML do canal com sistema de espectadores e curtidas
+        // Função para gerar HTML do canal (COM SISTEMA DE VERSÃO CORRIGIDO E ESPECTADORES ONLINE)
         function gerarHTMLdoCanal(dados) {
             const isOffline = dados.isOffline || false;
             const visibility = dados.visibility || 'brazil';
-            const channelId = dados.channelId || '';
             
             // Gerar grade de programação baseada nos programas do usuário
             const GRADE = [];
@@ -1590,20 +1590,25 @@
             // Determinar data de estreia
             const releaseDate = dados.release || new Date().toISOString().split('T')[0];
             
-            // Seção de debug (ATUALIZADA com espectadores online e nota do canal)
+            // Gerar channelId para contagem de espectadores
+            const channelId = dados.name.toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-');
+            
+            // Seção de debug (somente se não estiver offline e debug habilitado)
             const debugSection = (!isOffline && dados.enableDebug) ? `
             <div class="debug-info">
                 <div class="program-item">
-                    <div class="program-label">Espectadores online:</div>
-                    <div class="program-name" id="viewersCount">0</div>
+                    <div class="program-label">Dias desde a estreia:</div>
+                    <div class="program-name" id="debugDays">-</div>
                 </div>
                 <div class="program-item">
                     <div class="program-label">Nº do programa:</div>
                     <div class="program-name" id="debugProgram">-</div>
                 </div>
                 <div class="program-item">
-                    <div class="program-label">Nota do canal:</div>
-                    <div class="program-name" id="channelRating">-</div>
+                    <div class="program-label">Espectadores online:</div>
+                    <div class="program-name" id="onlineViewers">-</div>
                 </div>
             </div>` : '';
             
@@ -1620,7 +1625,6 @@
                         // Usuário não fala português - mostrar imagem de "fora do ar"
                         document.querySelector('.video-wrapper').innerHTML = '<img src="${OFFLINE_IMAGE}" class="offline-image" alt="Canal fora do ar"><div class="offline-message"><h3>Canal Temporariamente Fora do Ar</h3><p style="font-size: 0.9rem;">Este canal está passando por manutenção.</p><p style="font-size: 0.9rem;">Tente novamente mais tarde.</p></div>';
                         document.querySelector('.program-info').style.display = 'none';
-                        document.querySelector('.vote-section').style.display = 'none';
                         return false;
                     }
                     return true;
@@ -1661,24 +1665,6 @@
                 </div>`;
             }
             
-            // Seção de votação (curtidas/descurtidas) - SOMENTE SE NÃO ESTIVER OFFLINE
-            let voteSectionHTML = '';
-            if (!isOffline) {
-                voteSectionHTML = `
-                <div class="vote-section" style="display: flex; justify-content: center; align-items: center; margin: 20px 0; gap: 20px;">
-                    <div class="like-dislike-container" style="display: flex; gap: 10px;">
-                        <button id="likeBtn" class="vote-btn" style="background: #2ecc71; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 1.5rem;">👍</span>
-                            <span id="likeCount">0</span>
-                        </button>
-                        <button id="dislikeBtn" class="vote-btn" style="background: #e74c3c; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 1.5rem;">👎</span>
-                            <span id="dislikeCount">0</span>
-                        </button>
-                    </div>
-                </div>`;
-            }
-            
             // Botão personalizado HTML - NÃO EXIBIR SE O CANAL ESTIVER OFFLINE
             let customButtonHTML = '';
             const customButton = dados.customButton || {};
@@ -1701,7 +1687,7 @@
                 </div>
             `;
             
-            // HTML do canal com sistema completo de programação, espectadores e votação
+            // HTML do canal com sistema completo de programação
             const html = `<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -1709,16 +1695,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${dados.name}</title>
     <link rel="icon" href="${FAVICON_URL}" type="image/png">
+    <!-- SDKs Firebase para contagem de espectadores -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"><\/script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"><\/script>
     <!-- METADADOS DE VERSÃO -->
     <meta name="version" content="${version}">
     <meta name="generator" content="Gerador de TV Online">
-    
-    <!-- SDKs Firebase para o canal -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"><\/script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"><\/script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"><\/script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"><\/script>
-    
     <style>
         * {
             margin: 0;
@@ -2111,41 +2093,6 @@
         .commercial-controls .volume-controls {
             margin-left: 0;
         }
-        
-        /* Estilo para botões de voto */
-        .vote-btn {
-            transition: transform 0.2s, opacity 0.2s;
-        }
-        
-        .vote-btn:hover {
-            transform: scale(1.05);
-        }
-        
-        .vote-btn:active {
-            transform: scale(0.95);
-        }
-        
-        .vote-btn.active {
-            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5);
-        }
-        
-        .vote-btn.disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        
-        .vote-section {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 20px 0;
-            gap: 20px;
-        }
-        
-        .like-dislike-container {
-            display: flex;
-            gap: 10px;
-        }
         `}
         
         .program-info {
@@ -2214,102 +2161,9 @@
             background: rgba(255, 107, 107, 0.1);
             margin: 10px 0;
         }
-        
-        /* Modal de login para o canal */
-        .login-overlay-channel {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 3000;
-        }
-        
-        .login-modal-channel {
-            background: linear-gradient(135deg, #1a2a6c, #b21f1f);
-            padding: 40px;
-            border-radius: 15px;
-            text-align: center;
-            max-width: 400px;
-            width: 90%;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        }
-        
-        .login-modal-channel h2 {
-            color: #fdbb2d;
-            margin-bottom: 20px;
-            text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
-        }
-        
-        .login-modal-channel p {
-            color: rgba(255, 255, 255, 0.9);
-            margin-bottom: 25px;
-            line-height: 1.5;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-        }
-        
-        .google-login-btn-channel {
-            background: #4285f4;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: bold;
-            transition: background 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin: 0 auto 15px;
-            width: 100%;
-        }
-        
-        .google-login-btn-channel:hover {
-            background: #3367d6;
-        }
-        
-        .close-login-btn-channel {
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            border: 1px solid #fdbb2d;
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-            width: 100%;
-        }
-        
-        .close-login-btn-channel:hover {
-            background: rgba(253, 187, 45, 0.2);
-        }
     </style>
 </head>
 <body>
-    <!-- Modal de login para o canal -->
-    <div id="loginOverlayChannel" class="login-overlay-channel">
-        <div class="login-modal-channel">
-            <h2>Login Necessário</h2>
-            <p>Para interagir com o canal é necessário fazer login com sua conta Google.</p>
-            <button id="googleLoginBtnChannel" class="google-login-btn-channel">
-                <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
-                    <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
-                    <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
-                    <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
-                    <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
-                </svg>
-                Entrar com Google
-            </button>
-            <br>
-            <button id="closeLoginBtnChannel" class="close-login-btn-channel">Cancelar</button>
-        </div>
-    </div>
-
     <div class="container">
         <div class="channel-header">
             <img src="${dados.logo || DEFAULT_LOGO}" class="channel-logo" alt="Logo">
@@ -2355,8 +2209,6 @@
             `}
         </div>
         
-        ${voteSectionHTML}
-        
         ${customButtonHTML}
         
         <div class="program-info" id="program-info">
@@ -2387,26 +2239,6 @@
     
     ${isOffline ? '' : `
     <script>
-        // CONFIGURAÇÃO DO FIREBASE PARA O CANAL
-        const firebaseConfigChannel = {
-            apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
-            authDomain: "playtronic-tv.firebaseapp.com",
-            projectId: "playtronic-tv",
-            storageBucket: "playtronic-tv.firebasestorage.app",
-            messagingSenderId: "272337341020",
-            appId: "1:272337341020:web:a30d949985fd614b5c7499",
-            measurementId: "G-1QRKY0NN0W"
-        };
-
-        // Inicializar Firebase apenas se ainda não foi inicializado
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfigChannel);
-        }
-        
-        const authChannel = firebase.auth();
-        const dbChannel = firebase.firestore();
-        const rtdbChannel = firebase.database();
-        
         // CONFIGURAÇÕES DO CANAL
         const TV_PROGRAMS = ${JSON.stringify(programasArray)};
         const TV_COMMERCIALS = ${JSON.stringify(comerciaisArray)};
@@ -2441,15 +2273,10 @@
         let controlsTimer = null;
         const CONTROLS_HIDE_DELAY = 3000; // 3 segundos
         
-        // VARIÁVEIS PARA ESPECTADORES E VOTAÇÃO
-        let currentUserChannel = null;
+        // VARIÁVEIS PARA CONTAGEM DE ESPECTADORES
+        let viewerSessionId = null;
+        let onlineViewersRef = null;
         let viewerRef = null;
-        let viewersCountRef = null;
-        let likesRef = null;
-        let dislikesRef = null;
-        let userVoteRef = null;
-        let hasVoted = false;
-        let userVote = null; // 'like', 'dislike' ou null
         
         // ELEMENTOS DO PLAYER
         let videoElement = null;
@@ -2465,321 +2292,75 @@
         let liveBtn = null;
         let liveDot = null;
         let timeDisplay = null;
-        let viewersCountElement = null;
-        let channelRatingElement = null;
+        let debugDays = null;
         let debugProgram = null;
+        let onlineViewersElement = null;
         let commercialIndicator = null;
         let playbackControls = null;
         let customControls = null;
         let loadingMessage = null;
         
-        // ELEMENTOS DE VOTAÇÃO
-        let likeBtn = null;
-        let dislikeBtn = null;
-        let likeCountElement = null;
-        let dislikeCountElement = null;
+        // ==================== SISTEMA DE CONTAGEM DE ESPECTADORES ====================
         
-        // FUNÇÕES PRINCIPAIS
-        
-        // ==================== SISTEMA DE ESPECTADORES ONLINE ====================
-        
-        // Inicializar contagem de espectadores online
-        function initViewerCount() {
-            if (!CHANNEL_ID) {
-                console.error('ID do canal não definido');
-                return;
+        // Inicializar Firebase para contagem de espectadores
+        function inicializarContagemEspectadores() {
+            // Configuração do Firebase
+            const firebaseConfig = {
+                apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
+                authDomain: "playtronic-tv.firebaseapp.com",
+                projectId: "playtronic-tv",
+                storageBucket: "playtronic-tv.firebasestorage.app",
+                messagingSenderId: "272337341020",
+                appId: "1:272337341020:web:a30d949985fd614b5c7499",
+                measurementId: "G-1QRKY0NN0W",
+                databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
+            };
+
+            // Inicializar Firebase se ainda não estiver inicializado
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
             }
             
-            // Referência para a contagem de espectadores online
-            viewersCountRef = rtdbChannel.ref('channelViewers/' + CHANNEL_ID + '/count');
+            const database = firebase.database();
             
-            // Referência para este espectador específico (usando ID único da sessão)
-            const viewerId = 'viewer_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            viewerRef = rtdbChannel.ref('channelViewers/' + CHANNEL_ID + '/viewers/' + viewerId);
+            // Gerar um ID único para esta sessão de visualização
+            viewerSessionId = 'viewer_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             
-            // Atualizar contagem quando este espectador entrar
+            // Referência para a contagem de espectadores deste canal
+            onlineViewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+            viewerRef = database.ref('onlineUsers/' + CHANNEL_ID + '/' + viewerSessionId);
+            
+            // Registrar este espectador
             viewerRef.set({
-                timestamp: firebase.database.ServerValue.TIMESTAMP,
-                userAgent: navigator.userAgent
-            });
-            
-            // Configurar para remover este espectador quando a página for fechada
-            window.addEventListener('beforeunload', function() {
-                if (viewerRef) {
-                    viewerRef.remove();
-                }
-            });
-            
-            // Escutar mudanças na contagem total
-            viewersCountRef.on('value', function(snapshot) {
-                const count = snapshot.val() || 0;
-                if (viewersCountElement) {
-                    viewersCountElement.textContent = count;
-                }
-            });
-            
-            // Remover espectadores inativos (mais de 30 segundos)
-            setInterval(function() {
-                const cutoff = Date.now() - 30000; // 30 segundos
-                const viewersRef = rtdbChannel.ref('channelViewers/' + CHANNEL_ID + '/viewers');
-                viewersRef.once('value', function(snapshot) {
-                    snapshot.forEach(function(childSnapshot) {
-                        const viewerData = childSnapshot.val();
-                        if (viewerData.timestamp < cutoff) {
-                            childSnapshot.ref.remove();
-                        }
-                    });
-                });
-            }, 10000); // Verificar a cada 10 segundos
-        }
-        
-        // ==================== SISTEMA DE VOTAÇÃO (CURTIDAS/DESCURTIDAS) ====================
-        
-        // Inicializar sistema de votação
-        function initVotingSystem() {
-            if (!CHANNEL_ID) {
-                console.error('ID do canal não definido');
-                return;
-            }
-            
-            // Referências para curtidas e descurtidas
-            likesRef = rtdbChannel.ref('channelLikes/' + CHANNEL_ID + '/likes');
-            dislikesRef = rtdbChannel.ref('channelLikes/' + CHANNEL_ID + '/dislikes');
-            
-            // Escutar mudanças nas curtidas
-            likesRef.on('value', function(snapshot) {
-                const likes = snapshot.val() || 0;
-                if (likeCountElement) {
-                    likeCountElement.textContent = likes;
-                }
-                updateChannelRating();
-            });
-            
-            // Escutar mudanças nas descurtidas
-            dislikesRef.on('value', function(snapshot) {
-                const dislikes = snapshot.val() || 0;
-                if (dislikeCountElement) {
-                    dislikeCountElement.textContent = dislikes;
-                }
-                updateChannelRating();
-            });
-            
-            // Configurar botões de votação
-            if (likeBtn && dislikeBtn) {
-                likeBtn.addEventListener('click', function() {
-                    handleVote('like');
-                });
+                timestamp: Date.now(),
+                userAgent: navigator.userAgent,
+                isActive: true
+            }).then(() => {
+                // Configurar para remover este espectador quando ele sair
+                viewerRef.onDisconnect().remove();
                 
-                dislikeBtn.addEventListener('click', function() {
-                    handleVote('dislike');
-                });
-            }
-            
-            // Observar mudanças de autenticação para atualizar estado do voto
-            authChannel.onAuthStateChanged(function(user) {
-                currentUserChannel = user;
-                if (user) {
-                    // Usuário autenticado, verificar se já votou
-                    checkUserVote();
-                } else {
-                    // Usuário não autenticado, resetar estado de voto
-                    resetVoteUI();
-                }
-            });
-        }
-        
-        // Verificar voto do usuário atual
-        function checkUserVote() {
-            if (!currentUserChannel || !CHANNEL_ID) return;
-            
-            const userId = currentUserChannel.uid;
-            userVoteRef = rtdbChannel.ref('channelLikes/' + CHANNEL_ID + '/userVotes/' + userId);
-            
-            userVoteRef.once('value').then(function(snapshot) {
-                const vote = snapshot.val();
-                if (vote) {
-                    hasVoted = true;
-                    userVote = vote;
-                    updateVoteUI();
-                } else {
-                    hasVoted = false;
-                    userVote = null;
-                    resetVoteUI();
-                }
-            });
-        }
-        
-        // Manipular voto do usuário
-        function handleVote(voteType) {
-            if (!currentUserChannel) {
-                // Usuário não autenticado, mostrar modal de login
-                showLoginModal();
-                return;
-            }
-            
-            if (!CHANNEL_ID) {
-                console.error('ID do canal não definido');
-                return;
-            }
-            
-            const userId = currentUserChannel.uid;
-            
-            // Se já votou e está votando no mesmo, remover voto
-            if (hasVoted && userVote === voteType) {
-                removeVote(userId);
-                return;
-            }
-            
-            // Se já votou mas está mudando o voto
-            if (hasVoted && userVote !== voteType) {
-                changeVote(userId, voteType);
-                return;
-            }
-            
-            // Primeiro voto
-            registerVote(userId, voteType);
-        }
-        
-        // Registrar novo voto
-        function registerVote(userId, voteType) {
-            const voteData = {};
-            voteData[voteType === 'like' ? 'likes' : 'dislikes'] = firebase.database.ServerValue.increment(1);
-            
-            // Atualizar contagem
-            rtdbChannel.ref('channelLikes/' + CHANNEL_ID).update(voteData);
-            
-            // Registrar voto do usuário
-            userVoteRef.set(voteType);
-            
-            hasVoted = true;
-            userVote = voteType;
-            updateVoteUI();
-        }
-        
-        // Remover voto
-        function removeVote(userId) {
-            const voteData = {};
-            voteData[userVote === 'like' ? 'likes' : 'dislikes'] = firebase.database.ServerValue.increment(-1);
-            
-            // Atualizar contagem
-            rtdbChannel.ref('channelLikes/' + CHANNEL_ID).update(voteData);
-            
-            // Remover voto do usuário
-            userVoteRef.remove();
-            
-            hasVoted = false;
-            userVote = null;
-            resetVoteUI();
-        }
-        
-        // Mudar voto
-        function changeVote(userId, newVoteType) {
-            const voteData = {};
-            voteData[userVote === 'like' ? 'likes' : 'dislikes'] = firebase.database.ServerValue.increment(-1);
-            voteData[newVoteType === 'like' ? 'likes' : 'dislikes'] = firebase.database.ServerValue.increment(1);
-            
-            // Atualizar contagem
-            rtdbChannel.ref('channelLikes/' + CHANNEL_ID).update(voteData);
-            
-            // Atualizar voto do usuário
-            userVoteRef.set(newVoteType);
-            
-            userVote = newVoteType;
-            updateVoteUI();
-        }
-        
-        // Atualizar interface de votação
-        function updateVoteUI() {
-            if (!likeBtn || !dislikeBtn) return;
-            
-            // Resetar ambos os botões
-            likeBtn.classList.remove('active');
-            dislikeBtn.classList.remove('active');
-            
-            // Destacar o botão correspondente ao voto atual
-            if (userVote === 'like') {
-                likeBtn.classList.add('active');
-            } else if (userVote === 'dislike') {
-                dislikeBtn.classList.add('active');
-            }
-        }
-        
-        // Resetar interface de votação
-        function resetVoteUI() {
-            if (!likeBtn || !dislikeBtn) return;
-            
-            likeBtn.classList.remove('active');
-            dislikeBtn.classList.remove('active');
-        }
-        
-        // Atualizar nota do canal
-        function updateChannelRating() {
-            if (!likesRef || !dislikesRef || !channelRatingElement) return;
-            
-            // Obter valores atuais
-            likesRef.once('value').then(function(likesSnapshot) {
-                dislikesRef.once('value').then(function(dislikesSnapshot) {
-                    const likes = likesSnapshot.val() || 0;
-                    const dislikes = dislikesSnapshot.val() || 0;
-                    const total = likes + dislikes;
-                    
-                    if (total > 0) {
-                        const rating = (likes / total) * 10;
-                        channelRatingElement.textContent = rating.toFixed(1);
-                    } else {
-                        channelRatingElement.textContent = '0.0';
+                // Monitorar a contagem total de espectadores
+                onlineViewersRef.on('value', (snapshot) => {
+                    const count = snapshot.numChildren();
+                    if (onlineViewersElement) {
+                        onlineViewersElement.textContent = count;
                     }
                 });
+            }).catch(error => {
+                console.error('Erro ao registrar espectador:', error);
             });
-        }
-        
-        // Mostrar modal de login
-        function showLoginModal() {
-            const loginOverlay = document.getElementById('loginOverlayChannel');
-            if (loginOverlay) {
-                loginOverlay.style.display = 'flex';
-            }
-        }
-        
-        // Fechar modal de login
-        function closeLoginModal() {
-            const loginOverlay = document.getElementById('loginOverlayChannel');
-            if (loginOverlay) {
-                loginOverlay.style.display = 'none';
-            }
-        }
-        
-        // Configurar botões do modal de login
-        function setupLoginModal() {
-            const googleLoginBtn = document.getElementById('googleLoginBtnChannel');
-            const closeLoginBtn = document.getElementById('closeLoginBtnChannel');
             
-            if (googleLoginBtn) {
-                googleLoginBtn.addEventListener('click', function() {
-                    const provider = new firebase.auth.GoogleAuthProvider();
-                    provider.addScope('profile');
-                    provider.addScope('email');
-                    
-                    authChannel.signInWithPopup(provider)
-                        .then(function(result) {
-                            console.log('Login bem-sucedido:', result.user.email);
-                            closeLoginModal();
-                        })
-                        .catch(function(error) {
-                            console.error('Erro no login:', error);
-                            alert('Erro no login: ' + error.message);
-                        });
-                });
-            }
-            
-            if (closeLoginBtn) {
-                closeLoginBtn.addEventListener('click', function() {
-                    closeLoginModal();
-                });
-            }
+            // Atualizar o timestamp periodicamente para indicar que o espectador ainda está ativo
+            setInterval(() => {
+                if (viewerRef) {
+                    viewerRef.update({
+                        timestamp: Date.now()
+                    });
+                }
+            }, 30000); // Atualizar a cada 30 segundos
         }
         
-        // ==================== FUNÇÕES DO PLAYER (ORIGINAIS) ====================
+        // ==================== FUNÇÕES PRINCIPAIS ====================
         
         // Calcular dias desde a estreia (muda às 6h)
         function calcularDiasDesdeEstreia() {
@@ -3000,8 +2581,9 @@
             }
             
             // Atualizar debug se habilitado
-            if (ENABLE_DEBUG && debugProgram) {
-                debugProgram.textContent = currentProgramIndex + 1;
+            if (ENABLE_DEBUG) {
+                if (debugDays) debugDays.textContent = videoInfo.dia;
+                if (debugProgram) debugProgram.textContent = currentProgramIndex + 1;
             }
             
             // Esconder indicador de comercial
@@ -3309,19 +2891,13 @@
             liveBtn = document.getElementById('liveBtn');
             liveDot = document.getElementById('liveDot');
             timeDisplay = document.getElementById('timeDisplay');
-            viewersCountElement = document.getElementById('viewersCount');
-            channelRatingElement = document.getElementById('channelRating');
+            debugDays = document.getElementById('debugDays');
             debugProgram = document.getElementById('debugProgram');
+            onlineViewersElement = document.getElementById('onlineViewers');
             commercialIndicator = document.getElementById('commercialIndicator');
             playbackControls = document.getElementById('playbackControls');
             customControls = document.getElementById('custom-controls');
             loadingMessage = document.getElementById('loadingMessage');
-            
-            // Obter elementos de votação
-            likeBtn = document.getElementById('likeBtn');
-            dislikeBtn = document.getElementById('dislikeBtn');
-            likeCountElement = document.getElementById('likeCount');
-            dislikeCountElement = document.getElementById('dislikeCount');
             
             // Configurar controles
             configurarControles();
@@ -3350,13 +2926,6 @@
                     e.preventDefault();
                     return false;
                 });
-            }
-            
-            // Inicializar sistemas
-            if (CHANNEL_ID) {
-                initViewerCount();
-                initVotingSystem();
-                setupLoginModal();
             }
             
             // Iniciar com slot atual, mas pausado
@@ -3401,11 +2970,16 @@
         if (IS_OFFLINE) {
             // Canal offline - não carregar player
             document.querySelector('.program-info').style.display = 'none';
-            document.querySelector('.vote-section').style.display = 'none';
             console.log("Canal offline - player desativado");
         } else {
             // Inicializar quando a página carregar
             document.addEventListener('DOMContentLoaded', function() {
+                // Inicializar contagem de espectadores
+                if (CHANNEL_ID && ENABLE_DEBUG) {
+                    inicializarContagemEspectadores();
+                }
+                
+                // Inicializar player
                 inicializarPlayer();
             });
         }
@@ -3674,7 +3248,7 @@
             return parts.join('.');
         }
 
-        // Função para salvar canal no Firestore - ATUALIZADA COM channelId
+        // Função para salvar canal no Firestore - CORRIGIDA
         async function salvarCanalFirestore(channelData, isPublication = false) {
             if (!currentUser) {
                 console.error("Usuário não autenticado para salvar canal");
@@ -3795,7 +3369,7 @@
             }
         }
 
-        // Função principal de publicação (ATUALIZADA COM channelId)
+        // Função principal de publicação (ATUALIZADA COM VERIFICAÇÃO CORRIGIDA)
         async function iniciarPublicacao() {
             console.log("Iniciando publicação...");
             
@@ -3865,8 +3439,7 @@
                 isOffline: dadosNormalizados.isOffline || false,
                 socialMedia: dadosNormalizados.socialMedia,
                 customButton: dadosNormalizados.customButton,
-                version: dadosNormalizados.version,
-                channelId: currentChannelId // ADICIONADO: Incluir ID do canal
+                version: dadosNormalizados.version // AGORA COM VERSÃO CORRETA
             };
 
             try {
@@ -4240,7 +3813,7 @@
                 document.getElementById('enableDebug').checked = tvData.enableDebug;
                 document.getElementById('customReleaseDate').checked = tvData.customReleaseDate;
                 
-                // IMPORTANTE: Se estiver editando um canal publicado, NÃO desabilitar o botão de avançar
+                // IMPORTANTE: Se estiver editando um canal publicado, NÃO desabilitar o botão de avanço
                 // O campo do nome fica desabilitado, mas o botão deve funcionar
                 if (tvData.published) {
                     // Canal já publicado - bloquear edição do nome
