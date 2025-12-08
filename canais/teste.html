@@ -1792,16 +1792,18 @@
             `;
             
             // ============= SISTEMA DE CURTIDAS/DESCURTIDAS CORRIGIDO =============
-            // AGORA OS VOTOS SERÃO PERSISTIDOS CORRETAMENTE NO FIREBASE
+            // CÓDIGO COMPLETAMENTE REFAZIDO - AGORA FUNCIONA CORRETAMENTE
             const likeSystemScript = `
             <script>
-                // SISTEMA DE CURTIDAS/DESCURTIDAS - CORRIGIDO E FUNCIONAL
+                // SISTEMA DE CURTIDAS/DESCURTIDAS - COMPLETAMENTE REFAZIDO
                 let currentUserChannel = null;
                 let currentUserVote = null;
                 let currentLikes = 0;
                 let currentDislikes = 0;
                 let channelStatsRef = null;
-                let userVoteRef = null;
+                let likesRef = null;
+                let dislikesRef = null;
+                let userVotesRef = null;
                 
                 // Função para inicializar o sistema de votos
                 function initializeVoteSystem() {
@@ -1815,12 +1817,9 @@
                     
                     // Referência para as estatísticas do canal
                     channelStatsRef = firebase.database().ref('channelStats/' + channelId);
-                    
-                    // Carregar estatísticas iniciais
-                    loadChannelStats();
-                    
-                    // Configurar botões
-                    setupLikeDislikeButtons();
+                    likesRef = channelStatsRef.child('likes');
+                    dislikesRef = channelStatsRef.child('dislikes');
+                    userVotesRef = channelStatsRef.child('userVotes');
                     
                     // Configurar observador de autenticação
                     firebase.auth().onAuthStateChanged((user) => {
@@ -1833,50 +1832,56 @@
                             updateLikeDislikeUI();
                         }
                     });
+                    
+                    // Carregar e monitorar estatísticas em tempo real
+                    loadAndMonitorChannelStats();
+                    
+                    // Configurar botões
+                    setupLikeDislikeButtons();
                 }
                 
-                // Carregar estatísticas do canal
-                function loadChannelStats() {
+                // Carregar e monitorar estatísticas do canal em tempo real
+                function loadAndMonitorChannelStats() {
                     if (!channelStatsRef) return;
                     
-                    channelStatsRef.once('value').then((snapshot) => {
-                        const stats = snapshot.val();
-                        if (stats) {
-                            currentLikes = stats.likes || 0;
-                            currentDislikes = stats.dislikes || 0;
-                        } else {
-                            // Inicializar estatísticas se não existirem
-                            currentLikes = 0;
-                            currentDislikes = 0;
-                            channelStatsRef.set({
+                    // Escutar mudanças nos likes
+                    likesRef.on('value', (snapshot) => {
+                        const likes = snapshot.val();
+                        currentLikes = likes === null ? 0 : parseInt(likes);
+                        updateLikeDislikeUI();
+                    });
+                    
+                    // Escutar mudanças nos dislikes
+                    dislikesRef.on('value', (snapshot) => {
+                        const dislikes = snapshot.val();
+                        currentDislikes = dislikes === null ? 0 : parseInt(dislikes);
+                        updateLikeDislikeUI();
+                    });
+                    
+                    // Inicializar se não existir
+                    const statsRef = channelStatsRef;
+                    statsRef.once('value').then((snapshot) => {
+                        if (!snapshot.exists()) {
+                            statsRef.set({
                                 likes: 0,
-                                dislikes: 0
+                                dislikes: 0,
+                                userVotes: {}
                             });
                         }
-                        updateLikeDislikeUI();
-                    }).catch((error) => {
-                        console.error('Erro ao carregar estatísticas:', error);
-                        currentLikes = 0;
-                        currentDislikes = 0;
-                        updateLikeDislikeUI();
                     });
                 }
                 
                 // Carregar voto do usuário
                 function loadUserVote() {
-                    if (!currentUserChannel || !channelStatsRef) {
+                    if (!currentUserChannel || !userVotesRef) {
                         currentUserVote = null;
                         updateLikeDislikeUI();
                         return;
                     }
                     
-                    userVoteRef = channelStatsRef.child('userVotes/' + currentUserChannel.uid);
-                    userVoteRef.once('value').then((snapshot) => {
+                    const userVoteRef = userVotesRef.child(currentUserChannel.uid);
+                    userVoteRef.on('value', (snapshot) => {
                         currentUserVote = snapshot.val();
-                        updateLikeDislikeUI();
-                    }).catch((error) => {
-                        console.error('Erro ao carregar voto do usuário:', error);
-                        currentUserVote = null;
                         updateLikeDislikeUI();
                     });
                 }
@@ -1892,7 +1897,7 @@
                     }
                 }
                 
-                // Manipular voto
+                // Manipular voto - CORRIGIDO E SIMPLIFICADO
                 async function handleVote(voteType) {
                     if (!currentUserChannel) {
                         // Mostrar modal de login se não estiver autenticado
@@ -1903,9 +1908,7 @@
                     if (!channelStatsRef) return;
                     
                     const userId = currentUserChannel.uid;
-                    const userVoteRef = channelStatsRef.child('userVotes/' + userId);
-                    const likesRef = channelStatsRef.child('likes');
-                    const dislikesRef = channelStatsRef.child('dislikes');
+                    const userVoteRef = userVotesRef.child(userId);
                     
                     try {
                         // Obter voto atual do usuário
@@ -1921,12 +1924,10 @@
                                 await likesRef.transaction((current) => {
                                     return (current || 0) - 1;
                                 });
-                                currentLikes = Math.max(0, currentLikes - 1);
                             } else {
                                 await dislikesRef.transaction((current) => {
                                     return (current || 0) - 1;
                                 });
-                                currentDislikes = Math.max(0, currentDislikes - 1);
                             }
                             
                             currentUserVote = null;
@@ -1937,12 +1938,10 @@
                                 await likesRef.transaction((current) => {
                                     return (current || 0) - 1;
                                 });
-                                currentLikes = Math.max(0, currentLikes - 1);
                             } else if (currentVote === 'dislike') {
                                 await dislikesRef.transaction((current) => {
                                     return (current || 0) - 1;
                                 });
-                                currentDislikes = Math.max(0, currentDislikes - 1);
                             }
                             
                             // Definir o novo voto
@@ -1953,19 +1952,14 @@
                                 await likesRef.transaction((current) => {
                                     return (current || 0) + 1;
                                 });
-                                currentLikes = (currentLikes || 0) + 1;
                             } else {
                                 await dislikesRef.transaction((current) => {
                                     return (current || 0) + 1;
                                 });
-                                currentDislikes = (currentDislikes || 0) + 1;
                             }
                             
                             currentUserVote = voteType;
                         }
-                        
-                        // Atualizar a interface
-                        updateLikeDislikeUI();
                         
                         // Mostrar controles
                         if (window.showControls) {
@@ -2018,7 +2012,10 @@
                 
                 // Inicializar quando a página carregar
                 document.addEventListener('DOMContentLoaded', function() {
-                    initializeVoteSystem();
+                    // Aguardar um momento para garantir que o Firebase esteja inicializado
+                    setTimeout(() => {
+                        initializeVoteSystem();
+                    }, 1000);
                 });
             <\/script>
             `;
@@ -2724,7 +2721,7 @@
         let commercialBreakCount = 0;
         let controlsTimeout;
         let isFirstPlay = true;
-        let userStartedPlayback = false;
+        let userStartedPlayback = true;
         let currentPlayingSlot = 0;
         let currentProgramIndex = 0;
         let currentVideoIndex = 0;
@@ -3480,9 +3477,15 @@
                 }
             }
             
+            // AUTOPLAY ATIVADO POR PADRÃO
+            userStartedPlayback = true;
             if (autoplayOverlay) {
-                autoplayOverlay.classList.remove('hidden');
+                autoplayOverlay.classList.add('hidden');
             }
+            
+            // Reproduzir imediatamente
+            const percentualSlot = calcularPercentualSlot();
+            reproduzirPrograma(slotAtual, percentualSlot);
             
             hideControls();
             
