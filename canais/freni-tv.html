@@ -12,9 +12,13 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     
     <!-- METADADOS DE VERSÃO -->
-    <meta name="version" content="1.0.0.2">
+    <meta name="version" content="1.0.0.3">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="program-mode" content="playlist">
+    <!-- Meta tag para conteúdo adulto -->
+    <meta name="adult-content" content="true">
+    <!-- Meta tag para modo de comerciais -->
+    <meta name="commercials-mode" content="sequential">
     
     <style>
         /* RESET E ESTILOS GERAIS */
@@ -366,6 +370,21 @@
             height: 100%;
             border: none;
         }
+        
+        /* Estilo para aviso de conteúdo adulto */
+        .adult-warning {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            background: rgba(231, 76, 60, 0.2);
+            border-radius: 10px;
+            border-left: 4px solid #e74c3c;
+        }
+        
+        .adult-warning h4 {
+            color: #e74c3c;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
@@ -410,6 +429,14 @@
         
         <div style="text-align: center; margin-bottom: 20px;">
             <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSJIhPf0wH5dQXI5FNmkk35G9k3G9cTtYVduA&s" alt="Logo" style="max-width: 200px; max-height: 100px; border-radius: 10px;">
+        </div>
+        
+        
+        <!-- Aviso de conteúdo adulto se ativado -->
+        
+        <div class="adult-warning">
+            <h4>⚠️ CONTEÚDO PARA ADULTOS (18+)</h4>
+            <p>Este canal contém conteúdo destinado a maiores de 18 anos.</p>
         </div>
         
         
@@ -478,7 +505,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.0.2
+                    Versão 1.0.0.3
                 </div>
             
     </div>
@@ -510,6 +537,7 @@
         const PROGRAM_MODE = "playlist";
         const ENABLE_COMMERCIALS = false;
         const COMMERCIALS_PER_BREAK = 2;
+        const COMMERCIALS_MODE = "sequential";
         const GRADE = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
         const TOTAL_SLOTS = 1;
         const SLOT_DURATION = 25;
@@ -519,9 +547,11 @@
         const ENABLE_LIVE = true;
         const ENABLE_DEBUG = true;
         
+        // Variável para conteúdo adulto
+        const ADULT_CONTENT = true;
         const RELEASE_DATE = "2025-12-09";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.2";
+        const CHANNEL_VERSION = "1.0.0.3";
         const CHANNEL_ID = "freni-tv";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -765,6 +795,55 @@
         let currentVideoIndex = 0;
         let player;
         
+        // Sistema para gerenciamento de comerciais
+        let commercialQueue = [];
+        let currentCommercialIndex = 0;
+        let usedCommercials = [];
+        
+        // Inicializar sistema de comerciais
+        function initializeCommercialSystem() {
+            if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) return;
+            
+            if (COMMERCIALS_MODE === 'sequential') {
+                // Modo sequencial: usar a ordem original
+                commercialQueue = [...TV_COMMERCIALS];
+                currentCommercialIndex = 0;
+            } else {
+                // Modo aleatório: embaralhar sem repetição
+                resetCommercialQueue();
+            }
+        }
+        
+        // Resetar fila de comerciais (modo aleatório)
+        function resetCommercialQueue() {
+            // Embaralhar os comerciais
+            const shuffled = [...TV_COMMERCIALS].sort(() => Math.random() - 0.5);
+            commercialQueue = shuffled;
+            currentCommercialIndex = 0;
+            usedCommercials = [];
+        }
+        
+        // Obter próximo comercial
+        function getNextCommercial() {
+            if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) return null;
+            
+            if (COMMERCIALS_MODE === 'sequential') {
+                // Modo sequencial: avançar linearmente
+                const commercial = commercialQueue[currentCommercialIndex];
+                currentCommercialIndex = (currentCommercialIndex + 1) % commercialQueue.length;
+                return commercial;
+            } else {
+                // Modo aleatório: usar sem repetição até esgotar
+                if (commercialQueue.length === 0) {
+                    resetCommercialQueue();
+                }
+                
+                const commercial = commercialQueue.shift();
+                usedCommercials.push(commercial);
+                return commercial;
+            }
+        }
+        
         // Calcular dias desde a estreia
         function calculateDaysSinceRelease() {
             const release = new Date(RELEASE_DATE);
@@ -819,6 +898,9 @@
                 setInterval(updateCurrentTime, 1000);
             }
             
+            // Inicializar sistema de comerciais
+            initializeCommercialSystem();
+            
             // Atualizar a cada minuto para mudar de slot
             setInterval(() => {
                 const newSlot = calculateCurrentSlot();
@@ -852,19 +934,6 @@
                         src="https://www.youtube.com/embed/${videoId}?autoplay=1&controls=1&rel=0" 
                         frameborder="0" 
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                        allowfullscreen>
-                    </iframe>
-                `;
-            } else if (videoUrl.includes('vimeo.com')) {
-                // Vimeo
-                const videoId = videoUrl.split('vimeo.com/')[1].split('?')[0];
-                document.getElementById('player').innerHTML = `
-                    <iframe 
-                        width="100%" 
-                        height="450" 
-                        src="https://player.vimeo.com/video/${videoId}?autoplay=1" 
-                        frameborder="0" 
-                        allow="autoplay; fullscreen; picture-in-picture" 
                         allowfullscreen>
                     </iframe>
                 `;
