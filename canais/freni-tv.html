@@ -12,7 +12,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     
     <!-- METADADOS DE VERSÃO -->
-    <meta name="version" content="1.0.0.3">
+    <meta name="version" content="1.0.0.4">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="program-mode" content="playlist">
     <!-- Meta tag para conteúdo adulto -->
@@ -385,6 +385,15 @@
             color: #e74c3c;
             margin-bottom: 10px;
         }
+        
+        /* ESPECTADORES ONLINE */
+        .viewers-online {
+            text-align: center;
+            margin: 15px 0;
+            font-size: 1.1rem;
+            color: #3498db;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -440,12 +449,17 @@
         </div>
         
         
+        <!-- Espectadores online -->
+        <div class="viewers-online">
+            <span id="viewersCount">0</span> espectadores online
+        </div>
+        
         <div class="video-wrapper">
-            <div id="player"></div>
-                <div class="player-controls">
-                    <button id="rewind10">-10s</button>
-                    <button id="restart">Início</button>
-                    <button id="live">AO VIVO</button>
+            <img src="https://github.com/Playtronic/tv/blob/main/template/TesteDeCores.png?raw=true" class="offline-image" alt="Canal fora do ar">
+                <div class="offline-message">
+                    <h3>Canal Temporariamente Fora do Ar</h3>
+                    <p style="font-size: 0.9rem;">Este canal está passando por manutenção.</p>
+                    <p style="font-size: 0.9rem;">Tente novamente mais tarde.</p>
                 </div>
         </div>
         
@@ -467,24 +481,6 @@
         </div>
         
         
-            <div class="debug-info">
-                <div class="program-item">
-                    <div class="program-label">Dias desde a estreia:</div>
-                    <div class="program-name" id="debugDays">-</div>
-                </div>
-                <div class="program-item">
-                    <div class="program-label">Nº do programa:</div>
-                    <div class="program-name" id="debugProgram">-</div>
-                </div>
-                <div class="program-item">
-                    <div class="program-label">Espectadores online:</div>
-                    <div class="program-name" id="onlineViewers">-</div>
-                </div>
-                <div class="program-item">
-                    <div class="program-label">Nota do Canal:</div>
-                    <div class="program-name" id="channelRating">N/D</div>
-                </div>
-            </div>
         
         <div class="like-dislike-buttons">
             <button id="likeBtn" class="like-btn">
@@ -505,7 +501,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.0.3
+                    Versão 1.0.0.4
                 </div>
             
     </div>
@@ -550,8 +546,8 @@
         // Variável para conteúdo adulto
         const ADULT_CONTENT = true;
         const RELEASE_DATE = "2025-12-09";
-        const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.3";
+        const IS_OFFLINE = true;
+        const CHANNEL_VERSION = "1.0.0.4";
         const CHANNEL_ID = "freni-tv";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -568,6 +564,62 @@
 
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
+        }
+        
+        // ==================== SISTEMA DE ESPECTADORES ONLINE ====================
+        let onlineViewersRef = null;
+        let viewerPresenceRef = null;
+        let currentUserId = null;
+        
+        // Inicializar sistema de espectadores online
+        function initializeViewerCount() {
+            const channelId = "freni-tv";
+            
+            if (!channelId) {
+                console.error("Channel ID não encontrado");
+                return;
+            }
+            
+            // Referência para contagem de espectadores
+            onlineViewersRef = firebase.database().ref('onlineViewers/' + channelId);
+            
+            // Referência para presença do usuário atual
+            firebase.auth().onAuthStateChanged((user) => {
+                if (user) {
+                    currentUserId = user.uid;
+                    viewerPresenceRef = firebase.database().ref('userPresence/' + channelId + '/' + currentUserId);
+                    
+                    // Registrar presença do usuário
+                    viewerPresenceRef.set(true);
+                    
+                    // Remover presença quando o usuário sair ou fechar a página
+                    viewerPresenceRef.onDisconnect().remove();
+                }
+            });
+            
+            // Atualizar contagem de espectadores online
+            onlineViewersRef.on('value', (snapshot) => {
+                const viewersCount = document.getElementById('viewersCount');
+                if (viewersCount) {
+                    const count = snapshot.val() || 0;
+                    viewersCount.textContent = count;
+                    
+                    // Atualizar também no debug se estiver ativado
+                    if (ENABLE_DEBUG) {
+                        const onlineViewersDebug = document.getElementById('onlineViewers');
+                        if (onlineViewersDebug) {
+                            onlineViewersDebug.textContent = count;
+                        }
+                    }
+                }
+            });
+            
+            // Atualizar contagem baseada nas presenças
+            const userPresenceRef = firebase.database().ref('userPresence/' + channelId);
+            userPresenceRef.on('value', (snapshot) => {
+                const count = snapshot.numChildren();
+                onlineViewersRef.set(count);
+            });
         }
         
         // ==================== SISTEMA DE CURTIDAS/DESCURTIDAS ====================
@@ -1014,6 +1066,7 @@
             if (!IS_OFFLINE) {
                 initializePlayer();
                 initializeVoteSystem();
+                initializeViewerCount();
             }
         });
     </script>
