@@ -1433,6 +1433,9 @@
             twitter: "https://upload.wikimedia.org/wikipedia/commons/0/01/X-Logo-Round-Color.png"
         };
 
+        // Objeto para armazenar os listeners de espectadores
+        let channelViewerListeners = {};
+
         // ==================== FUNÇÕES GLOBAIS ====================
 
         // Função para mostrar uma tela específica
@@ -4044,6 +4047,14 @@
                 channels = [];
                 if (channelsList) channelsList.innerHTML = '';
                 
+                // Parar todos os listeners anteriores
+                for (let channelId in channelViewerListeners) {
+                    if (channelViewerListeners[channelId]) {
+                        channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
+                    }
+                }
+                channelViewerListeners = {};
+                
                 const canaisFirestore = await carregarCanaisFirestore();
                 console.log(`${canaisFirestore.length} canais carregados do Firestore`);
                 
@@ -4090,13 +4101,18 @@
                                 statusClass = 'status-published';
                             }
                             
+                            // Gerar channelId para Firebase (igual ao usado no canal)
+                            const channelIdForFirebase = channel.name.toLowerCase()
+                                .replace(/[^a-z0-9]/g, '-')
+                                .replace(/-+/g, '-');
+                            
                             channelCard.innerHTML = `
                                 ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
                                 <div class="channel-name-with-emoji">
                                     <h3>${channel.name}</h3>
                                 </div>
                                 ${visibilityIcon}
-                                <p>${channel.slogan || 'Sem slogan'}</p>
+                                <p class="spectators" id="spectators-${channel.id}">Espectadores: 0</p>
                                 <div class="channel-status ${statusClass}">${statusText}</div>
                                 <div class="channel-actions">
                                     ${urlCanal && urlCanal !== 'https://playtronic.github.io/tv/canais/.html' ? 
@@ -4109,6 +4125,24 @@
                                 </div>
                             `;
                             channelsList.appendChild(channelCard);
+                            
+                            // Iniciar listener para espectadores em tempo real
+                            if (!isOffline && isPublished) {
+                                const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
+                                const listener = onlineViewersRef.on('value', (snapshot) => {
+                                    const count = snapshot.numChildren();
+                                    const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
+                                    if (spectatorsElement) {
+                                        spectatorsElement.textContent = `Espectadores: ${count}`;
+                                    }
+                                });
+                                
+                                // Armazenar a referência para poder remover depois
+                                channelViewerListeners[channel.id] = {
+                                    ref: onlineViewersRef,
+                                    listener: listener
+                                };
+                            }
                             
                             const watchBtn = channelCard.querySelector('.watch-channel');
                             const editBtn = channelCard.querySelector('.edit-channel');
@@ -4338,6 +4372,12 @@
             
             if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal do servidor e do seu perfil.')) {
                 try {
+                    // Remover listener de espectadores
+                    if (channelViewerListeners[channelId]) {
+                        channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
+                        delete channelViewerListeners[channelId];
+                    }
+                    
                     let apagadoDoServidor = false;
                     
                     if (channel.url) {
@@ -4401,6 +4441,14 @@
                 
                 if (channelsList) channelsList.innerHTML = '';
                 if (emptyState) emptyState.style.display = 'block';
+                
+                // Remover todos os listeners de espectadores
+                for (let channelId in channelViewerListeners) {
+                    if (channelViewerListeners[channelId]) {
+                        channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
+                    }
+                }
+                channelViewerListeners = {};
                 
                 if (versionCheckInterval) {
                     clearInterval(versionCheckInterval);
