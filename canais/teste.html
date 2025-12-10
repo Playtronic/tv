@@ -1106,6 +1106,56 @@
             opacity: 0.8;
             text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
         }
+        
+        /* NOVO: MODOS DE PROGRAMAÇÃO */
+        .programming-mode-control {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .programming-mode-dropdown {
+            width: 200px;
+            padding: 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            font-size: 16px;
+            color: #333;
+            cursor: pointer;
+        }
+        
+        .programming-mode-dropdown:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px #fdbb2d;
+        }
+        
+        .programming-mode-info {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 5px;
+            text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+        }
+        
+        /* NOVO: ESTILOS PARA MODO PLAYLIST */
+        .playlist-video-card {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .playlist-video-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .playlist-container {
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
@@ -1321,7 +1371,7 @@
             </div>
         </div>
         
-        <!-- Tela 3: Configuração de Programação - ATUALIZADA COM ACORDEÃO -->
+        <!-- Tela 3: Configuração de Programação - ATUALIZADA COM NOVOS MODOS -->
         <div id="screen3" class="screen">
             <h1>Configure os Programas</h1>
             
@@ -1333,22 +1383,54 @@
                 </div>
                 <div class="adult-content-info">
                     Se ativado, o canal será marcado como conteúdo para maiores de 18 anos. 
-                    
                 </div>
             </div>
             
-            <div id="programsError" class="programs-error-message" style="display: none;">
-                ⚠️ Atenção: É necessário adicionar pelo menos um programa.
+            <!-- NOVO: Seleção de Modo de Programação -->
+            <div class="programming-mode-control">
+                <h3>Modo de Programação</h3>
+                <select id="programmingMode" class="programming-mode-dropdown">
+                    <option value="grade">Grade de Programação (58 slots)</option>
+                    <option value="playlist">Playlist (vídeos sequenciais)</option>
+                </select>
+                <div class="programming-mode-info" id="programmingModeInfo">
+                    Modo Grade: 58 slots fixos, cada programa tem vídeos para cada dia.<br>
+                    Modo Playlist: Vídeos em sequência contínua, sem limite de slots.
+                </div>
             </div>
             
-            <div class="programs-container" id="programsContainer">
-                <!-- Os programas serão adicionados aqui dinamicamente como acordeões -->
+            <!-- Container para modo Grade (existente) -->
+            <div id="gradeModeContainer" style="display: block;">
+                <div id="programsError" class="programs-error-message" style="display: none;">
+                    ⚠️ Atenção: É necessário adicionar pelo menos um programa.
+                </div>
+                
+                <div class="programs-container" id="programsContainer">
+                    <!-- Os programas serão adicionados aqui dinamicamente como acordeões -->
+                </div>
+                
+                <button id="addProgram">+ Adicionar Novo Programa</button>
+                
+                <div class="program-info">
+                    <div>Programas criados: <span id="programCount" class="program-count">0</span> de 58</div>
+                </div>
             </div>
             
-            <button id="addProgram">+ Adicionar Novo Programa</button>
-            
-            <div class="program-info">
-                <div>Programas criados: <span id="programCount" class="program-count">0</span> de 58</div>
+            <!-- NOVO: Container para modo Playlist -->
+            <div id="playlistModeContainer" style="display: none;">
+                <div id="playlistError" class="programs-error-message" style="display: none;">
+                    ⚠️ Atenção: É necessário adicionar pelo menos um vídeo.
+                </div>
+                
+                <div class="playlist-container" id="playlistContainer">
+                    <!-- Os vídeos da playlist serão adicionados aqui -->
+                </div>
+                
+                <button id="addPlaylistVideo">+ Adicionar Novo Vídeo</button>
+                
+                <div class="program-info">
+                    <div>Vídeos na playlist: <span id="playlistCount" class="program-count">0</span></div>
+                </div>
             </div>
             
             <div class="navigation">
@@ -1567,7 +1649,7 @@
         let editingChannel = false;
         let originalChannelName = '';
         
-        // Dados da TV
+        // Dados da TV - ATUALIZADO COM NOVO CAMPO DE MODO DE PROGRAMAÇÃO
         let tvData = {
             email: '',
             name: '',
@@ -1581,7 +1663,9 @@
             enableDebug: true,
             customReleaseDate: false,
             releaseDate: '',
-            programs: [],
+            programmingMode: 'grade', // NOVO: 'grade' ou 'playlist'
+            programs: [], // Para modo grade
+            playlistVideos: [], // NOVO: Para modo playlist
             commercials: [],
             enableCommercials: false,
             commercialsPerBreak: 2,
@@ -1827,23 +1911,28 @@
             return parts.join('.');
         }
 
-        // Função para gerar HTML do canal (CORRIGIDA: SISTEMA DE CURTIDAS/DESCURTIDAS FIXO)
+        // Função para gerar HTML do canal (ATUALIZADA PARA SUPORTAR DOIS MODOS)
         function gerarHTMLdoCanal(dados) {
             const isOffline = dados.isOffline || false;
             const visibility = dados.visibility || 'brazil';
             const isAdultContent = dados.isAdultContent || false;
+            const programmingMode = dados.programmingMode || 'grade'; // NOVO: Modo de programação
             
-            // Gerar grade de programação
-            const GRADE = [];
-            const totalPrograms = dados.programas.length;
+            // Gerar grade de programação (apenas para modo grade)
+            let GRADE = [];
+            let totalPrograms = 0;
             
-            if (totalPrograms === 0) {
-                for (let i = 0; i < totalSlots; i++) {
-                    GRADE.push(0);
-                }
-            } else {
-                for (let i = 0; i < totalSlots; i++) {
-                    GRADE.push(i % totalPrograms);
+            if (programmingMode === 'grade') {
+                totalPrograms = dados.programas.length;
+                
+                if (totalPrograms === 0) {
+                    for (let i = 0; i < totalSlots; i++) {
+                        GRADE.push(0);
+                    }
+                } else {
+                    for (let i = 0; i < totalSlots; i++) {
+                        GRADE.push(i % totalPrograms);
+                    }
                 }
             }
             
@@ -1868,11 +1957,15 @@
                 </div>
                 <div class="program-item">
                     <div class="program-label">Espectadores online:</div>
-                    <div class="program-name" id="onlineViewers">-</div>
+                    <div class="program-name" id="onlineViewers">0</div>
                 </div>
                 <div class="program-item">
                     <div class="program-label">Nota do Canal:</div>
                     <div class="program-name" id="channelRating">N/D</div>
+                </div>
+                <div class="program-item">
+                    <div class="program-label">Modo de Programação:</div>
+                    <div class="program-name" id="programmingModeDisplay">${programmingMode === 'grade' ? 'Grade' : 'Playlist'}</div>
                 </div>
             </div>` : '';
             
@@ -1897,12 +1990,19 @@
                 });
             <\/script>` : '';
             
-            // Gerar lista de programas
-            const programasArray = dados.programas.map((program, index) => ({
+            // Gerar lista de programas (modo grade)
+            const programasArray = dados.programas ? dados.programas.map((program, index) => ({
                 id: index,
                 name: program.name,
                 videos: program.videos || []
-            }));
+            })) : [];
+            
+            // Gerar lista de vídeos da playlist (modo playlist)
+            const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
+                id: index,
+                name: video.name,
+                url: video.url
+            })) : [];
             
             // Gerar lista de comerciais
             const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
@@ -1948,7 +2048,7 @@
                 </div>
             `;
             
-            // ============= SISTEMA DE AUTENTICAÇÃO PARA O CANAL (CORRIGIDO: FUNCIONA OFFLINE) =============
+            // ============= SISTEMA DE AUTENTICAÇÃO PARA O CANAL =============
             const authHTML = `
             <!-- Botão de login para o canal -->
             <button id="loginButtonChannel" class="login-button-channel" style="position: fixed; top: 20px; right: 20px; background: #e67e22; border: none; color: white; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: all 0.3s; z-index: 1000; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);">
@@ -1987,10 +2087,10 @@
             </div>
             `;
             
-            // ============= SISTEMA DE CURTIDAS/DESCURTIDAS CORRIGIDO =============
+            // ============= SISTEMA DE CURTIDAS/DESCURTIDAS =============
             const likeSystemScript = `
             <script>
-                // SISTEMA DE CURTIDAS/DESCURTIDAS - COMPLETAMENTE REFAZIDO
+                // SISTEMA DE CURTIDAS/DESCURTIDAS
                 let currentUserChannel = null;
                 let currentUserVote = null;
                 let currentLikes = 0;
@@ -2092,7 +2192,7 @@
                     }
                 }
                 
-                // Manipular voto - CORRIGIDO E SIMPLIFICADO
+                // Manipular voto
                 async function handleVote(voteType) {
                     if (!currentUserChannel) {
                         // Mostrar modal de login se não estiver autenticado
@@ -2215,7 +2315,7 @@
             <\/script>
             `;
             
-            // HTML do canal
+            // HTML do canal (ATUALIZADO PARA SUPORTAR DOIS MODOS)
             const html = `<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -2231,6 +2331,7 @@
     <meta name="version" content="${version}">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="${isAdultContent ? 'true' : 'false'}">
+    <meta name="programming-mode" content="${programmingMode}">
     <style>
         * {
             margin: 0;
@@ -2627,7 +2728,7 @@
             margin-left: 0;
         }
         
-        /* SISTEMA DE CURTIDAS/DESCURTIDAS - CORRIGIDO E FUNCIONAL */
+        /* SISTEMA DE CURTIDAS/DESCURTIDAS */
         .like-dislike-container {
             position: absolute;
             top: 10px;
@@ -2747,7 +2848,7 @@
             margin: 10px 0;
         }
 
-        /* ESTILOS PARA AUTENTICAÇÃO NO CANAL (CORRIGIDOS) */
+        /* ESTILOS PARA AUTENTICAÇÃO NO CANAL */
         .login-button-channel:hover {
             background: #d35400;
             transform: translateY(-2px);
@@ -2806,7 +2907,7 @@
             <div class="commercial-indicator" id="commercialIndicator">INTERVALO COMERCIAL</div>
             ${dados.showTime ? '<div class="time-display" id="timeDisplay"></div>' : ''}
             
-            <!-- CONTAINER DE CURTIDAS/DESCURTIDAS - CORRIGIDO E FUNCIONAL -->
+            <!-- CONTAINER DE CURTIDAS/DESCURTIDAS -->
             <div class="like-dislike-container" id="likeDislikeContainer">
                 <button id="likeBtn" class="like-btn" title="Curtir">
                     <span id="likeCount" class="like-count">0</span> 👍
@@ -2869,18 +2970,20 @@
 
     ${countryCheckScript}
     
-    <!-- SISTEMA DE CURTIDAS/DESCURTIDAS CORRIGIDO -->
+    <!-- SISTEMA DE CURTIDAS/DESCURTIDAS -->
     ${likeSystemScript}
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const TV_PROGRAMS = ${JSON.stringify(programasArray)};
+        const PROGRAMMING_MODE = "${programmingMode}"; // NOVO: 'grade' ou 'playlist'
+        const TV_PROGRAMS = ${JSON.stringify(programasArray)}; // Para modo grade
+        const TV_PLAYLIST = ${JSON.stringify(playlistArray)}; // NOVO: Para modo playlist
         const TV_COMMERCIALS = ${JSON.stringify(comerciaisArray)};
         const ENABLE_COMMERCIALS = ${dados.enableCommercials || false};
         const COMMERCIALS_PER_BREAK = ${dados.commercialsPerBreak || 2};
-        const GRADE = ${JSON.stringify(GRADE)};
-        const TOTAL_SLOTS = 58;
-        const SLOT_DURATION = 25;
+        const GRADE = ${JSON.stringify(GRADE)}; // Apenas para modo grade
+        const TOTAL_SLOTS = 58; // Apenas para modo grade
+        const SLOT_DURATION = 25; // Minutos por slot (para ambos os modos)
         const SHOW_TIME = ${dados.showTime || true};
         const ENABLE_REWIND_10 = ${dados.enableRewind10 || true};
         const ENABLE_RESTART = ${dados.enableRestart || true};
@@ -2955,7 +3058,7 @@
         let customControls = null;
         let loadingMessage = null;
         
-        // ==================== SISTEMA DE AUTENTICAÇÃO (CORRIGIDO: FUNCIONA OFFLINE) ====================
+        // ==================== SISTEMA DE AUTENTICAÇÃO ====================
         
         // Atualizar UI de autenticação
         function updateAuthUIChannel() {
@@ -3142,9 +3245,9 @@
             }, 30000);
         }
         
-        // ==================== FUNÇÕES PRINCIPAIS ====================
+        // ==================== FUNÇÕES PRINCIPAIS (ATUALIZADAS PARA DOIS MODOS) ====================
         
-        // Calcular dias desde a estreia
+        // Calcular dias desde a estreia (apenas para modo grade)
         function calcularDiasDesdeEstreia() {
             const agora = new Date();
             const dataEstreia = new Date(RELEASE_DATE);
@@ -3170,8 +3273,8 @@
             return diaProgramacao;
         }
         
-        // Calcular slot atual
-        function calcularSlotAtual() {
+        // NOVA FUNÇÃO: Calcular slot atual para modo grade
+        function calcularSlotAtualGrade() {
             const agora = new Date();
             const horas = agora.getHours();
             const minutos = agora.getMinutes();
@@ -3190,43 +3293,150 @@
             return slotAtual % TOTAL_SLOTS;
         }
         
+        // NOVA FUNÇÃO: Calcular slot atual para modo playlist
+        function calcularSlotAtualPlaylist() {
+            const agora = new Date();
+            const dataEstreia = new Date(RELEASE_DATE);
+            
+            // Calcular diferença em milissegundos
+            const diferencaMs = agora.getTime() - dataEstreia.getTime();
+            
+            // Converter para minutos
+            const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
+            
+            // Cada slot tem 25 minutos, então calcular o slot atual
+            let slotAtual = Math.floor(minutosDesdeEstreia / SLOT_DURATION);
+            
+            // Se o slot atual for negativo (antes da estreia), usar 0
+            if (slotAtual < 0) {
+                slotAtual = 0;
+            }
+            
+            return slotAtual;
+        }
+        
+        // Calcular slot atual baseado no modo de programação
+        function calcularSlotAtual() {
+            if (PROGRAMMING_MODE === 'grade') {
+                return calcularSlotAtualGrade();
+            } else {
+                return calcularSlotAtualPlaylist();
+            }
+        }
+        
         // Calcular percentual decorrido do slot atual
         function calcularPercentualSlot() {
             const agora = new Date();
-            const minutos = agora.getMinutes();
-            const segundos = agora.getSeconds();
             
-            const segundosNoSlotAtual = (minutos % SLOT_DURATION) * 60 + segundos;
-            const totalSegundosSlot = SLOT_DURATION * 60;
-            
-            return Math.min(segundosNoSlotAtual / totalSegundosSlot, 0.99);
+            if (PROGRAMMING_MODE === 'grade') {
+                const minutos = agora.getMinutes();
+                const segundos = agora.getSeconds();
+                
+                const segundosNoSlotAtual = (minutos % SLOT_DURATION) * 60 + segundos;
+                const totalSegundosSlot = SLOT_DURATION * 60;
+                
+                return Math.min(segundosNoSlotAtual / totalSegundosSlot, 0.99);
+            } else {
+                // Para modo playlist, calcular baseado no tempo desde a estreia
+                const dataEstreia = new Date(RELEASE_DATE);
+                const diferencaMs = agora.getTime() - dataEstreia.getTime();
+                const minutosDesdeEstreia = diferencaMs / (1000 * 60);
+                
+                const minutosNoSlotAtual = minutosDesdeEstreia % SLOT_DURATION;
+                return Math.min(minutosNoSlotAtual / SLOT_DURATION, 0.99);
+            }
         }
         
-        // Determinar qual vídeo deve ser reproduzido
+        // NOVA FUNÇÃO: Ajustar slot para playlist (se o slot atual exceder o número de vídeos)
+        function ajustarSlotParaPlaylist(slotIndex) {
+            const totalVideos = TV_PLAYLIST.length;
+            
+            if (totalVideos === 0) {
+                return 0;
+            }
+            
+            // Se o slot atual for menor que o total de vídeos, retornar como está
+            if (slotIndex < totalVideos) {
+                return slotIndex;
+            }
+            
+            // Caso contrário, subtrair o total de vídeos até que o slot esteja dentro do limite
+            let slotAjustado = slotIndex;
+            while (slotAjustado >= totalVideos) {
+                slotAjustado -= totalVideos;
+            }
+            
+            return slotAjustado;
+        }
+        
+        // Determinar qual vídeo deve ser reproduzido (ATUALIZADA PARA DOIS MODOS)
         function obterVideoParaSlot(slotIndex) {
-            currentDay = calcularDiasDesdeEstreia();
-            currentPlayingSlot = slotIndex;
+            if (PROGRAMMING_MODE === 'grade') {
+                // Modo Grade
+                currentDay = calcularDiasDesdeEstreia();
+                currentPlayingSlot = slotIndex;
+                
+                if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
+                    return null;
+                }
+                
+                currentProgramIndex = GRADE[slotIndex];
+                const programa = TV_PROGRAMS[currentProgramIndex];
+                
+                if (!programa || !programa.videos || programa.videos.length === 0) {
+                    return null;
+                }
+                
+                currentVideoIndex = (currentDay - 1) % programa.videos.length;
+                
+                return {
+                    programa: programa,
+                    videoUrl: programa.videos[currentVideoIndex],
+                    programaIndex: currentProgramIndex,
+                    videoIndex: currentVideoIndex,
+                    dia: currentDay,
+                    nome: programa.name
+                };
+            } else {
+                // Modo Playlist
+                currentPlayingSlot = slotIndex;
+                
+                const slotAjustado = ajustarSlotParaPlaylista(slotIndex);
+                const videoInfo = TV_PLAYLIST[slotAjustado];
+                
+                if (!videoInfo) {
+                    return null;
+                }
+                
+                return {
+                    videoUrl: videoInfo.url,
+                    nome: videoInfo.name,
+                    slotAjustado: slotAjustado,
+                    slotOriginal: slotIndex
+                };
+            }
+        }
+        
+        // Função auxiliar corrigida para ajustar slot para playlist
+        function ajustarSlotParaPlaylista(slotIndex) {
+            const totalVideos = TV_PLAYLIST.length;
             
-            if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
-                return null;
+            if (totalVideos === 0) {
+                return 0;
             }
             
-            currentProgramIndex = GRADE[slotIndex];
-            const programa = TV_PROGRAMS[currentProgramIndex];
-            
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
+            // Se o slot atual for menor que o total de vídeos, retornar como está
+            if (slotIndex < totalVideos) {
+                return slotIndex;
             }
             
-            currentVideoIndex = (currentDay - 1) % programa.videos.length;
+            // Caso contrário, subtrair o total de vídeos até que o slot esteja dentro do limite
+            let slotAjustado = slotIndex;
+            while (slotAjustado >= totalVideos) {
+                slotAjustado -= totalVideos;
+            }
             
-            return {
-                programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
-                programaIndex: currentProgramIndex,
-                videoIndex: currentVideoIndex,
-                dia: currentDay
-            };
+            return slotAjustado;
         }
         
         // Carregar vídeo HTML5
@@ -3307,38 +3517,57 @@
             }
         }
         
-        // Reproduzir programa no slot especificado
+        // Reproduzir programa no slot especificado (ATUALIZADA PARA DOIS MODOS)
         function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
             const videoInfo = obterVideoParaSlot(slotIndex);
             
             if (!videoInfo) {
                 console.error('Nenhum vídeo encontrado para o slot', slotIndex);
                 setTimeout(() => {
-                    const proximoSlot = (slotIndex + 1) % TOTAL_SLOTS;
+                    const proximoSlot = (slotIndex + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                     reproduzirPrograma(proximoSlot, 0);
                 }, 5000);
                 return;
             }
             
-            document.getElementById('currentProgram').textContent = \`\${videoInfo.programa.name} - Dia \${videoInfo.dia}\`;
-            
-            const proximoSlot = (slotIndex + 1) % TOTAL_SLOTS;
-            const depoisProximoSlot = (slotIndex + 2) % TOTAL_SLOTS;
-            
-            const proximoProgramaInfo = obterVideoParaSlot(proximoSlot);
-            const depoisProximoProgramaInfo = obterVideoParaSlot(depoisProximoSlot);
-            
-            if (proximoProgramaInfo) {
-                document.getElementById('nextProgram').textContent = \`\${proximoProgramaInfo.programa.name} - Dia \${proximoProgramaInfo.dia}\`;
-            }
-            
-            if (depoisProximoProgramaInfo) {
-                document.getElementById('afterNextProgram').textContent = \`\${depoisProximoProgramaInfo.programa.name} - Dia \${depoisProximoProgramaInfo.dia}\`;
+            // Atualizar informações de exibição
+            if (PROGRAMMING_MODE === 'grade') {
+                document.getElementById('currentProgram').textContent = \`\${videoInfo.programa.name} - Dia \${videoInfo.dia}\`;
+                
+                const proximoSlot = (slotIndex + 1) % TOTAL_SLOTS;
+                const depoisProximoSlot = (slotIndex + 2) % TOTAL_SLOTS;
+                
+                const proximoProgramaInfo = obterVideoParaSlot(proximoSlot);
+                const depoisProximoProgramaInfo = obterVideoParaSlot(depoisProximoSlot);
+                
+                if (proximoProgramaInfo) {
+                    document.getElementById('nextProgram').textContent = \`\${proximoProgramaInfo.programa.name} - Dia \${proximoProgramaInfo.dia}\`;
+                }
+                
+                if (depoisProximoProgramaInfo) {
+                    document.getElementById('afterNextProgram').textContent = \`\${depoisProximoProgramaInfo.programa.name} - Dia \${depoisProximoProgramaInfo.dia}\`;
+                }
+            } else {
+                document.getElementById('currentProgram').textContent = \`\${videoInfo.nome}\`;
+                
+                const proximoSlot = slotIndex + 1;
+                const depoisProximoSlot = slotIndex + 2;
+                
+                const proximoVideoInfo = obterVideoParaSlot(proximoSlot);
+                const depoisProximoVideoInfo = obterVideoParaSlot(depoisProximoSlot);
+                
+                if (proximoVideoInfo) {
+                    document.getElementById('nextProgram').textContent = \`\${proximoVideoInfo.nome}\`;
+                }
+                
+                if (depoisProximoVideoInfo) {
+                    document.getElementById('afterNextProgram').textContent = \`\${depoisProximoVideoInfo.nome}\`;
+                }
             }
             
             if (ENABLE_DEBUG) {
-                if (debugDays) debugDays.textContent = videoInfo.dia;
-                if (debugProgram) debugProgram.textContent = currentProgramIndex + 1;
+                if (debugDays) debugDays.textContent = PROGRAMMING_MODE === 'grade' ? videoInfo.dia : '-';
+                if (debugProgram) debugProgram.textContent = PROGRAMMING_MODE === 'grade' ? (currentProgramIndex + 1) : (videoInfo.slotAjustado + 1);
             }
             
             if (commercialIndicator) {
@@ -3353,10 +3582,12 @@
                 customControls.classList.remove('commercial-controls');
             }
             
-            if (videoInfo.videoUrl.includes('youtube.com') || videoInfo.videoUrl.includes('youtu.be')) {
-                carregarVideoYouTube(videoInfo.videoUrl, iniciarNoPercentual, true);
+            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            
+            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
             } else {
-                carregarVideoHTML5(videoInfo.videoUrl, iniciarNoPercentual, true);
+                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
             }
             
             currentState = 'program';
@@ -3365,7 +3596,7 @@
         // Reproduzir comercial
         function reproduzirComercial() {
             if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
-                const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
+                const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                 reproduzirPrograma(proximoSlot, 0);
                 return;
             }
@@ -3402,7 +3633,7 @@
                         if (commercialIndicator) {
                             commercialIndicator.style.display = 'none';
                         }
-                        const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
+                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                         reproduzirPrograma(proximoSlot, 0);
                     }
                 };
@@ -3417,7 +3648,7 @@
                         if (commercialIndicator) {
                             commercialIndicator.style.display = 'none';
                         }
-                        const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
+                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                         reproduzirPrograma(proximoSlot, 0);
                     }
                 }, 25000);
@@ -3592,13 +3823,34 @@
                     commercialBreakCount = 0;
                     reproduzirComercial();
                 } else {
-                    const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
+                    const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                     reproduzirPrograma(proximoSlot, 0);
                 }
             }
         }
         
-        // Inicializar player
+        // NOVA FUNÇÃO: Verificar se é 6h da manhã (para mudança de dia no modo grade)
+        function verificarMudancaDeDia() {
+            if (PROGRAMMING_MODE === 'grade') {
+                const agora = new Date();
+                const horas = agora.getHours();
+                const minutos = agora.getMinutes();
+                
+                // Se for exatamente 6h da manhã e não estiver em comercial
+                if (horas === 6 && minutos === 0 && currentState === 'program') {
+                    console.log('Mudança de dia detectada às 6h. Reiniciando slot atual.');
+                    
+                    // Forçar reinício do slot atual
+                    const slotAtual = calcularSlotAtual();
+                    if (slotAtual !== currentPlayingSlot) {
+                        currentPlayingSlot = slotAtual;
+                        reproduzirPrograma(slotAtual, 0);
+                    }
+                }
+            }
+        }
+        
+        // Inicializar player (ATUALIZADA)
         function inicializarPlayer() {
             videoElement = document.getElementById('myVideo');
             youtubeContainer = document.getElementById('youtubeContainer');
@@ -3638,7 +3890,7 @@
                 videoElement.addEventListener('error', function() {
                     console.error('Erro no vídeo, tentando próximo...');
                     setTimeout(() => {
-                        const proximoSlot = (currentPlayingSlot + 1) % TOTAL_SLOTS;
+                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                         reproduzirPrograma(proximoSlot, 0);
                     }, 5000);
                 });
@@ -3661,12 +3913,18 @@
             
             const videoInfo = obterVideoParaSlot(slotAtual);
             if (videoInfo) {
-                document.getElementById('currentProgram').textContent = \`\${videoInfo.programa.name} - Dia \${videoInfo.dia}\`;
-                
-                if (videoInfo.videoUrl.includes('youtube.com') || videoInfo.videoUrl.includes('youtu.be')) {
-                    carregarVideoYouTube(videoInfo.videoUrl, 0);
+                if (PROGRAMMING_MODE === 'grade') {
+                    document.getElementById('currentProgram').textContent = \`\${videoInfo.programa.name} - Dia \${videoInfo.dia}\`;
                 } else {
-                    carregarVideoHTML5(videoInfo.videoUrl, 0);
+                    document.getElementById('currentProgram').textContent = \`\${videoInfo.nome}\`;
+                }
+                
+                const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+                
+                if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+                    carregarVideoYouTube(videoUrl, 0);
+                } else {
+                    carregarVideoHTML5(videoUrl, 0);
                 }
                 
                 if (videoElement) {
@@ -3693,6 +3951,11 @@
             
             if (ENABLE_DEBUG && CHANNEL_ID) {
                 inicializarContagemEspectadores();
+            }
+            
+            // Configurar verificação de mudança de dia (apenas para modo grade)
+            if (PROGRAMMING_MODE === 'grade') {
+                setInterval(verificarMudancaDeDia, 60000); // Verificar a cada minuto
             }
         }
         
@@ -3890,7 +4153,7 @@
             }
         }
 
-        // Função para normalizar dados do canal
+        // Função para normalizar dados do canal (ATUALIZADA COM NOVOS CAMPOS)
         function normalizarDadosCanal(channelData) {
             const dadosNormalizados = {
                 email: channelData.email || '',
@@ -3905,7 +4168,9 @@
                 enableDebug: channelData.enableDebug !== undefined ? channelData.enableDebug : true,
                 customReleaseDate: channelData.customReleaseDate || false,
                 releaseDate: channelData.releaseDate || '',
+                programmingMode: channelData.programmingMode || 'grade', // NOVO
                 programs: Array.isArray(channelData.programs) ? channelData.programs : [],
+                playlistVideos: Array.isArray(channelData.playlistVideos) ? channelData.playlistVideos : [], // NOVO
                 commercials: Array.isArray(channelData.commercials) ? channelData.commercials : [],
                 enableCommercials: channelData.enableCommercials || false,
                 commercialsPerBreak: channelData.commercialsPerBreak || 2,
@@ -4074,16 +4339,19 @@
             
             const dadosNormalizados = normalizarDadosCanal(tvData);
             
-            const GRADE = [];
-            const totalPrograms = dadosNormalizados.programs.length;
-            
-            if (totalPrograms === 0) {
-                for (let i = 0; i < totalSlots; i++) {
-                    GRADE.push(0);
-                }
-            } else {
-                for (let i = 0; i < totalSlots; i++) {
-                    GRADE.push(i % totalPrograms);
+            // Gerar grade apenas para modo grade
+            let GRADE = [];
+            if (dadosNormalizados.programmingMode === 'grade') {
+                const totalPrograms = dadosNormalizados.programs.length;
+                
+                if (totalPrograms === 0) {
+                    for (let i = 0; i < totalSlots; i++) {
+                        GRADE.push(0);
+                    }
+                } else {
+                    for (let i = 0; i < totalSlots; i++) {
+                        GRADE.push(i % totalPrograms);
+                    }
                 }
             }
             
@@ -4097,9 +4365,14 @@
                 slogan: dadosNormalizados.slogan,
                 logo: dadosNormalizados.logo || DEFAULT_LOGO,
                 visibility: dadosNormalizados.visibility,
+                programmingMode: dadosNormalizados.programmingMode, // NOVO
                 programas: dadosNormalizados.programs.map(program => ({
                     name: program.name,
                     videos: program.videos || []
+                })),
+                playlistVideos: dadosNormalizados.playlistVideos.map(video => ({ // NOVO
+                    name: video.name,
+                    url: video.url
                 })),
                 grade: GRADE,
                 comerciais: dadosNormalizados.commercials,
@@ -4277,6 +4550,7 @@
                             const visibility = channel.visibility || 'brazil';
                             const isPublished = channel.published || false;
                             const isAdultContent = channel.isAdultContent || false;
+                            const programmingMode = channel.programmingMode || 'grade'; // NOVO
                             
                             let visibilityIcon = '';
                             if (visibility === 'brazil') {
@@ -4304,6 +4578,12 @@
                                 statusClass = 'status-published';
                             }
                             
+                            // Modo de programação
+                            const modeText = programmingMode === 'grade' ? 'Grade' : 'Playlist';
+                            const modeInfo = programmingMode === 'grade' ? 
+                                `Programas: ${channel.programs ? channel.programs.length : 0}/58` : 
+                                `Vídeos: ${channel.playlistVideos ? channel.playlistVideos.length : 0}`;
+                            
                             // Gerar channelId para Firebase (igual ao usado no canal)
                             const channelIdForFirebase = channel.name.toLowerCase()
                                 .replace(/[^a-z0-9]/g, '-')
@@ -4316,6 +4596,7 @@
                                 </div>
                                 ${visibilityIcon}
                                 ${adultIcon}
+                                <p>Modo: ${modeText} (${modeInfo})</p>
                                 <p class="spectators" id="spectators-${channel.id}">Espectadores: 0</p>
                                 <div class="channel-status ${statusClass}">${statusText}</div>
                                 <div class="channel-actions">
@@ -4430,9 +4711,9 @@
             }
         }
         
-        // ==================== FUNÇÕES PARA PROGRAMAÇÃO (TELA 3) - COMPLETAMENTE REFAZIDAS COM VALIDAÇÕES ====================
+        // ==================== FUNÇÕES PARA PROGRAMAÇÃO (TELA 3) - COMPLETAMENTE REFAZIDAS COM DOIS MODOS ====================
 
-        // Função para adicionar cartão de programa (ACORDEÃO)
+        // Função para adicionar cartão de programa (ACORDEÃO) - Modo Grade
         function addProgramCard(program, index) {
             const programId = program.id || `program-${Date.now()}-${index}`;
             const programCard = document.createElement('div');
@@ -4534,7 +4815,7 @@
                 
                 updatePrograms();
                 validateAddProgramButton();
-                validateScreen3Navigation(); // MELHORIA 3: Validar navegação
+                validateScreen3Navigation();
             });
             
             // Remover programa
@@ -4544,7 +4825,7 @@
                     reindexPrograms();
                     updatePrograms();
                     validateAddProgramButton();
-                    validateScreen3Navigation(); // MELHORIA 3: Validar navegação
+                    validateScreen3Navigation();
                 }
             });
             
@@ -4583,7 +4864,7 @@
                 
                 updatePrograms();
                 validateAddProgramButton();
-                validateScreen3Navigation(); // MELHORIA 3: Validar navegação
+                validateScreen3Navigation();
             });
             
             // Remover vídeo (delegação de evento)
@@ -4604,7 +4885,7 @@
                     
                     updatePrograms();
                     validateAddProgramButton();
-                    validateScreen3Navigation(); // MELHORIA 3: Validar navegação
+                    validateScreen3Navigation();
                 }
             });
             
@@ -4627,11 +4908,123 @@
             }
         }
 
+        // NOVA FUNÇÃO: Adicionar cartão de vídeo para modo Playlist
+        function addPlaylistVideoCard(video, index) {
+            const videoId = video.id || `playlist-video-${Date.now()}-${index}`;
+            const videoCard = document.createElement('div');
+            videoCard.className = 'playlist-video-card';
+            videoCard.id = videoId;
+            
+            videoCard.innerHTML = `
+                <div class="playlist-video-header">
+                    <h4>Vídeo ${index + 1}${video.name ? `: ${video.name}` : ''}</h4>
+                    <button type="button" class="remove-playlist-video delete-button" data-video="${videoId}">Remover</button>
+                </div>
+                <div class="form-group">
+                    <label for="${videoId}-name">Nome do Vídeo (máx. 50 caracteres):</label>
+                    <input type="text" id="${videoId}-name" maxlength="50" value="${video.name || ''}" placeholder="Ex: Episódio 1 - Aventura Inicial" required>
+                    <div class="char-counter" id="${videoId}-name-counter">${video.name ? video.name.length : 0}/50</div>
+                    <div class="error-message" id="${videoId}-name-error" style="display: none;">O nome do vídeo é obrigatório.</div>
+                </div>
+                <div class="form-group">
+                    <label for="${videoId}-url">URL do Vídeo:</label>
+                    <input type="url" id="${videoId}-url" value="${video.url || ''}" placeholder="URL do vídeo (ex: https://exemplo.com/video.mp4 ou YouTube)" required>
+                    <div class="error-message" id="${videoId}-url-error" style="display: none;">A URL do vídeo é obrigatória.</div>
+                </div>
+            `;
+            
+            const playlistContainer = document.getElementById('playlistContainer');
+            playlistContainer.appendChild(videoCard);
+            
+            // Configurar eventos
+            const nameInput = document.getElementById(`${videoId}-name`);
+            const nameCounter = document.getElementById(`${videoId}-name-counter`);
+            const nameError = document.getElementById(`${videoId}-name-error`);
+            const urlInput = document.getElementById(`${videoId}-url`);
+            const urlError = document.getElementById(`${videoId}-url-error`);
+            const removeVideoBtn = videoCard.querySelector('.remove-playlist-video');
+            
+            // Atualizar nome do vídeo
+            nameInput.addEventListener('input', function() {
+                nameCounter.textContent = `${this.value.length}/50`;
+                if (this.value.length > 45) {
+                    nameCounter.className = 'char-counter near-limit';
+                } else if (this.value.length > 50) {
+                    nameCounter.className = 'char-counter over-limit';
+                } else {
+                    nameCounter.className = 'char-counter';
+                }
+                
+                // Validar se o nome está preenchido
+                if (this.value.trim() === '') {
+                    nameError.style.display = 'block';
+                } else {
+                    nameError.style.display = 'none';
+                }
+                
+                // Atualizar o título no cabeçalho
+                const videoTitle = videoCard.querySelector('h4');
+                videoTitle.textContent = `Vídeo ${getPlaylistVideoIndex(videoId) + 1}: ${this.value}`;
+                
+                updatePlaylistVideos();
+                validateAddPlaylistVideoButton();
+                validateScreen3Navigation();
+            });
+            
+            // Atualizar URL do vídeo
+            urlInput.addEventListener('input', function() {
+                // Validar se a URL está preenchida e é válida
+                if (this.value.trim() === '') {
+                    urlError.style.display = 'block';
+                } else if (!isValidUrl(this.value.trim())) {
+                    urlError.textContent = 'Por favor, insira uma URL válida para o vídeo.';
+                    urlError.style.display = 'block';
+                } else {
+                    urlError.style.display = 'none';
+                }
+                
+                updatePlaylistVideos();
+                validateAddPlaylistVideoButton();
+                validateScreen3Navigation();
+            });
+            
+            // Remover vídeo
+            removeVideoBtn.addEventListener('click', function() {
+                if (confirm('Tem certeza que deseja remover este vídeo?')) {
+                    videoCard.remove();
+                    reindexPlaylistVideos();
+                    updatePlaylistVideos();
+                    validateAddPlaylistVideoButton();
+                    validateScreen3Navigation();
+                }
+            });
+            
+            // Validar se os campos estão preenchidos ao carregar
+            if (nameInput.value.trim() === '' && nameError) {
+                nameError.style.display = 'block';
+            }
+            
+            if (urlInput.value.trim() === '' && urlError) {
+                urlError.style.display = 'block';
+            }
+        }
+
         // Função para obter o índice de um programa
         function getProgramIndex(programId) {
             const programCards = document.querySelectorAll('.program-card');
             for (let i = 0; i < programCards.length; i++) {
                 if (programCards[i].id === programId) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        // NOVA FUNÇÃO: Obter o índice de um vídeo na playlist
+        function getPlaylistVideoIndex(videoId) {
+            const videoCards = document.querySelectorAll('.playlist-video-card');
+            for (let i = 0; i < videoCards.length; i++) {
+                if (videoCards[i].id === videoId) {
                     return i;
                 }
             }
@@ -4652,10 +5045,31 @@
             });
         }
 
-        // Função para validar se o botão "Adicionar Programa" deve estar habilitado
+        // NOVA FUNÇÃO: Reindexar vídeos da playlist
+        function reindexPlaylistVideos() {
+            const videoCards = document.querySelectorAll('.playlist-video-card');
+            videoCards.forEach((card, index) => {
+                const videoId = card.id;
+                const videoTitle = card.querySelector('h4');
+                const nameInput = document.getElementById(`${videoId}-name`);
+                const currentName = nameInput ? nameInput.value : '';
+                
+                // Atualizar o número do vídeo no título
+                videoTitle.textContent = `Vídeo ${index + 1}${currentName ? `: ${currentName}` : ''}`;
+            });
+        }
+
+        // Função para validar se o botão "Adicionar Programa" deve estar habilitado (modo grade)
         function validateAddProgramButton() {
             const addProgramBtn = document.getElementById('addProgram');
-            const totalSlots = 58;
+            
+            // Se não estiver no modo grade, não mostrar
+            if (tvData.programmingMode !== 'grade') {
+                addProgramBtn.style.display = 'none';
+                return;
+            }
+            
+            addProgramBtn.style.display = 'block';
             
             // Se atingiu o limite, desabilitar
             if (tvData.programs.length >= totalSlots) {
@@ -4681,7 +5095,36 @@
             addProgramBtn.textContent = "+ Adicionar Novo Programa";
         }
 
-        // Função para atualizar a lista de programas no tvData
+        // NOVA FUNÇÃO: Validar se o botão "Adicionar Vídeo" deve estar habilitado (modo playlist)
+        function validateAddPlaylistVideoButton() {
+            const addPlaylistVideoBtn = document.getElementById('addPlaylistVideo');
+            
+            // Se não estiver no modo playlist, não mostrar
+            if (tvData.programmingMode !== 'playlist') {
+                addPlaylistVideoBtn.style.display = 'none';
+                return;
+            }
+            
+            addPlaylistVideoBtn.style.display = 'block';
+            
+            // Se não há vídeos, habilitar (para adicionar o primeiro)
+            if (tvData.playlistVideos.length === 0) {
+                addPlaylistVideoBtn.disabled = false;
+                addPlaylistVideoBtn.textContent = "+ Adicionar Novo Vídeo";
+                return;
+            }
+            
+            // Verificar o último vídeo
+            const lastVideo = tvData.playlistVideos[tvData.playlistVideos.length - 1];
+            const hasName = lastVideo && lastVideo.name && lastVideo.name.trim().length > 0;
+            const hasUrl = lastVideo && lastVideo.url && lastVideo.url.trim().length > 0 && isValidUrl(lastVideo.url.trim());
+            
+            // Habilitar apenas se o último vídeo tiver nome e URL válida
+            addPlaylistVideoBtn.disabled = !(hasName && hasUrl);
+            addPlaylistVideoBtn.textContent = "+ Adicionar Novo Vídeo";
+        }
+
+        // Função para atualizar a lista de programas no tvData (modo grade)
         function updatePrograms() {
             tvData.programs = [];
             const programElements = document.querySelectorAll('.program-card');
@@ -4711,69 +5154,182 @@
             updateCounters();
         }
 
-        // Função para atualizar contadores (MODIFICADA)
-        function updateCounters() {
-            const programCount = document.getElementById('programCount');
-            programCount.textContent = tvData.programs.length;
+        // NOVA FUNÇÃO: Atualizar a lista de vídeos da playlist no tvData (modo playlist)
+        function updatePlaylistVideos() {
+            tvData.playlistVideos = [];
+            const videoElements = document.querySelectorAll('.playlist-video-card');
             
-            // A validação do botão é feita separadamente
-            validateAddProgramButton();
+            videoElements.forEach(videoElement => {
+                const videoId = videoElement.id;
+                const nameInput = document.getElementById(`${videoId}-name`);
+                const name = nameInput ? nameInput.value : '';
+                const urlInput = document.getElementById(`${videoId}-url`);
+                const url = urlInput ? urlInput.value : '';
+                
+                tvData.playlistVideos.push({
+                    id: videoId,
+                    name: name,
+                    url: url
+                });
+            });
+            
+            updateCounters();
         }
 
-        // MELHORIA 2 & 3: Função para validar navegação da tela 3
+        // Função para atualizar contadores (ATUALIZADA PARA DOIS MODOS)
+        function updateCounters() {
+            if (tvData.programmingMode === 'grade') {
+                const programCount = document.getElementById('programCount');
+                programCount.textContent = tvData.programs.length;
+                
+                // A validação do botão é feita separadamente
+                validateAddProgramButton();
+            } else {
+                const playlistCount = document.getElementById('playlistCount');
+                playlistCount.textContent = tvData.playlistVideos.length;
+                
+                // A validação do botão é feita separadamente
+                validateAddPlaylistVideoButton();
+            }
+        }
+
+        // Função para validar navegação da tela 3 (ATUALIZADA PARA DOIS MODOS)
         function validateScreen3Navigation() {
             const toScreen4Btn = document.getElementById('toScreen4');
             const programsError = document.getElementById('programsError');
+            const playlistError = document.getElementById('playlistError');
             
-            // Verificar se há pelo menos um programa
-            if (tvData.programs.length === 0) {
-                toScreen4Btn.disabled = true;
-                programsError.textContent = '⚠️ Atenção: É necessário adicionar pelo menos um programa.';
-                programsError.style.display = 'block';
-                return false;
-            }
+            // Esconder todas as mensagens de erro primeiro
+            programsError.style.display = 'none';
+            playlistError.style.display = 'none';
             
-            // Verificar cada programa
-            let hasErrors = false;
-            let errorMessages = [];
-            
-            tvData.programs.forEach((program, index) => {
-                // Verificar nome do programa
-                if (!program.name || program.name.trim() === '') {
-                    hasErrors = true;
-                    errorMessages.push(`Programa ${index + 1} está sem nome.`);
-                    
-                    // Mostrar erro no campo correspondente
-                    const programId = program.id;
-                    const nameError = document.getElementById(`${programId}-name-error`);
-                    if (nameError) nameError.style.display = 'block';
+            if (tvData.programmingMode === 'grade') {
+                // Validar modo grade
+                
+                // Verificar se há pelo menos um programa
+                if (tvData.programs.length === 0) {
+                    toScreen4Btn.disabled = true;
+                    programsError.textContent = '⚠️ Atenção: É necessário adicionar pelo menos um programa.';
+                    programsError.style.display = 'block';
+                    return false;
                 }
                 
-                // Verificar se tem vídeos
-                if (!program.videos || program.videos.length === 0) {
-                    hasErrors = true;
-                    errorMessages.push(`Programa "${program.name || index + 1}" não tem vídeos.`);
+                // Verificar cada programa
+                let hasErrors = false;
+                let errorMessages = [];
+                
+                tvData.programs.forEach((program, index) => {
+                    // Verificar nome do programa
+                    if (!program.name || program.name.trim() === '') {
+                        hasErrors = true;
+                        errorMessages.push(`Programa ${index + 1} está sem nome.`);
+                        
+                        // Mostrar erro no campo correspondente
+                        const programId = program.id;
+                        const nameError = document.getElementById(`${programId}-name-error`);
+                        if (nameError) nameError.style.display = 'block';
+                    }
                     
-                    // Mostrar erro no campo correspondente
-                    const programId = program.id;
-                    const videosError = document.getElementById(`${programId}-videos-error`);
-                    if (videosError) videosError.style.display = 'block';
+                    // Verificar se tem vídeos
+                    if (!program.videos || program.videos.length === 0) {
+                        hasErrors = true;
+                        errorMessages.push(`Programa "${program.name || index + 1}" não tem vídeos.`);
+                        
+                        // Mostrar erro no campo correspondente
+                        const programId = program.id;
+                        const videosError = document.getElementById(`${programId}-videos-error`);
+                        if (videosError) videosError.style.display = 'block';
+                    }
+                });
+                
+                if (hasErrors) {
+                    toScreen4Btn.disabled = true;
+                    programsError.textContent = `⚠️ Atenção: ${errorMessages.join(' ')}`;
+                    programsError.style.display = 'block';
+                    return false;
+                } else {
+                    toScreen4Btn.disabled = false;
+                    programsError.style.display = 'none';
+                    return true;
                 }
-            });
-            
-            if (hasErrors) {
-                toScreen4Btn.disabled = true;
-                programsError.textContent = `⚠️ Atenção: ${errorMessages.join(' ')}`;
-                programsError.style.display = 'block';
-                return false;
             } else {
-                toScreen4Btn.disabled = false;
-                programsError.style.display = 'none';
-                return true;
+                // Validar modo playlist
+                
+                // Verificar se há pelo menos um vídeo
+                if (tvData.playlistVideos.length === 0) {
+                    toScreen4Btn.disabled = true;
+                    playlistError.textContent = '⚠️ Atenção: É necessário adicionar pelo menos um vídeo.';
+                    playlistError.style.display = 'block';
+                    return false;
+                }
+                
+                // Verificar cada vídeo
+                let hasErrors = false;
+                let errorMessages = [];
+                
+                tvData.playlistVideos.forEach((video, index) => {
+                    // Verificar nome do vídeo
+                    if (!video.name || video.name.trim() === '') {
+                        hasErrors = true;
+                        errorMessages.push(`Vídeo ${index + 1} está sem nome.`);
+                        
+                        // Mostrar erro no campo correspondente
+                        const videoId = video.id;
+                        const nameError = document.getElementById(`${videoId}-name-error`);
+                        if (nameError) nameError.style.display = 'block';
+                    }
+                    
+                    // Verificar se tem URL válida
+                    if (!video.url || video.url.trim() === '' || !isValidUrl(video.url.trim())) {
+                        hasErrors = true;
+                        errorMessages.push(`Vídeo "${video.name || index + 1}" não tem uma URL válida.`);
+                        
+                        // Mostrar erro no campo correspondente
+                        const videoId = video.id;
+                        const urlError = document.getElementById(`${videoId}-url-error`);
+                        if (urlError) urlError.style.display = 'block';
+                    }
+                });
+                
+                if (hasErrors) {
+                    toScreen4Btn.disabled = true;
+                    playlistError.textContent = `⚠️ Atenção: ${errorMessages.join(' ')}`;
+                    playlistError.style.display = 'block';
+                    return false;
+                } else {
+                    toScreen4Btn.disabled = false;
+                    playlistError.style.display = 'none';
+                    return true;
+                }
             }
         }
 
-        // Editar canal
+        // NOVA FUNÇÃO: Alternar entre modos de programação na tela 3
+        function alternarModoProgramacao() {
+            const programmingModeSelect = document.getElementById('programmingMode');
+            const gradeModeContainer = document.getElementById('gradeModeContainer');
+            const playlistModeContainer = document.getElementById('playlistModeContainer');
+            const programmingModeInfo = document.getElementById('programmingModeInfo');
+            
+            const selectedMode = programmingModeSelect.value;
+            tvData.programmingMode = selectedMode;
+            
+            if (selectedMode === 'grade') {
+                gradeModeContainer.style.display = 'block';
+                playlistModeContainer.style.display = 'none';
+                programmingModeInfo.innerHTML = 'Modo Grade: 58 slots fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Vídeos em sequência contínua, sem limite de slots.';
+            } else {
+                gradeModeContainer.style.display = 'none';
+                playlistModeContainer.style.display = 'block';
+                programmingModeInfo.innerHTML = 'Modo Grade: 58 slots fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Vídeos em sequência contínua, sem limite de slots.';
+            }
+            
+            // Atualizar contadores e validações
+            updateCounters();
+            validateScreen3Navigation();
+        }
+
+        // Editar canal (ATUALIZADA PARA DOIS MODOS)
         async function editChannel(channelId) {
             console.log("Iniciando edição do canal:", channelId);
             
@@ -4805,6 +5361,7 @@
                 
                 console.log("Preenchendo formulário...");
                 
+                // Preencher tela 1
                 document.getElementById('tvEmail').value = tvData.email;
                 document.getElementById('tvName').value = tvData.name;
                 document.getElementById('tvSlogan').value = tvData.slogan;
@@ -4820,6 +5377,7 @@
                 document.getElementById('tvNameCounter').textContent = `${tvData.name.length}/50`;
                 document.getElementById('tvSloganCounter').textContent = `${tvData.slogan.length}/100`;
                 
+                // Preencher tela 2
                 document.getElementById('visibilitySelect').value = tvData.visibility;
                 document.getElementById('visibilityInfo').textContent = tvData.visibility === 'brazil' 
                     ? 'Seu canal será acessível apenas no Brasil' 
@@ -4854,15 +5412,35 @@
                 
                 updateLogoPreview();
                 
+                // Preencher tela 3
+                const programmingModeSelect = document.getElementById('programmingMode');
+                programmingModeSelect.value = tvData.programmingMode || 'grade';
+                
+                // Alternar para o modo correto
+                alternarModoProgramacao();
+                
+                // Limpar containers
                 const programsContainer = document.getElementById('programsContainer');
                 programsContainer.innerHTML = '';
                 
-                if (tvData.programs && tvData.programs.length > 0) {
+                const playlistContainer = document.getElementById('playlistContainer');
+                playlistContainer.innerHTML = '';
+                
+                // Preencher programas (modo grade)
+                if (tvData.programs && tvData.programs.length > 0 && tvData.programmingMode === 'grade') {
                     tvData.programs.forEach((program, index) => {
                         addProgramCard(program, index);
                     });
                 }
                 
+                // Preencher vídeos da playlist (modo playlist)
+                if (tvData.playlistVideos && tvData.playlistVideos.length > 0 && tvData.programmingMode === 'playlist') {
+                    tvData.playlistVideos.forEach((video, index) => {
+                        addPlaylistVideoCard(video, index);
+                    });
+                }
+                
+                // Preencher comerciais
                 const commercialsContainer = document.getElementById('commercialsContainer');
                 commercialsContainer.innerHTML = '';
                 
@@ -4886,6 +5464,7 @@
                     document.getElementById('addCommercial').style.display = 'none';
                 }
                 
+                // Preencher redes sociais
                 document.getElementById('facebookUrl').value = tvData.socialMedia.facebook || '';
                 document.getElementById('instagramUrl').value = tvData.socialMedia.instagram || '';
                 document.getElementById('blueskyUrl').value = tvData.socialMedia.bluesky || '';
@@ -4898,7 +5477,8 @@
                 
                 updateCounters();
                 validateAddProgramButton();
-                validateScreen3Navigation(); // MELHORIA 3: Validar navegação
+                validateAddPlaylistVideoButton();
+                validateScreen3Navigation();
                 
                 console.log("Formulário preenchido com sucesso. Indo para tela 1...");
                 showScreen('screen1');
@@ -5293,13 +5873,20 @@
             // Elementos da tela 3
             const screen3 = document.getElementById('screen3');
             const adultContentCheckbox = document.getElementById('adultContent');
+            const programmingModeSelect = document.getElementById('programmingMode'); // NOVO
+            const gradeModeContainer = document.getElementById('gradeModeContainer');
+            const playlistModeContainer = document.getElementById('playlistModeContainer');
             const programsContainer = document.getElementById('programsContainer');
+            const playlistContainer = document.getElementById('playlistContainer'); // NOVO
             const addProgramBtn = document.getElementById('addProgram');
+            const addPlaylistVideoBtn = document.getElementById('addPlaylistVideo'); // NOVO
             const programCount = document.getElementById('programCount');
+            const playlistCount = document.getElementById('playlistCount'); // NOVO
             const backToScreen2Btn = document.getElementById('backToScreen2');
             const backToHomeFromScreen3Btn = document.getElementById('backToHomeFromScreen3');
             const toScreen4Btn = document.getElementById('toScreen4');
             const programsError = document.getElementById('programsError');
+            const playlistError = document.getElementById('playlistError'); // NOVO
             
             // Elementos da tela 4
             const screen4 = document.getElementById('screen4');
@@ -5423,6 +6010,9 @@
                 tvData.isAdultContent = this.checked;
             });
             
+            // NOVO: Configurar dropdown de modo de programação
+            programmingModeSelect.addEventListener('change', alternarModoProgramacao);
+            
             // Criar novo canal
             createNewChannelBtn.addEventListener('click', async function() {
                 const podeCriar = await verificarLimiteCanais();
@@ -5444,7 +6034,9 @@
                     enableDebug: true,
                     customReleaseDate: false,
                     releaseDate: '',
+                    programmingMode: 'grade',
                     programs: [],
+                    playlistVideos: [],
                     commercials: [],
                     enableCommercials: false,
                     commercialsPerBreak: 2,
@@ -5485,10 +6077,12 @@
                 enableDebugCheckbox.checked = true;
                 customReleaseDateCheckbox.checked = false;
                 adultContentCheckbox.checked = false;
+                programmingModeSelect.value = 'grade';
                 releaseDateInput.value = '';
                 releaseDateContainer.style.display = 'none';
                 logoPreview.src = DEFAULT_LOGO;
                 programsContainer.innerHTML = '';
+                playlistContainer.innerHTML = '';
                 commercialsContainer.innerHTML = '';
                 enableCommercialsCheckbox.checked = false;
                 commercialSettings.style.display = 'none';
@@ -5513,10 +6107,14 @@
                 limparErroNomeDuplicado();
                 
                 toScreen2Btn.disabled = true;
-                toScreen4Btn.disabled = true; // MELHORIA 2: Inicialmente desabilitado
+                toScreen4Btn.disabled = true;
+                
+                // Mostrar modo grade por padrão
+                alternarModoProgramacao();
                 
                 updateCounters();
                 validateAddProgramButton();
+                validateAddPlaylistVideoButton();
                 
                 showScreen('screen1');
             });
@@ -5525,259 +6123,212 @@
             tvLogoInput.addEventListener('input', updateLogoPreview);
             tvLogoInput.addEventListener('change', updateLogoPreview);
             
-            // Função para verificar se o nome do canal já existe
-            async function verificarNomeCanalExistente(nomeCanal, ignorarCanalAtual = false) {
-                if (currentUser) {
-                    try {
-                        const querySnapshot = await db.collection('users').doc(currentUser.uid)
-                            .collection('channels')
-                            .where('name', '==', nomeCanal)
-                            .get();
-                        
-                        if (!querySnapshot.empty) {
-                            const existingChannel = querySnapshot.docs[0].data();
-                            const existingChannelId = querySnapshot.docs[0].id;
-                            
-                            if (ignorarCanalAtual && existingChannelId === currentChannelId) {
-                                return { existe: false };
-                            }
-                            
-                            return {
-                                existe: true,
-                                tipo: 'firestore',
-                                mensagem: 'Já existe um canal com este nome na sua conta. Por favor, escolha outro nome.'
-                            };
-                        }
-                    } catch (error) {
-                        console.log('Erro na verificação do Firestore:', error);
-                    }
+            // NOVO: Adicionar programa (modo grade)
+            addProgramBtn.addEventListener('click', function() {
+                if (tvData.programs.length < totalSlots) {
+                    const newProgram = {
+                        id: `program-${Date.now()}`,
+                        name: '',
+                        videos: []
+                    };
+                    addProgramCard(newProgram, tvData.programs.length);
+                    tvData.programs.push(newProgram);
+                    updateCounters();
+                    validateAddProgramButton();
+                    validateScreen3Navigation();
                 }
-
-                try {
-                    const nomeArquivo = nomeCanal.toLowerCase()
-                        .replace(/[^a-z0-9]/g, '-')
-                        .replace(/-+/g, '-') + '.html';
-                        
-                    const urlCanal = `https://playtronic.github.io/tv/canais/${nomeArquivo}`;
-                    
-                    const response = await fetch(urlCanal, { 
-                        method: 'HEAD',
-                        cache: 'no-cache',
-                        headers: {
-                            'Cache-Control': 'no-cache',
-                            'Pragma': 'no-cache'
-                        }
-                    });
-                    
-                    if (response.status === 200) {
-                        if (editingChannel && originalChannelName.toLowerCase() === nomeCanal.toLowerCase()) {
-                            return { existe: false };
-                        }
-                        
-                        return {
-                            existe: true,
-                            tipo: 'servidor',
-                            mensagem: 'Já existe um canal com este nome publicado. Por favor, escolha outro nome.'
-                        };
-                    } else if (response.status === 404) {
-                        return { existe: false };
-                    }
-                } catch (error) {
-                    console.log('Erro na verificação do servidor:', error);
-                    return { existe: false };
-                }
-
-                return { existe: false };
-            }
-
-            // Função para verificar nome em tempo real
-            let timeoutVerificacao;
-            async function verificarNomeEmTempoReal(nome, toScreen2Btn) {
-                clearTimeout(timeoutVerificacao);
-                
-                timeoutVerificacao = setTimeout(async () => {
-                    nameCheckStatus.textContent = 'Verificando disponibilidade...';
-                    nameCheckStatus.style.display = 'block';
-                    nameCheckStatus.style.color = '#fdbb2d';
-                    
-                    try {
-                        const verificacao = await verificarNomeCanalExistente(nome, false);
-                        
-                        if (verificacao.existe) {
-                            mostrarErroNomeDuplicado(verificacao.mensagem);
-                            toScreen2Btn.disabled = true;
-                            nameCheckStatus.style.display = 'none';
-                        } else {
-                            limparErroNomeDuplicado();
-                            nameCheckStatus.textContent = 'Nome disponível ✓';
-                            nameCheckStatus.style.color = '#2ecc71';
-                            toScreen2Btn.disabled = false;
-                        }
-                    } catch (error) {
-                        console.error('Erro na verificação:', error);
-                        nameCheckStatus.textContent = 'Erro na verificação. Tente novamente.';
-                        nameCheckStatus.style.color = '#ff6b6b';
-                        toScreen2Btn.disabled = true;
-                    }
-                }, 1000);
-            }
-
-            // Função para mostrar erro de nome duplicado
-            function mostrarErroNomeDuplicado(mensagem) {
-                nameDuplicateError.textContent = mensagem;
-                nameDuplicateError.style.display = 'block';
-                tvNameInput.style.border = '2px solid #ff6b6b';
-                tvNameInput.style.background = 'rgba(255, 107, 107, 0.1)';
-                nameCheckStatus.style.display = 'none';
-            }
-
-            // Função para limpar erro de nome duplicado
-            function limparErroNomeDuplicado() {
-                nameDuplicateError.style.display = 'none';
-                tvNameInput.style.border = 'none';
-                tvNameInput.style.background = 'rgba(255, 255, 255, 0.9)';
-            }
+            });
             
-            // Navegar para tela 2
-            toScreen2Btn.addEventListener('click', async function() {
-                let hasError = false;
+            // NOVO: Adicionar vídeo (modo playlist)
+            addPlaylistVideoBtn.addEventListener('click', function() {
+                const newVideo = {
+                    id: `playlist-video-${Date.now()}`,
+                    name: '',
+                    url: ''
+                };
+                addPlaylistVideoCard(newVideo, tvData.playlistVideos.length);
+                tvData.playlistVideos.push(newVideo);
+                updateCounters();
+                validateAddPlaylistVideoButton();
+                validateScreen3Navigation();
+            });
+            
+            // Configurar navegação
+            backToHomeBtn.addEventListener('click', () => showScreen('screen0'));
+            backToHomeFromScreen2Btn.addEventListener('click', () => showScreen('screen0'));
+            backToHomeFromScreen3Btn.addEventListener('click', () => showScreen('screen0'));
+            backToHomeFromScreen4Btn.addEventListener('click', () => showScreen('screen0'));
+            backToHomeFromScreen5Btn.addEventListener('click', () => showScreen('screen0'));
+            backToHomeFromSuccess.addEventListener('click', () => showScreen('screen0'));
+            
+            backToScreen1Btn.addEventListener('click', () => showScreen('screen1'));
+            backToScreen2Btn.addEventListener('click', () => showScreen('screen2'));
+            backToScreen3Btn.addEventListener('click', () => showScreen('screen3'));
+            backToScreen4Btn.addEventListener('click', () => showScreen('screen4'));
+            backToScreen5Btn.addEventListener('click', () => showScreen('screen5'));
+            
+            toScreen2Btn.addEventListener('click', () => {
+                // Validar campos da tela 1
+                const email = tvEmailInput.value.trim();
+                const nome = tvNameInput.value.trim();
+                const slogan = tvSloganInput.value.trim();
                 
-                limparErroNomeDuplicado();
-                emailError.style.display = 'none';
-                nameError.style.display = 'none';
-                logoError.style.display = 'none';
-                nameCheckStatus.style.display = 'none';
+                let isValid = true;
                 
                 // Validar e-mail
-                const email = document.getElementById('tvEmail').value.trim();
-                if (!email) {
-                    emailError.textContent = 'Por favor, insira um e-mail para o canal.';
-                    emailError.style.display = 'block';
-                    hasError = true;
-                } else if (!isValidEmail(email)) {
+                if (!email || !isValidEmail(email)) {
                     emailError.textContent = 'Por favor, insira um e-mail válido.';
                     emailError.style.display = 'block';
-                    hasError = true;
+                    isValid = false;
+                } else {
+                    emailError.style.display = 'none';
                 }
                 
                 // Validar nome
-                const nome = document.getElementById('tvName').value.trim();
                 if (!nome || nome.length < 3) {
                     nameError.textContent = 'Por favor, insira um nome para a TV (mínimo 3 caracteres).';
                     nameError.style.display = 'block';
-                    hasError = true;
+                    isValid = false;
+                } else {
+                    nameError.style.display = 'none';
                 }
                 
-                if (hasError) {
-                    return;
+                // Validar slogan (opcional)
+                
+                if (isValid) {
+                    tvData.email = email;
+                    tvData.name = nome;
+                    tvData.slogan = slogan;
+                    tvData.logo = tvLogoInput.value.trim() || '';
+                    
+                    showScreen('screen2');
                 }
-                
-                tvData.email = email;
-                tvData.name = nome;
-                tvData.slogan = document.getElementById('tvSlogan').value;
-                tvData.logo = document.getElementById('tvLogo').value || '';
-                
-                // Salvar no Firestore
-                if (currentUser) {
-                    await salvarCanalFirestore(tvData);
-                }
-                
-                showScreen('screen2');
             });
-
-            // Navegar para tela 3
-            toScreen3Btn.addEventListener('click', function() {
-                // Salvar configurações da tela 2
-                tvData.visibility = document.getElementById('visibilitySelect').value;
-                tvData.showTime = document.getElementById('showTime').checked;
-                tvData.enableRewind10 = document.getElementById('enableRewind10').checked;
-                tvData.enableRestart = document.getElementById('enableRestart').checked;
-                tvData.enableLive = document.getElementById('enableLive').checked;
-                tvData.enableDebug = document.getElementById('enableDebug').checked;
-                tvData.customReleaseDate = document.getElementById('customReleaseDate').checked;
-                tvData.releaseDate = document.getElementById('customReleaseDate').checked ? document.getElementById('releaseDate').value : '';
+            
+            toScreen3Btn.addEventListener('click', () => {
+                // Salvar dados da tela 2
+                tvData.visibility = visibilitySelect.value;
+                tvData.showTime = showTimeCheckbox.checked;
+                tvData.enableRewind10 = enableRewind10Checkbox.checked;
+                tvData.enableRestart = enableRestartCheckbox.checked;
+                tvData.enableLive = enableLiveCheckbox.checked;
+                tvData.enableDebug = enableDebugCheckbox.checked;
+                tvData.customReleaseDate = customReleaseDateCheckbox.checked;
+                tvData.releaseDate = releaseDateInput.value;
+                tvData.isAdultContent = adultContentCheckbox.checked;
                 
                 showScreen('screen3');
             });
-
-            // Navegar para tela 4 - COM VALIDAÇÃO (MELHORIAS 2 & 3)
-            toScreen4Btn.addEventListener('click', function() {
-                // Validar antes de avançar
-                if (!validateScreen3Navigation()) {
-                    return; // Não avança se houver erros
+            
+            toScreen4Btn.addEventListener('click', () => {
+                // Validar programas/vídeos primeiro
+                if (validateScreen3Navigation()) {
+                    // Salvar modo de programação
+                    tvData.programmingMode = programmingModeSelect.value;
+                    
+                    // Atualizar programas/vídeos com base no modo
+                    if (tvData.programmingMode === 'grade') {
+                        updatePrograms();
+                    } else {
+                        updatePlaylistVideos();
+                    }
+                    
+                    showScreen('screen4');
                 }
-                
-                // Salvar configurações da tela 3
-                tvData.isAdultContent = document.getElementById('adultContent').checked;
-                
-                showScreen('screen4');
             });
-
-            // Navegar para tela 5
-            toScreen5Btn.addEventListener('click', function() {
-                // Salvar configurações da tela 4
-                tvData.enableCommercials = document.getElementById('enableCommercials').checked;
-                tvData.commercialsPerBreak = parseInt(document.getElementById('commercialsPerBreak').value) || 2;
+            
+            toScreen5Btn.addEventListener('click', () => {
+                // Salvar dados da tela 4
+                tvData.enableCommercials = enableCommercialsCheckbox.checked;
+                tvData.commercialsPerBreak = parseInt(commercialsPerBreakInput.value) || 2;
+                updateCommercials();
                 
                 showScreen('screen5');
             });
-
-            // Navegar para tela 6
-            toScreen6Btn.addEventListener('click', function() {
-                // Salvar configurações da tela 5
-                tvData.socialMedia.facebook = document.getElementById('facebookUrl').value.trim();
-                tvData.socialMedia.instagram = document.getElementById('instagramUrl').value.trim();
-                tvData.socialMedia.bluesky = document.getElementById('blueskyUrl').value.trim();
-                tvData.socialMedia.tiktok = document.getElementById('tiktokUrl').value.trim();
-                tvData.socialMedia.twitter = document.getElementById('twitterUrl').value.trim();
+            
+            toScreen6Btn.addEventListener('click', () => {
+                // Validar redes sociais
+                let isValid = true;
                 
-                tvData.customButton.text = document.getElementById('customButtonText').value.trim();
-                tvData.customButton.url = document.getElementById('customButtonUrl').value.trim();
-                
-                // Salvar no Firestore
-                if (currentUser) {
-                    salvarCanalFirestore(tvData);
+                // Validar Facebook
+                const facebookUrl = facebookUrlInput.value.trim();
+                if (facebookUrl && !isValidSocialMediaUrl(facebookUrl, 'facebook')) {
+                    facebookError.style.display = 'block';
+                    isValid = false;
+                } else {
+                    facebookError.style.display = 'none';
                 }
                 
-                showScreen('screen6');
+                // Validar Instagram
+                const instagramUrl = instagramUrlInput.value.trim();
+                if (instagramUrl && !isValidSocialMediaUrl(instagramUrl, 'instagram')) {
+                    instagramError.style.display = 'block';
+                    isValid = false;
+                } else {
+                    instagramError.style.display = 'none';
+                }
+                
+                // Validar BlueSky
+                const blueskyUrl = blueskyUrlInput.value.trim();
+                if (blueskyUrl && !isValidSocialMediaUrl(blueskyUrl, 'bluesky')) {
+                    blueskyError.style.display = 'block';
+                    isValid = false;
+                } else {
+                    blueskyError.style.display = 'none';
+                }
+                
+                // Validar TikTok
+                const tiktokUrl = tiktokUrlInput.value.trim();
+                if (tiktokUrl && !isValidSocialMediaUrl(tiktokUrl, 'tiktok')) {
+                    tiktokError.style.display = 'block';
+                    isValid = false;
+                } else {
+                    tiktokError.style.display = 'none';
+                }
+                
+                // Validar Twitter
+                const twitterUrl = twitterUrlInput.value.trim();
+                if (twitterUrl && !isValidSocialMediaUrl(twitterUrl, 'twitter')) {
+                    twitterError.style.display = 'block';
+                    isValid = false;
+                } else {
+                    twitterError.style.display = 'none';
+                }
+                
+                // Validar botão personalizado
+                const customButtonText = customButtonTextInput.value.trim();
+                const customButtonUrl = customButtonUrlInput.value.trim();
+                
+                if ((customButtonText && !customButtonUrl) || (!customButtonText && customButtonUrl)) {
+                    customButtonError.textContent = 'Para criar um botão personalizado, ambos os campos (texto e URL) devem ser preenchidos.';
+                    customButtonError.style.display = 'block';
+                    isValid = false;
+                } else if (customButtonUrl && !isValidUrl(customButtonUrl)) {
+                    customButtonError.textContent = 'Por favor, insira uma URL válida para o botão.';
+                    customButtonError.style.display = 'block';
+                    isValid = false;
+                } else {
+                    customButtonError.style.display = 'none';
+                }
+                
+                if (isValid) {
+                    // Salvar dados da tela 5
+                    tvData.socialMedia.facebook = facebookUrl;
+                    tvData.socialMedia.instagram = instagramUrl;
+                    tvData.socialMedia.bluesky = blueskyUrl;
+                    tvData.socialMedia.tiktok = tiktokUrl;
+                    tvData.socialMedia.twitter = twitterUrl;
+                    
+                    tvData.customButton.text = customButtonText;
+                    tvData.customButton.url = customButtonUrl;
+                    
+                    showScreen('screen6');
+                }
             });
-
-            // Botão "Adicionar Programa"
-            addProgramBtn.addEventListener('click', function() {
-                const newProgram = {
-                    id: `program-${Date.now()}-${tvData.programs.length}`,
-                    name: '',
-                    videos: []
-                };
-                
-                addProgramCard(newProgram, tvData.programs.length);
-                
-                // Atualizar a lista de programas
-                updatePrograms();
-                
-                // Validar o botão de adicionar programa
-                validateAddProgramButton();
-                
-                // Validar a navegação da tela 3
-                validateScreen3Navigation();
-            });
-
-            // Botão "Adicionar Comercial"
-            addCommercialBtn.addEventListener('click', function() {
-                const newCommercial = {
-                    name: `Comercial ${tvData.commercials.length + 1}`,
-                    url: ''
-                };
-                
-                addCommercialCard(newCommercial, tvData.commercials.length);
-                updateCommercials();
-            });
-
+            
             // Configurar checkbox de comerciais
             enableCommercialsCheckbox.addEventListener('change', function() {
-                const commercialSettings = document.getElementById('commercialSettings');
-                const addCommercialBtn = document.getElementById('addCommercial');
-                
+                tvData.enableCommercials = this.checked;
                 if (this.checked) {
                     commercialSettings.style.display = 'block';
                     addCommercialBtn.style.display = 'inline-block';
@@ -5785,110 +6336,91 @@
                     commercialSettings.style.display = 'none';
                     addCommercialBtn.style.display = 'none';
                 }
-                
-                tvData.enableCommercials = this.checked;
             });
-
+            
             // Configurar checkbox de data de estreia personalizada
             customReleaseDateCheckbox.addEventListener('change', function() {
-                const releaseDateContainer = document.getElementById('releaseDateContainer');
-                
+                tvData.customReleaseDate = this.checked;
                 if (this.checked) {
                     releaseDateContainer.style.display = 'block';
-                    // Definir data padrão (amanhã)
-                    const tomorrow = new Date();
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    document.getElementById('releaseDate').value = tomorrow.toISOString().split('T')[0];
+                    // Definir data padrão para amanhã se não houver data definida
+                    if (!releaseDateInput.value) {
+                        const tomorrow = new Date();
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        releaseDateInput.value = tomorrow.toISOString().split('T')[0];
+                        tvData.releaseDate = releaseDateInput.value;
+                    }
                 } else {
                     releaseDateContainer.style.display = 'none';
+                    tvData.releaseDate = '';
                 }
             });
-
-            // Botões de voltar
-            backToHomeBtn.addEventListener('click', function() { showScreen('screen0'); });
-            backToHomeFromScreen2Btn.addEventListener('click', function() { showScreen('screen0'); });
-            backToHomeFromScreen3Btn.addEventListener('click', function() { showScreen('screen0'); });
-            backToHomeFromScreen4Btn.addEventListener('click', function() { showScreen('screen0'); });
-            backToHomeFromScreen5Btn.addEventListener('click', function() { showScreen('screen0'); });
-            backToHomeFromSuccess.addEventListener('click', function() { showScreen('screen0'); });
             
-            backToScreen1Btn.addEventListener('click', function() { showScreen('screen1'); });
-            backToScreen2Btn.addEventListener('click', function() { showScreen('screen2'); });
-            backToScreen3Btn.addEventListener('click', function() { showScreen('screen3'); });
-            backToScreen4Btn.addEventListener('click', function() { showScreen('screen4'); });
-            backToScreen5Btn.addEventListener('click', function() { 
-                resetScreen6();
-                showScreen('screen5'); 
+            // Configurar data de estreia
+            releaseDateInput.addEventListener('change', function() {
+                tvData.releaseDate = this.value;
             });
             
-            // Botão de tentar novamente na publicação
+            // Configurar comerciais por intervalo
+            commercialsPerBreakInput.addEventListener('input', function() {
+                tvData.commercialsPerBreak = parseInt(this.value) || 2;
+            });
+            
+            // Configurar botão de adicionar comercial
+            addCommercialBtn.addEventListener('click', function() {
+                const newCommercial = {
+                    name: `Comercial ${tvData.commercials.length + 1}`,
+                    url: ''
+                };
+                addCommercialCard(newCommercial, tvData.commercials.length);
+                tvData.commercials.push(newCommercial);
+                updateCommercials();
+            });
+            
+            // Configurar retry de publicação
             retryPublish.addEventListener('click', function() {
                 resetScreen6();
-                iniciarPublicacao();
+                setTimeout(() => {
+                    iniciarPublicacao();
+                }, 500);
             });
-
-            // Configurar validação de URLs de redes sociais
-            function setupSocialMediaValidation() {
-                const socialMediaInputs = [
-                    { id: 'facebookUrl', platform: 'facebook', errorId: 'facebookError' },
-                    { id: 'instagramUrl', platform: 'instagram', errorId: 'instagramError' },
-                    { id: 'blueskyUrl', platform: 'bluesky', errorId: 'blueskyError' },
-                    { id: 'tiktokUrl', platform: 'tiktok', errorId: 'tiktokError' },
-                    { id: 'twitterUrl', platform: 'twitter', errorId: 'twitterError' },
-                    { id: 'customButtonUrl', platform: 'custom', errorId: 'customButtonError' }
-                ];
+            
+            // Inicializar autenticação
+            updateAuthUI();
+            
+            // Configurar verificação de nome em tempo real
+            function verificarNomeEmTempoReal(nome, botao) {
+                nameCheckStatus.textContent = "Verificando disponibilidade do nome...";
+                nameCheckStatus.style.display = 'block';
+                botao.disabled = true;
+                botao.classList.add('name-checking');
                 
-                socialMediaInputs.forEach(input => {
-                    const element = document.getElementById(input.id);
-                    const errorElement = document.getElementById(input.errorId);
+                setTimeout(() => {
+                    // Simulação de verificação
+                    // Em produção, isso verificaria no servidor
+                    const nomeValido = nome.length >= 3 && nome.length <= 50;
                     
-                    if (element && errorElement) {
-                        element.addEventListener('blur', function() {
-                            const url = this.value.trim();
-                            
-                            if (url === '') {
-                                errorElement.style.display = 'none';
-                                return;
-                            }
-                            
-                            if (!isValidUrl(url)) {
-                                errorElement.textContent = 'URL inválida. Por favor, insira uma URL válida.';
-                                errorElement.style.display = 'block';
-                                return;
-                            }
-                            
-                            if (input.platform !== 'custom' && !isValidSocialMediaUrl(url, input.platform)) {
-                                let platformName = '';
-                                switch(input.platform) {
-                                    case 'facebook': platformName = 'Facebook'; break;
-                                    case 'instagram': platformName = 'Instagram'; break;
-                                    case 'bluesky': platformName = 'BlueSky'; break;
-                                    case 'tiktok': platformName = 'TikTok'; break;
-                                    case 'twitter': platformName = 'X (Twitter)'; break;
-                                }
-                                errorElement.textContent = `URL do ${platformName} inválida. Verifique o formato.`;
-                                errorElement.style.display = 'block';
-                                return;
-                            }
-                            
-                            errorElement.style.display = 'none';
-                        });
+                    if (nomeValido) {
+                        nameCheckStatus.textContent = "Nome disponível!";
+                        nameCheckStatus.style.color = "#2ecc71";
+                        botao.disabled = false;
+                        botao.classList.remove('name-checking');
+                    } else {
+                        nameCheckStatus.textContent = "Nome inválido ou já em uso.";
+                        nameCheckStatus.style.color = "#e74c3c";
+                        botao.disabled = true;
+                        botao.classList.remove('name-checking');
                     }
-                });
+                }, 1000);
             }
             
-            // Inicializar validação de redes sociais
-            setupSocialMediaValidation();
+            function limparErroNomeDuplicado() {
+                nameDuplicateError.style.display = 'none';
+                nameDuplicateError.textContent = '';
+            }
             
-            // Inicializar a aplicação
-            console.log("Aplicação inicializada com sucesso!");
-            
-            // Verificar se há um usuário logado
-            auth.onAuthStateChanged((user) => {
-                if (user) {
-                    console.log("Usuário já logado:", user.email);
-                }
-            });
+            // Inicializar a tela 0
+            showScreen('screen0');
         });
     </script>
 </body>
