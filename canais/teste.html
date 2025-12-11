@@ -249,9 +249,10 @@
         }
         
         .commercials-container {
-            max-height: 400px;
-            overflow-y: auto;
             margin-bottom: 20px;
+            /* MELHORIA 4: Remover barra de rolagem interna e expandir conforme adiciona */
+            overflow: visible;
+            max-height: none;
         }
         
         /* VIDEO LIST - MODIFICADO: SEM BARRA DE ROLAGEM INTERNA, EXPANDE CONFORME VÍDEOS SÃO ADICIONADOS */
@@ -4394,6 +4395,27 @@
             }
         }
 
+        // MELHORIA 7: Função para deletar canal do RealTime Database
+        async function deletarCanalRTDB(channelName) {
+            try {
+                const channelId = channelName.toLowerCase()
+                    .replace(/[^a-z0-9]/g, '-')
+                    .replace(/-+/g, '-');
+                
+                // Deletar estatísticas do canal
+                await rtdb.ref(`channelStats/${channelId}`).remove();
+                
+                // Deletar espectadores online
+                await rtdb.ref(`onlineUsers/${channelId}`).remove();
+                
+                console.log("Canal deletado do RealTime Database:", channelId);
+                return true;
+            } catch (error) {
+                console.error("Erro ao deletar canal do RealTime Database:", error);
+                return false;
+            }
+        }
+
         // Função principal de publicação
         async function iniciarPublicacao() {
             console.log("Iniciando publicação...");
@@ -4629,8 +4651,6 @@
                             const visibility = channel.visibility || 'brazil';
                             const isPublished = channel.published || false;
                             const isAdultContent = channel.isAdultContent || false;
-                            const programmingMode = channel.programmingMode || 'grade';
-                            const commercialsOrder = channel.commercialsOrder || 'sequential';
                             
                             let visibilityIcon = '';
                             if (visibility === 'brazil') {
@@ -4658,10 +4678,7 @@
                                 statusClass = 'status-published';
                             }
                             
-                            // MELHORIA 8: Removida informação do card que não foi pedida
-                            // Modo de programação - mantido apenas para informação básica
-                            const modeText = programmingMode === 'grade' ? 'Grade' : 'Playlist';
-                            
+                            // MELHORIA 6: Removida informação "Modo: Grade" e "Modo: Playlist" do card
                             // Gerar channelId para Firebase (igual ao usado no canal)
                             const channelIdForFirebase = channel.name.toLowerCase()
                                 .replace(/[^a-z0-9]/g, '-')
@@ -4674,7 +4691,6 @@
                                 </div>
                                 ${visibilityIcon}
                                 ${adultIcon}
-                                <p>Modo: ${modeText}</p>
                                 <p class="spectators" id="spectators-${channel.id}">Espectadores: 0</p>
                                 <div class="channel-status ${statusClass}">${statusText}</div>
                                 <div class="channel-actions">
@@ -5528,7 +5544,7 @@
             });
         }
 
-        // MELHORIA 5: Validar se pode adicionar novo comercial
+        // MELHORIA 2: Validar se pode adicionar novo comercial
         function validateAddCommercialButton() {
             const addCommercialBtn = document.getElementById('addCommercial');
             
@@ -5537,7 +5553,7 @@
                 return;
             }
             
-            // MELHORIA 7: Verificar limite de 8 comerciais
+            // MELHORIA 3: Verificar limite de 8 comerciais
             if (tvData.commercials.length >= 8) {
                 addCommercialBtn.disabled = true;
                 addCommercialBtn.textContent = "Limite de 8 comerciais atingido";
@@ -5551,16 +5567,17 @@
                 return;
             }
             
-            // Verificar o último comercial
-            const lastCommercial = tvData.commercials[tvData.commercials.length - 1];
-            const hasUrl = lastCommercial && lastCommercial.url && lastCommercial.url.trim().length > 0 && isValidUrl(lastCommercial.url.trim());
+            // Verificar se há algum comercial sem URL
+            const hasCommercialWithoutUrl = tvData.commercials.some(commercial => 
+                !commercial.url || commercial.url.trim() === '' || !isValidUrl(commercial.url.trim())
+            );
             
-            // Habilitar apenas se o último comercial tiver URL válida
-            addCommercialBtn.disabled = !hasUrl;
+            // Se houver algum comercial sem URL válida, desabilitar o botão
+            addCommercialBtn.disabled = hasCommercialWithoutUrl;
             addCommercialBtn.textContent = "+ Adicionar Novo Comercial";
         }
 
-        // MELHORIA 4: Validar navegação da tela 4
+        // MELHORIA 1: Validar navegação da tela 4
         function validateScreen4Navigation() {
             const toScreen5Btn = document.getElementById('toScreen5');
             
@@ -5602,6 +5619,48 @@
             
             toScreen5Btn.disabled = hasErrors;
             return !hasErrors;
+        }
+
+        // MELHORIA 3: Validar número de comerciais por intervalo
+        function validateCommercialsPerBreak() {
+            const commercialsPerBreakInput = document.getElementById('commercialsPerBreak');
+            const value = parseInt(commercialsPerBreakInput.value);
+            
+            if (isNaN(value) || value < 1 || value > 8) {
+                alert("O número de comerciais por intervalo deve ser entre 1 e 8.");
+                commercialsPerBreakInput.value = Math.min(8, Math.max(1, value || 2));
+                tvData.commercialsPerBreak = parseInt(commercialsPerBreakInput.value);
+                return false;
+            }
+            
+            tvData.commercialsPerBreak = value;
+            return true;
+        }
+
+        // MELHORIA 5: Alternar visibilidade dos comerciais
+        function toggleCommercialsVisibility() {
+            const enableCommercialsCheckbox = document.getElementById('enableCommercials');
+            const commercialSettings = document.getElementById('commercialSettings');
+            const commercialsContainer = document.getElementById('commercialsContainer');
+            const addCommercialBtn = document.getElementById('addCommercial');
+            
+            if (enableCommercialsCheckbox.checked) {
+                // Mostrar configurações e comerciais
+                commercialSettings.style.display = 'block';
+                commercialsContainer.style.display = 'block';
+                addCommercialBtn.style.display = 'inline-block';
+                
+                // Validar botão de adicionar comercial
+                validateAddCommercialButton();
+            } else {
+                // Ocultar configurações e comerciais
+                commercialSettings.style.display = 'none';
+                commercialsContainer.style.display = 'none';
+                addCommercialBtn.style.display = 'none';
+            }
+            
+            // Validar navegação
+            validateScreen4Navigation();
         }
 
         // Editar canal
@@ -5735,13 +5794,8 @@
                 const commercialsOrderSelect = document.getElementById('commercialsOrder');
                 commercialsOrderSelect.value = tvData.commercialsOrder || 'sequential';
                 
-                if (tvData.enableCommercials) {
-                    document.getElementById('commercialSettings').style.display = 'block';
-                    document.getElementById('addCommercial').style.display = 'inline-block';
-                } else {
-                    document.getElementById('commercialSettings').style.display = 'none';
-                    document.getElementById('addCommercial').style.display = 'none';
-                }
+                // MELHORIA 5: Alternar visibilidade dos comerciais
+                toggleCommercialsVisibility();
                 
                 // Preencher redes sociais
                 document.getElementById('facebookUrl').value = tvData.socialMedia.facebook || '';
@@ -5771,7 +5825,7 @@
             }
         }
         
-        // Apagar canal
+        // MELHORIA 7: Apagar canal completamente
         async function deleteChannel(channelId) {
             if (!currentUser) {
                 alert("É necessário fazer login para apagar canais");
@@ -5781,7 +5835,7 @@
             const channel = channels.find(c => c.id === channelId);
             if (!channel) return;
             
-            if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal do servidor e do seu perfil.')) {
+            if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal do servidor, Firebase, RealTime Database e do seu perfil.')) {
                 try {
                     // Remover listener de espectadores
                     if (channelViewerListeners[channelId]) {
@@ -5790,7 +5844,9 @@
                     }
                     
                     let apagadoDoServidor = false;
+                    let apagadoDoRTDB = false;
                     
+                    // Apagar do GitHub
                     if (channel.url) {
                         try {
                             apagadoDoServidor = await apagarCanalGithub(channel.name);
@@ -5799,11 +5855,20 @@
                         }
                     }
                     
+                    // Apagar do RealTime Database
+                    try {
+                        apagadoDoRTDB = await deletarCanalRTDB(channel.name);
+                    } catch (error) {
+                        console.log("Não foi possível apagar do RealTime Database:", error);
+                    }
+                    
+                    // Apagar do Firestore
                     const apagadoDoFirestore = await deletarCanalFirestore(channelId);
                     
+                    // Remover localmente
+                    channels = channels.filter(c => c.id !== channelId);
+                    
                     if (apagadoDoFirestore) {
-                        channels = channels.filter(c => c.id !== channelId);
-                        
                         await carregarCanais();
                         
                         alert('Canal apagado com sucesso!');
@@ -6459,8 +6524,13 @@
             });
             
             toScreen5Btn.addEventListener('click', () => {
-                // MELHORIA 4: Validar tela 4 antes de avançar
+                // MELHORIA 1: Validar tela 4 antes de avançar
                 if (validateScreen4Navigation()) {
+                    // MELHORIA 3: Validar número de comerciais por intervalo
+                    if (!validateCommercialsPerBreak()) {
+                        return;
+                    }
+                    
                     // Salvar dados da tela 4
                     tvData.enableCommercials = enableCommercialsCheckbox.checked;
                     tvData.commercialsPerBreak = parseInt(commercialsPerBreakInput.value) || 2;
@@ -6554,15 +6624,8 @@
             // Configurar checkbox de comerciais
             enableCommercialsCheckbox.addEventListener('change', function() {
                 tvData.enableCommercials = this.checked;
-                if (this.checked) {
-                    commercialSettings.style.display = 'block';
-                    addCommercialBtn.style.display = 'inline-block';
-                    validateAddCommercialButton();
-                } else {
-                    commercialSettings.style.display = 'none';
-                    addCommercialBtn.style.display = 'none';
-                }
-                validateScreen4Navigation();
+                // MELHORIA 5: Alternar visibilidade dos comerciais
+                toggleCommercialsVisibility();
             });
             
             // Configurar checkbox de data de estreia personalizada
@@ -6590,12 +6653,18 @@
             
             // Configurar comerciais por intervalo
             commercialsPerBreakInput.addEventListener('input', function() {
+                // MELHORIA 3: Validar limite de 8
+                const value = parseInt(this.value);
+                if (isNaN(value) || value < 1 || value > 8) {
+                    alert("O número de comerciais por intervalo deve ser entre 1 e 8.");
+                    this.value = Math.min(8, Math.max(1, value || 2));
+                }
                 tvData.commercialsPerBreak = parseInt(this.value) || 2;
             });
             
             // Configurar botão de adicionar comercial
             addCommercialBtn.addEventListener('click', function() {
-                // MELHORIA 7: Verificar limite de 8 comerciais
+                // MELHORIA 3: Verificar limite de 8 comerciais
                 if (tvData.commercials.length >= 8) {
                     alert("Limite máximo de 8 comerciais atingido.");
                     return;
