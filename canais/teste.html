@@ -1720,9 +1720,9 @@
         
         let totalSlots = 58;
         const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
-        const OFFLINE_IMAGE = "https://github.com/Playtronic/tv/blob/main/template/TesteDeCores.png";
-        const BRAZIL_FLAG = "https://github.com/Playtronic/tv/blob/main/template/BR.png";
-        const WORLD_ICON = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/Mundo.png";
+        const OFFLINE_IMAGE = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png"; // CORREÇÃO 5
+        const BRAZIL_FLAG = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/BR.png"; // CORREÇÃO 1
+        const WORLD_ICON = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/Mundo.png"; // CORREÇÃO 1
         const FAVICON_URL = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/favicon.png";
         const ADULT_ICON = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/18%2B.png";
         
@@ -2500,6 +2500,7 @@
         .video-wrapper:fullscreen .custom-controls {
             bottom: 0;
             padding: 20px 20px 15px;
+            z-index: 1000; /* CORREÇÃO 2: Aumentado z-index para ficar acima do vídeo */
         }
         
         .video-wrapper:fullscreen .like-dislike-container {
@@ -2541,7 +2542,7 @@
             align-items: center;
             opacity: 0;
             transition: opacity 0.3s;
-            z-index: 20;
+            z-index: 1000; /* CORREÇÃO 2: Aumentado z-index para ficar acima do vídeo */
         }
         
         .video-wrapper:hover .custom-controls {
@@ -2771,7 +2772,7 @@
             top: 10px;
             right: 10px;
             display: flex;
-            z-index: 10;
+            z-index: 100; /* CORREÇÃO 2: Aumentado z-index */
             background: rgba(0, 0, 0, 0.7);
             border-radius: 5px;
             padding: 5px 10px;
@@ -2861,7 +2862,7 @@
             padding: 5px 10px;
             border-radius: 5px;
             font-size: 0.8rem;
-            z-index: 10;
+            z-index: 100; /* CORREÇÃO 2: Aumentado z-index */
             display: none;
         }
         
@@ -2874,7 +2875,7 @@
             border-radius: 5px;
             font-size: 1.8rem;
             font-family: monospace;
-            z-index: 10;
+            z-index: 100; /* CORREÇÃO 2: Aumentado z-index */
             font-weight: bold;
         }
         
@@ -3813,29 +3814,9 @@
             }
             
             if (liveBtn) {
+                // CORREÇÃO 3: Botão "AO VIVO" recarrega a página
                 liveBtn.addEventListener('click', function() {
-                    const slotAoVivo = calcularSlotAtual();
-                    const percentualAoVivo = calcularPercentualSlot();
-                    
-                    if (slotAoVivo === currentPlayingSlot && currentState === 'program') {
-                        if (videoElement && videoElement.duration) {
-                            const targetTime = videoElement.duration * percentualAoVivo;
-                            videoElement.currentTime = targetTime;
-                        }
-                        if (liveDot) {
-                            liveDot.classList.add('active');
-                            setTimeout(() => {
-                                liveDot.classList.remove('active');
-                            }, 3000);
-                        }
-                    } else {
-                        if (videoElement && videoElement.duration) {
-                            videoElement.currentTime = videoElement.duration - 1;
-                        }
-                    }
-                    
-                    showControls();
-                    resetControlsTimer();
+                    location.reload(); // Recarregar a página
                 });
             }
             
@@ -4312,6 +4293,14 @@
                 
                 const dadosNormalizados = normalizarDadosCanal(channelData);
                 
+                // CORREÇÃO 4: Verificar se já existe um canal com esse nome para o usuário atual
+                if (!editingChannel || originalChannelName !== dadosNormalizados.name) {
+                    const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
+                    if (canalExistente) {
+                        throw new Error(`Já existe um canal com o nome "${dadosNormalizados.name}" para este usuário.`);
+                    }
+                }
+                
                 const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
                 
                 if (canalExistente && canalExistente.id !== currentChannelId) {
@@ -4341,7 +4330,7 @@
                 }
             } catch (error) {
                 console.error("Erro ao salvar canal no banco de dados:", error);
-                return null;
+                throw error; // Re-lançar o erro para ser tratado na publicação
             }
         }
 
@@ -4415,13 +4404,22 @@
                     .replace(/[^a-z0-9]/g, '-')
                     .replace(/-+/g, '-');
                 
-                // Deletar estatísticas do canal
-                await rtdb.ref(`channelStats/${channelId}`).remove();
+                // CORREÇÃO 6: Usar try-catch para capturar erro de permissão e continuar
+                try {
+                    // Deletar estatísticas do canal
+                    await rtdb.ref(`channelStats/${channelId}`).remove();
+                } catch (error) {
+                    console.warn("Não foi possível deletar channelStats (permissão negada):", error);
+                }
                 
-                // Deletar espectadores online
-                await rtdb.ref(`onlineUsers/${channelId}`).remove();
+                try {
+                    // Deletar espectadores online
+                    await rtdb.ref(`onlineUsers/${channelId}`).remove();
+                } catch (error) {
+                    console.warn("Não foi possível deletar onlineUsers (permissão negada):", error);
+                }
                 
-                console.log("Canal deletado do banco de dados em tempo real:", channelId);
+                console.log("Canal deletado do banco de dados em tempo real (ou tentativa):", channelId);
                 return true;
             } catch (error) {
                 console.error("Erro ao deletar canal do banco de dados em tempo real:", error);
@@ -4614,6 +4612,12 @@
                 retryPublish.style.display = 'inline-block';
                 
                 publicationStarted = false;
+                
+                // CORREÇÃO 4: Mostrar erro de nome duplicado se for o caso
+                if (error.message.includes("Já existe um canal com o nome")) {
+                    document.getElementById('nameDuplicateError').textContent = error.message;
+                    document.getElementById('nameDuplicateError').style.display = 'block';
+                }
             }
         }
 
@@ -4666,16 +4670,17 @@
                             const isAdultContent = channel.isAdultContent || false;
                             
                             let visibilityIcon = '';
+                            // CORREÇÃO 1: Usar URLs corrigidas para as imagens
                             if (visibility === 'brazil') {
-                                visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil">`;
+                                visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil" style="width: 25px; height: 25px;">`;
                             } else {
-                                visibilityIcon = `<img src="${WORLD_ICON}" class="visibility-icon" title="Seu canal está visível no mundo todo">`;
+                                visibilityIcon = `<img src="${WORLD_ICON}" class="visibility-icon" title="Seu canal está visível no mundo todo" style="width: 25px; height: 25px;">`;
                             }
                             
                             // ÍCONE DE CONTEÚDO ADULTO (se aplicável)
                             let adultIcon = '';
                             if (isAdultContent) {
-                                adultIcon = `<img src="${ADULT_ICON}" class="adult-content-icon" title="Este canal transmite conteúdo adulto (18+)">`;
+                                adultIcon = `<img src="${ADULT_ICON}" class="adult-content-icon" title="Este canal transmite conteúdo adulto (18+)" style="width: 25px; height: 25px;">`;
                             }
                             
                             let statusText = '';
@@ -5872,7 +5877,9 @@
                     try {
                         apagadoDoBancoTempoReal = await deletarCanalBancoTempoReal(channel.name);
                     } catch (error) {
-                        console.log("Não foi possível apagar do banco de dados em tempo real:", error);
+                        console.log("Não foi possível apagar do banco de dados em tempo real (permissão negada):", error);
+                        // CORREÇÃO 6: Continuar mesmo com erro de permissão
+                        apagadoDoBancoTempoReal = true; // Considerar como sucesso para continuar
                     }
                     
                     // Apagar do banco de dados principal
@@ -6247,6 +6254,11 @@
                 nameDuplicateError.style.display = 'none';
                 nameCheckStatus.style.display = 'none';
                 
+                // Limpar o timer anterior
+                if (window.nomeVerificationTimer) {
+                    clearTimeout(window.nomeVerificationTimer);
+                }
+                
                 if (nome.length > 0 && nome.length < 3) {
                     nameError.textContent = 'O nome do canal deve ter pelo menos 3 caracteres.';
                     nameError.style.display = 'block';
@@ -6254,14 +6266,92 @@
                     return;
                 }
                 
-                if (nome.length >= 3 && !editingChannel) {
-                    verificarNomeEmTempoReal(nome, toScreen2Btn);
-                } else if (nome.length >= 3) {
+                // Se estiver editando e o nome não mudou, não precisa verificar
+                if (editingChannel && nome === originalChannelName) {
                     toScreen2Btn.disabled = false;
+                    return;
+                }
+                
+                // Se o nome for válido (>=3) e não for a edição do mesmo nome, faz a verificação
+                if (nome.length >= 3) {
+                    // Desabilita o botão até que a verificação seja concluída
+                    toScreen2Btn.disabled = true;
+                    // Mostra a mensagem de verificação
+                    nameCheckStatus.textContent = "Verificando disponibilidade do nome...";
+                    nameCheckStatus.style.display = 'block';
+                    nameCheckStatus.style.color = "#fdbb2d";
+
+                    // Usa um timer para aguardar o usuário parar de digitar (debounce)
+                    window.nomeVerificationTimer = setTimeout(async () => {
+                        await verificarNomeEmTempoReal(nome, toScreen2Btn);
+                    }, 500); // 500ms de atraso
                 } else {
                     toScreen2Btn.disabled = true;
                 }
             });
+            
+            // CORREÇÃO: Função para verificar nome em tempo real - corrigida para evitar travamento
+            async function verificarNomeEmTempoReal(nome, botao) {
+                try {
+                    if (currentUser) {
+                        const canalExistente = await buscarCanalPorNome(nome, currentUser.uid);
+                        if (canalExistente && (!editingChannel || originalChannelName !== nome)) {
+                            nameDuplicateError.textContent = "Já existe um canal com este nome. Por favor, escolha outro.";
+                            nameDuplicateError.style.display = 'block';
+                            nameCheckStatus.textContent = "Nome já existe!";
+                            nameCheckStatus.style.color = "#e74c3c";
+                            botao.disabled = true;
+                        } else {
+                            nameDuplicateError.style.display = 'none';
+                            nameCheckStatus.textContent = "Nome disponível!";
+                            nameCheckStatus.style.color = "#2ecc71";
+                            botao.disabled = false;
+                        }
+                    } else {
+                        // Se não houver usuário logado, não podemos verificar, mas permitimos avançar
+                        // para a próxima tela (a autenticação será exigida na publicação)
+                        nameDuplicateError.style.display = 'none';
+                        nameCheckStatus.style.display = 'none';
+                        botao.disabled = false;
+                    }
+                } catch (error) {
+                    console.error("Erro ao verificar nome:", error);
+                    nameCheckStatus.textContent = "Erro na verificação. Tente novamente.";
+                    nameCheckStatus.style.color = "#e74c3c";
+                    // Em caso de erro, mantém o botão desabilitado
+                    botao.disabled = true;
+                    
+                    // Tenta novamente após 2 segundos
+                    setTimeout(async () => {
+                        try {
+                            if (currentUser) {
+                                const canalExistente = await buscarCanalPorNome(nome, currentUser.uid);
+                                if (canalExistente && (!editingChannel || originalChannelName !== nome)) {
+                                    nameDuplicateError.textContent = "Já existe um canal com este nome. Por favor, escolha outro.";
+                                    nameDuplicateError.style.display = 'block';
+                                    nameCheckStatus.textContent = "Nome já existe!";
+                                    nameCheckStatus.style.color = "#e74c3c";
+                                    botao.disabled = true;
+                                } else {
+                                    nameDuplicateError.style.display = 'none';
+                                    nameCheckStatus.textContent = "Nome disponível!";
+                                    nameCheckStatus.style.color = "#2ecc71";
+                                    botao.disabled = false;
+                                }
+                            } else {
+                                nameDuplicateError.style.display = 'none';
+                                nameCheckStatus.style.display = 'none';
+                                botao.disabled = false;
+                            }
+                        } catch (error2) {
+                            console.error("Erro na segunda tentativa de verificação:", error2);
+                            nameCheckStatus.textContent = "Não foi possível verificar o nome. Tente mais tarde.";
+                            nameCheckStatus.style.color = "#e74c3c";
+                            botao.disabled = true;
+                        }
+                    }, 2000);
+                }
+            }
             
             tvSloganInput.addEventListener('input', function() {
                 tvSloganCounter.textContent = `${this.value.length}/100`;
@@ -6401,11 +6491,13 @@
                 tvNameInput.disabled = false;
                 tvNameInput.classList.remove('name-disabled');
                 tvNameInput.title = "";
-                limparErroNomeDuplicado();
+                
+                // Limpar mensagens de erro
+                nameDuplicateError.style.display = 'none';
+                nameCheckStatus.style.display = 'none';
                 
                 toScreen2Btn.disabled = true;
                 toScreen4Btn.disabled = true;
-                // CORREÇÃO: toScreen5Btn não deve começar desabilitado
                 
                 // Mostrar modo grade por padrão
                 alternarModoProgramacao();
@@ -6704,37 +6796,6 @@
             
             // Inicializar autenticação
             updateAuthUI();
-            
-            // Configurar verificação de nome em tempo real
-            function verificarNomeEmTempoReal(nome, botao) {
-                nameCheckStatus.textContent = "Verificando disponibilidade do nome...";
-                nameCheckStatus.style.display = 'block';
-                botao.disabled = true;
-                botao.classList.add('name-checking');
-                
-                setTimeout(() => {
-                    // Simulação de verificação
-                    // Em produção, isso verificaria no servidor
-                    const nomeValido = nome.length >= 3 && nome.length <= 50;
-                    
-                    if (nomeValido) {
-                        nameCheckStatus.textContent = "Nome disponível!";
-                        nameCheckStatus.style.color = "#2ecc71";
-                        botao.disabled = false;
-                        botao.classList.remove('name-checking');
-                    } else {
-                        nameCheckStatus.textContent = "Nome inválido ou já em uso.";
-                        nameCheckStatus.style.color = "#e74c3c";
-                        botao.disabled = true;
-                        botao.classList.remove('name-checking');
-                    }
-                }, 1000);
-            }
-            
-            function limparErroNomeDuplicado() {
-                nameDuplicateError.style.display = 'none';
-                nameDuplicateError.textContent = '';
-            }
             
             // Inicializar a tela 0
             showScreen('screen0');
