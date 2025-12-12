@@ -2763,12 +2763,9 @@
             pointer-events: none;
         }
         
-        .commercial-controls .playback-controls {
-            display: none !important;
-        }
-        
-        .commercial-controls .volume-controls {
-            margin-left: 0;
+        /* CORREÇÃO: COMERCIAIS AGORA USAM CONTROLES NORMALMENTE */
+        .commercial-controls {
+            /* Os comerciais agora usam os controles normais */
         }
         
         /* SISTEMA DE CURTIDAS/DESCURTIDAS */
@@ -2967,6 +2964,7 @@
             
             <div id="youtubeContainer" class="youtube-container" style="display: none;"></div>
             
+            <!-- CORREÇÃO: Botão "Ligar TV" só aparece no carregamento inicial, não após recarregar -->
             <div class="autoplay-overlay" id="autoplayOverlay">
                 <button class="autoplay-button" id="autoplayButton">Ligar TV</button>
             </div>
@@ -3068,8 +3066,11 @@
         let currentCommercialIndex = 0;
         let commercialBreakCount = 0;
         let controlsTimeout;
-        let isFirstPlay = true;
-        let userStartedPlayback = true;
+        
+        // CORREÇÃO: userStartedPlayback agora verifica se é o carregamento inicial
+        let isFirstLoad = true;
+        let userStartedPlayback = false;
+        
         let currentPlayingSlot = 0;
         let currentProgramIndex = 0;
         let currentVideoIndex = 0;
@@ -3509,8 +3510,8 @@
             }
         }
         
-        // Carregar vídeo HTML5
-        function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = false) {
+        // CORREÇÃO: Carregar vídeo HTML5 - AGORA SEMPRE COM AUTORUN
+        function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
             if (youtubeContainer) {
                 youtubeContainer.style.display = 'none';
                 youtubeContainer.innerHTML = '';
@@ -3525,22 +3526,26 @@
                         loadingMessage.style.display = 'none';
                     }
                     
-                    if (userStartedPlayback && iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
+                    // CORREÇÃO: Se for o primeiro vídeo (após clicar em "Ligar TV") e userStartedPlayback for true
+                    // inicia no percentual do slot atual
+                    if (userStartedPlayback && currentState === 'program' && iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
                         const startTime = videoElement.duration * iniciarNoPercentual;
                         videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
                     } else {
+                        // Para todos os outros vídeos (incluindo comerciais), começa do início
                         videoElement.currentTime = 0;
                     }
                     
-                    if (userStartedPlayback || currentState === 'commercial') {
-                        const playPromise = videoElement.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch(error => {
-                                console.log('Autoplay bloqueado, tentando com mute:', error);
-                                videoElement.muted = true;
-                                videoElement.play().catch(e => console.log('Autoplay com mute também falhou:', e));
-                            });
-                        }
+                    // CORREÇÃO: TODOS os vídeos devem ter autorun
+                    // Comerciais sempre começam automaticamente do começo
+                    // Programas começam automaticamente depois do primeiro clique
+                    const playPromise = videoElement.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(error => {
+                            console.log('Autoplay bloqueado, tentando com mute:', error);
+                            videoElement.muted = true;
+                            videoElement.play().catch(e => console.log('Autoplay com mute também falhou:', e));
+                        });
                     }
                 });
                 
@@ -3555,7 +3560,7 @@
         }
         
         // Carregar vídeo do YouTube
-        function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = false) {
+        function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
             if (videoElement) {
                 videoElement.style.display = 'none';
             }
@@ -3572,13 +3577,13 @@
                 
                 if (videoId) {
                     let startSeconds = 0;
-                    if (userStartedPlayback && iniciarNoPercentual > 0 && currentState === 'program') {
+                    // CORREÇÃO: Apenas o primeiro vídeo (após clicar "Ligar TV") inicia no percentual
+                    if (userStartedPlayback && currentState === 'program' && iniciarNoPercentual > 0) {
                         startSeconds = Math.floor(300 * iniciarNoPercentual);
                     }
                     
-                    const shouldAutoplay = (userStartedPlayback || currentState === 'commercial') ? 1 : 0;
-                    
-                    youtubeContainer.innerHTML = \`<iframe class="youtube-iframe" src="https://www.youtube.com/embed/\${videoId}?autoplay=\${shouldAutoplay}&controls=0&modestbranding=1&rel=0&start=\${startSeconds}&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>\`;
+                    // CORREÇÃO: TODOS os vídeos devem ter autorun (autoplay=1)
+                    youtubeContainer.innerHTML = \`<iframe class="youtube-iframe" src="https://www.youtube.com/embed/\${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0&start=\${startSeconds}&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>\`;
                     
                     if (loadingMessage) {
                         loadingMessage.style.display = 'none';
@@ -3687,6 +3692,7 @@
                 playbackControls.style.display = 'flex';
             }
             
+            // CORREÇÃO: Removido o commercial-controls class - comerciais agora usam controles normais
             if (customControls) {
                 customControls.classList.remove('commercial-controls');
             }
@@ -3702,7 +3708,7 @@
             currentState = 'program';
         }
         
-        // Reproduzir comercial
+        // CORREÇÃO: Reproduzir comercial - AGORA COM AUTORUN
         function reproduzirComercial() {
             if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
                 const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
@@ -3715,8 +3721,9 @@
             }
             document.getElementById('currentProgram').textContent = 'Intervalo Comercial';
             
+            // CORREÇÃO: Comerciais agora usam controles normais, não a classe commercial-controls
             if (customControls) {
-                customControls.classList.add('commercial-controls');
+                customControls.classList.remove('commercial-controls');
             }
             
             const commercialUrl = obterProximoComercial();
@@ -3729,8 +3736,10 @@
             }
             
             if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
+                // CORREÇÃO: Comerciais começam automaticamente do começo (iniciarNoPercentual = 0)
                 carregarVideoYouTube(commercialUrl, 0, true);
             } else {
+                // CORREÇÃO: Comerciais começam automaticamente do começo (iniciarNoPercentual = 0)
                 carregarVideoHTML5(commercialUrl, 0, true);
             }
             
@@ -3755,6 +3764,7 @@
                 
                 videoElement.addEventListener('ended', handleCommercialEnd);
             } else {
+                // Para YouTube, usar timeout como fallback
                 setTimeout(() => {
                     if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
                         reproduzirComercial();
@@ -3766,20 +3776,13 @@
                         const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                         reproduzirPrograma(proximoSlot, 0);
                     }
-                }, 25000);
+                }, 25000); // 25 segundos para comerciais
             }
         }
         
         // Mostrar/ocultar controles (incluindo like/dislike)
         function showControls() {
-            if (customControls && currentState === 'program') {
-                customControls.style.opacity = '1';
-                if (likeDislikeContainer) {
-                    likeDislikeContainer.style.opacity = '1';
-                }
-                controlsVisible = true;
-                resetControlsTimer();
-            } else if (customControls && currentState === 'commercial') {
+            if (customControls) {
                 customControls.style.opacity = '1';
                 if (likeDislikeContainer) {
                     likeDislikeContainer.style.opacity = '1';
@@ -3859,8 +3862,10 @@
             }
             
             if (liveBtn) {
-                // CORREÇÃO 3: Botão "AO VIVO" recarrega a página
+                // CORREÇÃO 3: Botão "AO VIVO" recarrega a página SEM o botão "Ligar TV"
                 liveBtn.addEventListener('click', function() {
+                    // Armazenar que a página foi recarregada pelo botão "ao vivo"
+                    sessionStorage.setItem('aoVivoRecarregado', 'true');
                     location.reload(); // Recarregar a página
                 });
             }
@@ -3933,6 +3938,17 @@
                     commercialBreakCount = 0;
                     reproduzirComercial();
                 } else {
+                    const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
+                    reproduzirPrograma(proximoSlot, 0);
+                }
+            } else if (currentState === 'commercial') {
+                if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
+                    reproduzirComercial();
+                } else {
+                    commercialBreakCount = 0;
+                    if (commercialIndicator) {
+                        commercialIndicator.style.display = 'none';
+                    }
                     const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                     reproduzirPrograma(proximoSlot, 0);
                 }
@@ -4049,15 +4065,29 @@
                 }
             }
             
-            // AUTOPLAY ATIVADO POR PADRÃO
-            userStartedPlayback = true;
-            if (autoplayOverlay) {
-                autoplayOverlay.classList.add('hidden');
-            }
+            // CORREÇÃO: Verificar se a página foi recarregada pelo botão "ao vivo"
+            const aoVivoRecarregado = sessionStorage.getItem('aoVivoRecarregado');
             
-            // Reproduzir imediatamente
-            const percentualSlot = calcularPercentualSlot();
-            reproduzirPrograma(slotAtual, percentualSlot);
+            if (aoVivoRecarregado === 'true') {
+                // Se foi recarregado pelo botão "ao vivo", iniciar reprodução automaticamente
+                userStartedPlayback = true;
+                if (autoplayOverlay) {
+                    autoplayOverlay.classList.add('hidden');
+                }
+                
+                // Reproduzir imediatamente no percentual atual do slot
+                const percentualSlot = calcularPercentualSlot();
+                reproduzirPrograma(slotAtual, percentualSlot);
+                
+                // Limpar a flag
+                sessionStorage.removeItem('aoVivoRecarregado');
+            } else {
+                // Se for o primeiro carregamento, mostrar botão "Ligar TV"
+                userStartedPlayback = false;
+                if (autoplayOverlay) {
+                    autoplayOverlay.classList.remove('hidden');
+                }
+            }
             
             hideControls();
             
