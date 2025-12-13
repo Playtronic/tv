@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.1.4">
+    <meta name="version" content="1.0.1.5">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -693,7 +693,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.1.4
+                    Versão 1.0.1.5
                 </div>
             
         
@@ -923,49 +923,252 @@
     
     <!-- SISTEMA DE CÁLCULO DE DIAS -->
     
-            <script>
-                // FUNÇÃO PARA CALCULAR DIAS DESDE A ESTREIA (CANAL)
-                function calcularDiasDesdeEstreiaCanal() {
-                    const RELEASE_DATE = "2025-12-12";
-                    
-                    if (!RELEASE_DATE) {
-                        return 1;
-                    }
-                    
-                    const dataEstreia = new Date(RELEASE_DATE);
-                    const agora = new Date();
-                    
-                    // Calcular data atual do canal (considerando que o dia muda às 6h)
-                    const dataAtualCanal = new Date(agora);
-                    const horaAtual = agora.getHours();
-                    
-                    // Se for antes das 6h, retrocede um dia
-                    if (horaAtual < 6) {
-                        dataAtualCanal.setDate(dataAtualCanal.getDate() - 1);
-                    }
-                    
-                    // Ajustar ambas as datas para 6h da manhã
-                    dataAtualCanal.setHours(6, 0, 0, 0);
-                    dataEstreia.setHours(6, 0, 0, 0);
-                    
-                    // Verificar se a data de estreia é válida
-                    if (dataAtualCanal < dataEstreia) {
-                        return 1;
-                    }
-                    
-                    // Calcular diferença em milissegundos
-                    const diferencaMs = dataAtualCanal.getTime() - dataEstreia.getTime();
-                    
-                    // Converter para dias (arredondar para baixo)
-                    const diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
-                    
-                    // Usar ((data atual do canal - data de estreia) + 1) para evitar dia 0
-                    const diaProgramacao = diasDesdeEstreia + 1;
-                    
-                    return diaProgramacao;
-                }
-            </script>
+<script>
+    // ==================== NOVAS FUNÇÕES DE CÁLCULO ====================
+    
+    // Função para calcular dias desde a estreia (CORRIGIDA)
+    function calcularDiasDesdeEstreiaCanal() {
+        const RELEASE_DATE = "2025-12-12";
+        
+        if (!RELEASE_DATE) {
+            return 1;
+        }
+        
+        const agora = new Date();
+        const horaAtual = agora.getHours();
+        const minutosAtual = agora.getMinutes();
+        const segundosAtual = agora.getSeconds();
+        
+        // Calcular data atual do canal (considerando que o dia do canal vai de 06:00 até 05:59 do dia seguinte)
+        const dataAtualCanal = new Date(agora);
+        
+        // Se for antes das 6h, retrocede um dia
+        if (horaAtual < 6) {
+            dataAtualCanal.setDate(dataAtualCanal.getDate() - 1);
+        }
+        
+        // Ajustar para 6h da manhã
+        dataAtualCanal.setHours(6, 0, 0, 0);
+        
+        // Data de estreia (sempre às 6h)
+        const dataEstreia = new Date(RELEASE_DATE);
+        dataEstreia.setHours(6, 0, 0, 0);
+        
+        // Verificar se a data de estreia é válida (não pode ser futura em relação à data atual do canal)
+        if (dataAtualCanal < dataEstreia) {
+            return 1; // Se a data de estreia for futura, retorna dia 1
+        }
+        
+        // Calcular diferença em milissegundos
+        const diferencaMs = dataAtualCanal.getTime() - dataEstreia.getTime();
+        
+        // Converter para dias (arredondar para baixo)
+        const diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
+        
+        // Usar ((data atual do canal - data de estreia) + 1) para evitar dia 0
+        const diaProgramacao = diasDesdeEstreia + 1;
+        
+        return diaProgramacao;
+    }
+    
+    // Função para calcular slot atual no modo PLAYLIST
+    function calcularSlotAtualPlaylist() {
+        const agora = new Date();
+        const dataEstreia = new Date(RELEASE_DATE);
+        
+        // Ambas as datas ajustadas para 6h da manhã
+        const agoraAjustada = new Date(agora);
+        const dataEstreiaAjustada = new Date(dataEstreia);
+        
+        // Ajustar para 6h da manhã
+        agoraAjustada.setHours(6, 0, 0, 0);
+        dataEstreiaAjustada.setHours(6, 0, 0, 0);
+        
+        // Se a hora atual for antes das 6h, usar o dia anterior
+        if (agora.getHours() < 6) {
+            agoraAjustada.setDate(agoraAjustada.getDate() - 1);
+        }
+        
+        // Calcular diferença em minutos
+        const diferencaMs = agora.getTime() - dataEstreiaAjustada.getTime();
+        const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
+        
+        // Calcular slots de 25 minutos
+        let slotAtual = Math.floor(minutosDesdeEstreia / SLOT_DURATION);
+        
+        // Garantir que não seja negativo
+        if (slotAtual < 0) {
+            slotAtual = 0;
+        }
+        
+        return slotAtual;
+    }
+    
+    // Função para ajustar slot no modo PLAYLIST quando excede o total
+    function ajustarSlotPlaylist(slotAtual, totalSlotsCanal) {
+        if (totalSlotsCanal <= 0) return 1;
+        
+        let slotAjustado = slotAtual;
+        
+        // Subtrair o total de slots até que seja menor ou igual
+        while (slotAjustado > totalSlotsCanal) {
+            slotAjustado -= totalSlotsCanal;
+        }
+        
+        // Se for 0 ou negativo, definir para 1
+        if (slotAjustado <= 0) {
+            slotAjustado = 1;
+        }
+        
+        return slotAjustado;
+    }
+    
+    // Função para calcular slot atual no modo GRADE
+    function calcularSlotAtualGrade() {
+        const agora = new Date();
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        
+        let horaBase;
+        
+        // Se for entre 00:00 e 05:59, usar 6h do dia anterior
+        if (horas < 6) {
+            const dataOntem = new Date(agora);
+            dataOntem.setDate(dataOntem.getDate() - 1);
+            horaBase = new Date(dataOntem);
+            horaBase.setHours(6, 0, 0, 0);
+        } else {
+            // Se for 6h ou mais, usar 6h do dia atual
+            horaBase = new Date(agora);
+            horaBase.setHours(6, 0, 0, 0);
+        }
+        
+        // Calcular diferença em minutos desde as 6h
+        const diferencaMs = agora.getTime() - horaBase.getTime();
+        const minutosDesde6h = Math.floor(diferencaMs / (1000 * 60));
+        
+        // Calcular slot (cada slot tem 25 minutos)
+        let slotAtual = Math.floor(minutosDesde6h / SLOT_DURATION) + 1; // +1 porque o slot 1 começa às 6h
+        
+        // Limitar ao máximo de 58 slots
+        if (slotAtual > TOTAL_SLOTS) {
+            slotAtual = TOTAL_SLOTS;
+        }
+        
+        // Se for antes das 6h, o slot é 58 (último slot do dia anterior)
+        if (horas < 6 && slotAtual <= 0) {
+            slotAtual = TOTAL_SLOTS;
+        }
+        
+        return slotAtual;
+    }
+    
+    // Função para ajustar vídeo dentro de um slot no modo GRADE
+    function ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot) {
+        if (totalVideosSlot <= 0) return 1;
+        
+        let videoAjustado = diasDesdeEstreia;
+        
+        // Subtrair o total de vídeos até que seja menor ou igual
+        while (videoAjustado > totalVideosSlot) {
+            videoAjustado -= totalVideosSlot;
+        }
+        
+        // Garantir que seja pelo menos 1
+        if (videoAjustado <= 0) {
+            videoAjustado = 1;
+        }
+        
+        return videoAjustado;
+    }
+    
+    // Função unificada para calcular slot atual baseado no modo
+    function calcularSlotAtual() {
+        if (PROGRAMMING_MODE === 'grade') {
+            return calcularSlotAtualGrade();
+        } else {
+            return calcularSlotAtualPlaylist();
+        }
+    }
+    
+    // Função para verificar se precisa recarregar a página no modo GRADE
+    function verificarRecarregamentoGrade() {
+        if (PROGRAMMING_MODE !== 'grade') return;
+        
+        const agora = new Date();
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        const segundos = agora.getSeconds();
+        
+        // Se estiver entre 06:00:00 e 06:24:59
+        if (horas === 6 && minutos >= 0 && minutos <= 24) {
+            // E o canal não estiver no slot 1
+            if (currentPlayingSlot !== 1) {
+                console.log('Recarregando página para iniciar novo dia com slot 1');
+                location.reload();
+            }
+        }
+    }
+    
+    // Função principal para obter vídeo para o slot atual (ATUALIZADA)
+    function obterVideoParaSlot(slotIndex) {
+        if (PROGRAMMING_MODE === 'grade') {
+            // Modo Grade
+            const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
+            currentDay = diasDesdeEstreia;
+            currentPlayingSlot = slotIndex;
             
+            if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
+                return null;
+            }
+            
+            // Obter o programa do slot
+            const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
+            const programa = TV_PROGRAMS[programIndex];
+            
+            if (!programa || !programa.videos || programa.videos.length === 0) {
+                return null;
+            }
+            
+            // Ajustar o vídeo baseado nos dias desde a estreia
+            const totalVideosSlot = programa.videos.length;
+            const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
+            
+            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            
+            return {
+                programa: programa,
+                videoUrl: programa.videos[currentVideoIndex],
+                programaIndex: programIndex,
+                videoIndex: currentVideoIndex,
+                dia: currentDay,
+                nome: programa.name
+            };
+        } else {
+            // Modo Playlist
+            const totalSlotsCanal = TV_PLAYLIST.length;
+            
+            // Ajustar slot se exceder o total
+            const slotAjustado = ajustarSlotPlaylist(slotIndex + 1, totalSlotsCanal); // +1 porque slotIndex vem como base 0
+            
+            const videoInfo = TV_PLAYLIST[slotAjustado - 1]; // -1 para base 0
+            
+            if (!videoInfo) {
+                return null;
+            }
+            
+            currentPlayingSlot = slotAjustado;
+            
+            return {
+                videoUrl: videoInfo.url,
+                nome: videoInfo.name,
+                slotAjustado: slotAjustado,
+                slotOriginal: slotIndex + 1
+            };
+        }
+    }
+</script>
+
     
     <script>
         // CONFIGURAÇÕES DO CANAL
@@ -988,7 +1191,7 @@
         
         const RELEASE_DATE = "2025-12-12";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.1.4";
+        const CHANNEL_VERSION = "1.0.1.5";
         const CHANNEL_ID = "jaspion";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -1254,64 +1457,7 @@
             return window.calcularDiasDesdeEstreiaCanal ? window.calcularDiasDesdeEstreiaCanal() : 1;
         }
         
-        // Calcular slot atual para modo grade
-        function calcularSlotAtualGrade() {
-            const agora = new Date();
-            const horas = agora.getHours();
-            const minutos = agora.getMinutes();
-            const segundos = agora.getSeconds();
-            
-            let horasAjustadas = horas;
-            if (horas < 6) {
-                horasAjustadas += 24;
-            }
-            
-            const minutosDesde6h = (horasAjustadas - 6) * 60 + minutos;
-            const segundosDesde6h = minutosDesde6h * 60 + segundos;
-            
-            const slotAtual = Math.floor(segundosDesde6h / (SLOT_DURATION * 60));
-            
-            return slotAtual % TOTAL_SLOTS;
-        }
-        
-        // Calcular slot atual para modo playlist
-        function calcularSlotAtualPlaylist() {
-            const agora = new Date();
-            const dataEstreia = new Date(RELEASE_DATE);
-            
-            const agoraAjustada = new Date(agora);
-            const dataEstreiaAjustada = new Date(dataEstreia);
-            
-            agoraAjustada.setHours(6, 0, 0, 0);
-            dataEstreiaAjustada.setHours(6, 0, 0, 0);
-            
-            if (agora.getHours() < 6) {
-                agoraAjustada.setDate(agoraAjustada.getDate() - 1);
-            }
-            
-            const diferencaMs = agoraAjustada.getTime() - dataEstreiaAjustada.getTime();
-            
-            const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
-            
-            let slotAtual = Math.floor(minutosDesdeEstreia / SLOT_DURATION);
-            
-            if (slotAtual < 0) {
-                slotAtual = 0;
-            }
-            
-            return slotAtual;
-        }
-        
-        // Calcular slot atual baseado no modo de programação
-        function calcularSlotAtual() {
-            if (PROGRAMMING_MODE === 'grade') {
-                return calcularSlotAtualGrade();
-            } else {
-                return calcularSlotAtualPlaylist();
-            }
-        }
-        
-        // Calcular percentual decorrido do slot atual
+        // Calcular percentual decorrido do slot atual (MANTIDA)
         function calcularPercentualSlot() {
             const agora = new Date();
             
@@ -1342,71 +1488,9 @@
             }
         }
         
-        // Ajustar slot para playlist (se o slot atual exceder o número de vídeos)
-        function ajustarSlotParaPlaylist(slotIndex) {
-            const totalVideos = TV_PLAYLIST.length;
-            
-            if (totalVideos === 0) {
-                return 0;
-            }
-            
-            if (slotIndex < totalVideos) {
-                return slotIndex;
-            }
-            
-            let slotAjustado = slotIndex;
-            while (slotAjustado >= totalVideos) {
-                slotAjustado -= totalVideos;
-            }
-            
-            return slotAjustado;
-        }
-        
-        // Determinar qual vídeo deve ser reproduzido
-        function obterVideoParaSlot(slotIndex) {
-            if (PROGRAMMING_MODE === 'grade') {
-                currentDay = calcularDiasDesdeEstreia();
-                currentPlayingSlot = slotIndex;
-                
-                if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
-                    return null;
-                }
-                
-                currentProgramIndex = GRADE[slotIndex];
-                const programa = TV_PROGRAMS[currentProgramIndex];
-                
-                if (!programa || !programa.videos || programa.videos.length === 0) {
-                    return null;
-                }
-                
-                currentVideoIndex = (currentDay - 1) % programa.videos.length;
-                
-                return {
-                    programa: programa,
-                    videoUrl: programa.videos[currentVideoIndex],
-                    programaIndex: currentProgramIndex,
-                    videoIndex: currentVideoIndex,
-                    dia: currentDay,
-                    nome: programa.name
-                };
-            } else {
-                currentPlayingSlot = slotIndex;
-                
-                const slotAjustado = ajustarSlotParaPlaylist(slotIndex);
-                const videoInfo = TV_PLAYLIST[slotAjustado];
-                
-                if (!videoInfo) {
-                    return null;
-                }
-                
-                return {
-                    videoUrl: videoInfo.url,
-                    nome: videoInfo.name,
-                    slotAjustado: slotAjustado,
-                    slotOriginal: slotIndex
-                };
-            }
-        }
+        // NOTA: As funções calcularSlotAtualGrade(), calcularSlotAtualPlaylist(), 
+        // calcularSlotAtual(), e obterVideoParaSlot() agora estão definidas
+        // no script global (diasScript) acima
         
         function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
             if (youtubeContainer) {
@@ -1820,20 +1904,21 @@
             }
         }
         
-        function verificarMudancaDeDia() {
+              function verificarMudancaDeDia() {
             if (PROGRAMMING_MODE === 'grade') {
                 const agora = new Date();
                 const horas = agora.getHours();
                 const minutos = agora.getMinutes();
                 
-                if (horas === 6 && minutos === 0 && currentState === 'program') {
-                    console.log('Mudança de dia detectada às 6h. Reiniciando slot atual.');
-                    
-                    const slotAtual = calcularSlotAtual();
-                    if (slotAtual !== currentPlayingSlot) {
-                        currentPlayingSlot = slotAtual;
-                        reproduzirPrograma(slotAtual, 0);
-                    }
+                // Verificar se precisa recarregar entre 06:00 e 06:24
+                verificarRecarregamentoGrade();
+                
+                // Verificar mudança de slot a cada minuto
+                const slotAtual = calcularSlotAtual();
+                if (slotAtual !== currentPlayingSlot && currentState === 'program') {
+                    console.log('Mudança de slot detectada. Slot atual:', slotAtual);
+                    currentPlayingSlot = slotAtual;
+                    reproduzirPrograma(slotAtual - 1, 0); // -1 porque a função espera base 0
                 }
             }
         }
@@ -1900,9 +1985,16 @@
             }
             
             const slotAtual = calcularSlotAtual();
-            currentPlayingSlot = slotAtual;
             
-            const videoInfo = obterVideoParaSlot(slotAtual);
+            if (PROGRAMMING_MODE === 'playlist') {
+                const totalSlotsCanal = TV_PLAYLIST.length;
+                const slotAjustado = ajustarSlotPlaylist(slotAtual, totalSlotsCanal);
+                currentPlayingSlot = slotAjustado;
+            } else {
+                currentPlayingSlot = slotAtual;
+            }
+            
+            const videoInfo = obterVideoParaSlot(currentPlayingSlot);
             if (videoInfo) {
                 if (PROGRAMMING_MODE === 'grade') {
                     document.getElementById('currentProgram').textContent = `${videoInfo.programa.name}`;
