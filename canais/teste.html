@@ -2496,49 +2496,37 @@ const diasScript = `
 function calcularSlotAtualPlaylist() {
     const agora = new Date();
     
-    // Data da estreia (às 6h) - CORREÇÃO: considerar 6h da manhã
+    // Data da estreia (às 6h) - IMPORTANTE: usar a data REAL de estreia
     const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
     const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
     
-    // CORREÇÃO: ajustar hora atual para o cálculo correto
-    let minutosDesdeEstreia;
+    // DEBUG - Verificar datas
+    console.log('DEBUG - Data de estreia REAL:', dataEstreia.toLocaleString());
+    console.log('DEBUG - Data atual:', agora.toLocaleString());
     
-    // Se for antes das 6h, considera o dia anterior
-    if (agora.getHours() < 6) {
-        const ontem = new Date(agora);
-        ontem.setDate(ontem.getDate() - 1);
-        ontem.setHours(6, 0, 0, 0);
-        minutosDesdeEstreia = Math.floor((agora.getTime() - ontem.getTime()) / (1000 * 60));
-    } else {
-        // Depois das 6h, usa 6h do dia atual como referência
-        const hoje6h = new Date(agora);
-        hoje6h.setHours(6, 0, 0, 0);
-        minutosDesdeEstreia = Math.floor((agora.getTime() - hoje6h.getTime()) / (1000 * 60));
-    }
+    // CORREÇÃO: calcular diferença TOTAL em minutos (incluindo DIAS)
+    const diferencaMs = agora.getTime() - dataEstreia.getTime();
+    const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
+    
+    console.log('DEBUG - Diferença TOTAL em minutos:', minutosDesdeEstreia);
+    console.log('DEBUG - Dias desde estreia:', Math.floor(minutosDesdeEstreia / (24 * 60)));
     
     // Se for negativo, ainda não começou
     if (minutosDesdeEstreia < 0) {
         return 1;
     }
     
-    // Cada slot tem 25 minutos, slot 1 começa às 6h
-    const slotAtual = Math.floor(minutosDesdeEstreia / 25) + 1;
+    // Cada slot tem 25 minutos, slot 1 começa em 0 minutos após a estreia
+    const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
     
-    // DEBUG - REMOVA DEPOIS
-    console.log('DEBUG SLOT:', {
-        horaAtual: agora.getHours() + ':' + agora.getMinutes(),
-        minutosDesdeEstreia: minutosDesdeEstreia,
-        slotCalculado: slotAtual,
-        dataEstreia: dataEstreia.toLocaleString()
-    });
-        
-        console.log('CÁLCULO: Estreia', dataEstreia.toLocaleTimeString(), 
-                   '| Agora', agora.toLocaleTimeString(),
-                   '| Minutos', minutosDesdeEstreia,
-                   '| Slot', slotAtual);
-        
-        return slotAtual; // Retorna BASE 1
-    }
+    console.log('DEBUG - Slot bruto (base 1):', slotAtualBruto);
+    console.log('CÁLCULO: Estreia', dataEstreia.toLocaleTimeString(), 
+               '| Agora', agora.toLocaleTimeString(),
+               '| Minutos', minutosDesdeEstreia,
+               '| Slot', slotAtualBruto);
+    
+    return slotAtualBruto; // Retorna BASE 1
+}
 
     
     // Função para ajustar slot no modo PLAYLIST quando excede o total (base 0)
@@ -2681,30 +2669,37 @@ function calcularSlotAtualPlaylist() {
                 nome: programa.name
             };
         } else {
-            // Modo Playlist: slotIndex é base 1 (retornado por calcularSlotAtualPlaylist)
-            const totalSlotsCanal = TV_PLAYLIST.length;
-            
-            console.log('=== OBTENDO VÍDEO - MODO PLAYLIST ===');
-            console.log('Slot recebido (base 1):', slotIndex);
-            console.log('Total de slots no canal:', totalSlotsCanal);
-            
-            // CORREÇÃO: Aplicar fórmula (slot atual - slots totais) até que seja <= total
-            let slotAjustadoBase1 = slotIndex;
-            
-            if (totalSlotsCanal > 0) {
-                while (slotAjustadoBase1 > totalSlotsCanal) {
-                    slotAjustadoBase1 -= totalSlotsCanal;
-                    console.log('Reduzindo slot para:', slotAjustadoBase1);
-                }
-                
-                // Se for 0 ou negativo, definir para 1
-                if (slotAjustadoBase1 <= 0) {
-                    slotAjustadoBase1 = 1;
-                }
-            }
-            
-            // Converter para base 0 para array
-            const indiceArray = slotAjustadoBase1 - 1;
+        } else {
+    // Modo Playlist: slotIndex é base 1 (retornado por calcularSlotAtualPlaylist)
+    const totalSlotsCanal = TV_PLAYLIST.length;
+    
+    console.log('=== OBTENDO VÍDEO - MODO PLAYLIST ===');
+    console.log('Slot bruto recebido (base 1):', slotIndex);
+    console.log('Total de slots no canal:', totalSlotsCanal);
+    
+    // FÓRMULA CORRETA: subtrair slots totais múltiplas vezes
+    let slotAjustadoBase1 = slotIndex;
+    
+    if (totalSlotsCanal > 0 && slotIndex > totalSlotsCanal) {
+        console.log('Aplicando fórmula: slot atual (' + slotIndex + ') - slots totais (' + totalSlotsCanal + ')');
+        
+        // Calcular quantos ciclos completos já passaram
+        const ciclosCompletos = Math.floor((slotIndex - 1) / totalSlotsCanal);
+        console.log('Ciclos completos:', ciclosCompletos);
+        
+        // Subtrair múltiplos do total
+        slotAjustadoBase1 = slotIndex - (ciclosCompletos * totalSlotsCanal);
+        
+        console.log('Slot após redução:', slotAjustadoBase1);
+    }
+    
+    // Garantir que fique entre 1 e totalSlotsCanal
+    if (slotAjustadoBase1 <= 0) {
+        slotAjustadoBase1 = 1;
+    }
+    
+    // Converter para base 0 para array
+    const indiceArray = slotAjustadoBase1 - 1;
             
             console.log('Slot ajustado (base 1):', slotAjustadoBase1);
             console.log('Índice no array:', indiceArray);
