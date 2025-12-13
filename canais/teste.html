@@ -1955,7 +1955,7 @@ function formatarDataLocal(date) {
         // NOVA FUNÇÃO: Determinar data de estreia baseada nas regras especificadas - CORRIGIDA (LOCAL)
 function determinarDataEstreia(dadosGerador) {
     const agora = new Date();
-    const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+    const horaAtual = agora.getHours();
     
     // Se o usuário definiu uma data de estreia personalizada
     if (dadosGerador.customReleaseDate && dadosGerador.releaseDate) {
@@ -1963,7 +1963,7 @@ function determinarDataEstreia(dadosGerador) {
         
         // Validar que a data está entre 01/01/2025 e ontem
         const dataMinima = new Date('2025-01-01');
-        const ontem = new Date(hoje);
+        const ontem = new Date(agora);
         ontem.setDate(ontem.getDate() - 1);
         
         if (dataSelecionada < dataMinima) {
@@ -1987,22 +1987,31 @@ function determinarDataEstreia(dadosGerador) {
         console.log('Data de estreia determinada (local):', {
             dataString: `${ano}-${mes}-${dia}`,
             dataCompleta: dataSelecionada.toLocaleString(),
-            horaAtual: agora.getHours()
+            horaAtual: horaAtual
         });
         
         return `${ano}-${mes}-${dia}`;
     }
     
-// Caso o usuário não tenha definido data personalizada
-    // Usar ontem como data de estreia para garantir que não seja futura
-    const ontem = new Date(hoje);
-    ontem.setDate(ontem.getDate() - 1);
+    // Caso o usuário não tenha definido data personalizada
+    // Vamos usar a última 6h da manhã (que é hoje às 6h se agora for depois das 6h, ou ontem às 6h se for antes das 6h)
+    let dataEstreia;
+    if (horaAtual < 6) {
+        // Se for antes das 6h, a última 6h foi ontem às 6h
+        dataEstreia = new Date(agora);
+        dataEstreia.setDate(agora.getDate() - 1);
+        dataEstreia.setHours(6, 0, 0, 0);
+    } else {
+        // Se for depois das 6h, a última 6h foi hoje às 6h
+        dataEstreia = new Date(agora);
+        dataEstreia.setHours(6, 0, 0, 0);
+    }
     
-    const ano = ontem.getFullYear();
-    const mes = String(ontem.getMonth() + 1).padStart(2, '0');
-    const dia = String(ontem.getDate()).padStart(2, '0');
+    const ano = dataEstreia.getFullYear();
+    const mes = String(dataEstreia.getMonth() + 1).padStart(2, '0');
+    const dia = String(dataEstreia.getDate()).padStart(2, '0');
     
-    console.log('Usando data automática (ontem):', `${ano}-${mes}-${dia}`);
+    console.log('Usando data automática:', `${ano}-${mes}-${dia}`);
     return `${ano}-${mes}-${dia}`;
 }
         
@@ -6467,42 +6476,21 @@ function calcularDiasDesdeEstreiaCanal() {
                 tvData.commercialsOrder = this.value;
             });
             
-            // Configurar checkbox de data de estreia personalizada
-            customReleaseDateCheckbox.addEventListener('change', function() {
-                tvData.customReleaseDate = this.checked;
-                if (this.checked) {
-                    releaseDateContainer.style.display = 'block';
-                    
-                    // Configurar data mínima (01/01/2025) e máxima (hoje)
-                    const hoje = new Date().toISOString().split('T')[0];
-                    releaseDateInput.min = '2025-01-01';
-                    releaseDateInput.max = hoje;
-                    
-                    if (!releaseDateInput.value) {
-                        releaseDateInput.value = hoje;
-                        tvData.releaseDate = hoje;
-                    }
-                } else {
-                    releaseDateContainer.style.display = 'none';
-                    tvData.releaseDate = '';
-                }
-            });
             
             // Configurar data de estreia com validação
 releaseDateInput.addEventListener('change', function() {
     const dataSelecionada = new Date(this.value);
-    const dataAtual = new Date();
+    const hoje = new Date();
+    const ontem = new Date(hoje);
+    ontem.setDate(hoje.getDate() - 1);
+    
     const dataMinima = new Date('2025-01-01');
     
-    // Ajustar para 6h da manhã para comparação
-    const hoje6h = new Date(dataAtual);
-    hoje6h.setHours(6, 0, 0, 0);
-    
-    if (dataSelecionada > dataAtual) {
-        alert("A data de estreia não pode ser uma data futura. Será usada a data atual.");
-        this.value = formatarDataLocal(dataAtual);
+    if (dataSelecionada > ontem) {
+        alert("A data de estreia não pode ser hoje ou futura. Escolha uma data até ontem.");
+        this.value = ontem.toISOString().split('T')[0];
     } else if (dataSelecionada < dataMinima) {
-        alert("A data de estreia não pode ser anterior a 01/01/2025. Será usada a data mínima permitida.");
+        alert("A data de estreia não pode ser anterior a 01/01/2025.");
         this.value = '2025-01-01';
     }
     
@@ -6822,43 +6810,31 @@ releaseDateInput.addEventListener('change', function() {
             
             // Configurar checkbox de data de estreia personalizada
             customReleaseDateCheckbox.addEventListener('change', function() {
-                tvData.customReleaseDate = this.checked;
-                if (this.checked) {
-                    releaseDateContainer.style.display = 'block';
-                    
-                    const hoje = new Date().toISOString().split('T')[0];
-                    releaseDateInput.min = '2025-01-01';
-                    releaseDateInput.max = hoje;
-                    
-                    if (!releaseDateInput.value) {
-                        releaseDateInput.value = hoje;
-                        tvData.releaseDate = hoje;
-                    }
-                } else {
-                    releaseDateContainer.style.display = 'none';
-                    tvData.releaseDate = '';
-                }
-            });
-            
-            // Configurar data de estreia com validação SIMPLIFICADA
-releaseDateInput.addEventListener('change', function() {
-    const dataSelecionada = new Date(this.value);
-    const dataAtual = new Date();
-    const dataMinima = new Date('2025-01-01');
-    
-    // Verificar se a data é válida
-    if (dataSelecionada > dataAtual) {
-        alert("A data de estreia não pode ser uma data futura. Escolha uma data passada ou de hoje.");
-        this.value = formatarDataLocal(dataAtual);
-    } else if (dataSelecionada < dataMinima) {
-        alert("A data de estreia não pode ser anterior a 01/01/2025.");
-        this.value = '2025-01-01';
+    tvData.customReleaseDate = this.checked;
+    if (this.checked) {
+        releaseDateContainer.style.display = 'block';
+        
+        // Configurar data mínima (01/01/2025) e máxima (ontem)
+        const hoje = new Date();
+        const ontem = new Date(hoje);
+        ontem.setDate(hoje.getDate() - 1);
+        
+        const ontemFormatado = ontem.toISOString().split('T')[0];
+        
+        releaseDateInput.min = '2025-01-01';
+        releaseDateInput.max = ontemFormatado;
+        
+        if (!releaseDateInput.value) {
+            releaseDateInput.value = ontemFormatado;
+            tvData.releaseDate = ontemFormatado;
+        }
+    } else {
+        releaseDateContainer.style.display = 'none';
+        tvData.releaseDate = '';
     }
-    
-    // Salvar a data EXATA que o usuário escolheu
-    tvData.releaseDate = this.value;
-    console.log('Data de estreia salva:', tvData.releaseDate);
 });
+            
+
             
             // Configurar comerciais por intervalo
             commercialsPerBreakInput.addEventListener('input', function() {
