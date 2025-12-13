@@ -2445,82 +2445,93 @@ function determinarDataEstreia(dadosGerador) {
             <\/script>
             `;
             
-            // NOVO: FUNÇÃO DE CÁLCULO DE DIAS NO CANAL
+                        // NOVO: FUNÇÃO DE CÁLCULO DE DIAS NO CANAL
 const diasScript = `
 <script>
     // ==================== NOVAS FUNÇÕES DE CÁLCULO ====================
     
     // Função para calcular dias desde a estreia (CORRIGIDA)
-function calcularDiasDesdeEstreiaCanal() {
-    const RELEASE_DATE = "${releaseDate}";
-    
-    if (!RELEASE_DATE) {
-        return 1;
+    function calcularDiasDesdeEstreiaCanal() {
+        const RELEASE_DATE = "${releaseDate}";
+        
+        if (!RELEASE_DATE) {
+            return 1;
+        }
+        
+        // Criar data de estreia às 6h da manhã no horário local
+        const [ano, mes, dia] = RELEASE_DATE.split('-').map(Number);
+        const dataEstreia = new Date(ano, mes - 1, dia, 6, 0, 0, 0);
+        
+        // Obter data e hora atuais
+        const agora = new Date();
+        const horaAtual = agora.getHours();
+        
+        // Calcular data atual do canal (considerando que o dia do canal vai de 06:00 até 05:59 do dia seguinte)
+        const dataAtualCanal = new Date(agora);
+        
+        // Se for antes das 6h, retrocede um dia
+        if (horaAtual < 6) {
+            dataAtualCanal.setDate(dataAtualCanal.getDate() - 1);
+        }
+        
+        // Ajustar para 6h da manhã
+        dataAtualCanal.setHours(6, 0, 0, 0);
+        
+        // Verificar se a data de estreia é válida (não pode ser futura)
+        if (dataAtualCanal < dataEstreia) {
+            return 1;
+        }
+        
+        // Calcular diferença em dias
+        const diferencaMs = dataAtualCanal.getTime() - dataEstreia.getTime();
+        const diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
+        
+        // A data de estreia é o Dia 1
+        const diaProgramacao = diasDesdeEstreia + 1;
+        
+        return diaProgramacao;
     }
-    
-    // Criar data de estreia às 6h da manhã no horário local
-    const [ano, mes, dia] = RELEASE_DATE.split('-').map(Number);
-    const dataEstreia = new Date(ano, mes - 1, dia, 6, 0, 0, 0);
-    
-    // Obter data e hora atuais
-    const agora = new Date();
-    const horaAtual = agora.getHours();
-    
-    // Calcular data atual do canal (considerando que o dia do canal vai de 06:00 até 05:59 do dia seguinte)
-    const dataAtualCanal = new Date(agora);
-    
-    // Se for antes das 6h, retrocede um dia
-    if (horaAtual < 6) {
-        dataAtualCanal.setDate(dataAtualCanal.getDate() - 1);
-    }
-    
-    // Ajustar para 6h da manhã
-    dataAtualCanal.setHours(6, 0, 0, 0);
-    
-    // Verificar se a data de estreia é válida (não pode ser futura)
-    if (dataAtualCanal < dataEstreia) {
-        return 1;
-    }
-    
-    // Calcular diferença em dias
-    const diferencaMs = dataAtualCanal.getTime() - dataEstreia.getTime();
-    const diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
-    
-    // A data de estreia é o Dia 1
-    const diaProgramacao = diasDesdeEstreia + 1;
-    
-    return diaProgramacao;
-}
     
     // Função para calcular slot atual no modo PLAYLIST
     function calcularSlotAtualPlaylist() {
         const agora = new Date();
-        const dataEstreia = new Date(RELEASE_DATE);
+        const horaAtual = agora.getHours();
+        const minutosAtuais = agora.getMinutes();
         
-        // Ambas as datas ajustadas para 6h da manhã
-        const agoraAjustada = new Date(agora);
-        const dataEstreiaAjustada = new Date(dataEstreia);
+        // Data da estreia (às 6h)
+        const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
+        const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
         
-        // Ajustar para 6h da manhã
-        agoraAjustada.setHours(6, 0, 0, 0);
-        dataEstreiaAjustada.setHours(6, 0, 0, 0);
-        
-        // Se a hora atual for antes das 6h, usar o dia anterior
-        if (agora.getHours() < 6) {
-            agoraAjustada.setDate(agoraAjustada.getDate() - 1);
+        // Data de referência (6h do dia atual ou do dia anterior)
+        let dataReferencia = new Date(agora);
+        dataReferencia.setHours(6, 0, 0, 0);
+        if (horaAtual < 6) {
+            dataReferencia.setDate(dataReferencia.getDate() - 1);
         }
         
-        // Calcular diferença em minutos
-        const diferencaMs = agora.getTime() - dataEstreiaAjustada.getTime();
-        const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
-        
-        // Calcular slots de 25 minutos
-        let slotAtual = Math.floor(minutosDesdeEstreia / SLOT_DURATION);
-        
-        // Garantir que não seja negativo
-        if (slotAtual < 0) {
-            slotAtual = 0;
+        // Se a data de referência for anterior à data de estreia, ainda não começou
+        if (dataReferencia < dataEstreia) {
+            return 1;
         }
+        
+        // Diferença em minutos entre a data de estreia e a data de referência (ambas às 6h)
+        const diferencaMs = dataReferencia.getTime() - dataEstreia.getTime();
+        const diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
+        const minutosDesdeEstreia = diasDesdeEstreia * 24 * 60;
+        
+        // Minutos que se passaram desde a data de referência até agora
+        let minutosDesdeReferencia;
+        if (horaAtual >= 6) {
+            minutosDesdeReferencia = (horaAtual - 6) * 60 + minutosAtuais;
+        } else {
+            // horaAtual < 6, então a data de referência é ontem 6h
+            minutosDesdeReferencia = (horaAtual + 18) * 60 + minutosAtuais;
+        }
+        
+        const totalMinutos = minutosDesdeEstreia + minutosDesdeReferencia;
+        
+        // Cada slot tem 25 minutos, o slot 1 começa em 0 minutos
+        let slotAtual = Math.floor(totalMinutos / SLOT_DURATION) + 1;
         
         return slotAtual;
     }
@@ -2666,11 +2677,11 @@ function calcularDiasDesdeEstreiaCanal() {
                 nome: programa.name
             };
         } else {
-            // Modo Playlist
+            // Modo Playlist: slotIndex é baseado em 1
             const totalSlotsCanal = TV_PLAYLIST.length;
             
             // Ajustar slot se exceder o total
-            const slotAjustado = ajustarSlotPlaylist(slotIndex + 1, totalSlotsCanal); // +1 porque slotIndex vem como base 0
+            const slotAjustado = ajustarSlotPlaylist(slotIndex, totalSlotsCanal);
             
             const videoInfo = TV_PLAYLIST[slotAjustado - 1]; // -1 para base 0
             
@@ -2684,7 +2695,7 @@ function calcularDiasDesdeEstreiaCanal() {
                 videoUrl: videoInfo.url,
                 nome: videoInfo.name,
                 slotAjustado: slotAjustado,
-                slotOriginal: slotIndex + 1
+                slotOriginal: slotIndex
             };
         }
     }
@@ -4160,17 +4171,8 @@ function calcularDiasDesdeEstreiaCanal() {
             if (COMMERCIALS_ORDER === 'random') {
                 availableCommercials = [...TV_COMMERCIALS];
             }
-            
-            const slotAtual = calcularSlotAtual();
-            
-            if (PROGRAMMING_MODE === 'playlist') {
-                const totalSlotsCanal = TV_PLAYLIST.length;
-                const slotAjustado = ajustarSlotPlaylist(slotAtual, totalSlotsCanal);
-                currentPlayingSlot = slotAjustado;
-            } else {
-                currentPlayingSlot = slotAtual;
-            }
-            
+                        const slotAtual = calcularSlotAtual();
+            currentPlayingSlot = slotAtual;
             const videoInfo = obterVideoParaSlot(currentPlayingSlot);
             if (videoInfo) {
                 if (PROGRAMMING_MODE === 'grade') {
