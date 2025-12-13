@@ -2417,50 +2417,253 @@
             `;
             
             // NOVO: FUNÇÃO DE CÁLCULO DE DIAS NO CANAL
-            const diasScript = `
-            <script>
-                // FUNÇÃO PARA CALCULAR DIAS DESDE A ESTREIA (CANAL)
-                function calcularDiasDesdeEstreiaCanal() {
-                    const RELEASE_DATE = "${releaseDate}";
-                    
-                    if (!RELEASE_DATE) {
-                        return 1;
-                    }
-                    
-                    const dataEstreia = new Date(RELEASE_DATE);
-                    const agora = new Date();
-                    
-                    // Calcular data atual do canal (considerando que o dia muda às 6h)
-                    const dataAtualCanal = new Date(agora);
-                    const horaAtual = agora.getHours();
-                    
-                    // Se for antes das 6h, retrocede um dia
-                    if (horaAtual < 6) {
-                        dataAtualCanal.setDate(dataAtualCanal.getDate() - 1);
-                    }
-                    
-                    // Ajustar ambas as datas para 6h da manhã
-                    dataAtualCanal.setHours(6, 0, 0, 0);
-                    dataEstreia.setHours(6, 0, 0, 0);
-                    
-                    // Verificar se a data de estreia é válida
-                    if (dataAtualCanal < dataEstreia) {
-                        return 1;
-                    }
-                    
-                    // Calcular diferença em milissegundos
-                    const diferencaMs = dataAtualCanal.getTime() - dataEstreia.getTime();
-                    
-                    // Converter para dias (arredondar para baixo)
-                    const diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
-                    
-                    // Usar ((data atual do canal - data de estreia) + 1) para evitar dia 0
-                    const diaProgramacao = diasDesdeEstreia + 1;
-                    
-                    return diaProgramacao;
-                }
-            <\/script>
-            `;
+const diasScript = `
+<script>
+    // ==================== NOVAS FUNÇÕES DE CÁLCULO ====================
+    
+    // Função para calcular dias desde a estreia (CORRIGIDA)
+    function calcularDiasDesdeEstreiaCanal() {
+        const RELEASE_DATE = "${releaseDate}";
+        
+        if (!RELEASE_DATE) {
+            return 1;
+        }
+        
+        const agora = new Date();
+        const horaAtual = agora.getHours();
+        const minutosAtual = agora.getMinutes();
+        const segundosAtual = agora.getSeconds();
+        
+        // Calcular data atual do canal (considerando que o dia do canal vai de 06:00 até 05:59 do dia seguinte)
+        const dataAtualCanal = new Date(agora);
+        
+        // Se for antes das 6h, retrocede um dia
+        if (horaAtual < 6) {
+            dataAtualCanal.setDate(dataAtualCanal.getDate() - 1);
+        }
+        
+        // Ajustar para 6h da manhã
+        dataAtualCanal.setHours(6, 0, 0, 0);
+        
+        // Data de estreia (sempre às 6h)
+        const dataEstreia = new Date(RELEASE_DATE);
+        dataEstreia.setHours(6, 0, 0, 0);
+        
+        // Verificar se a data de estreia é válida (não pode ser futura em relação à data atual do canal)
+        if (dataAtualCanal < dataEstreia) {
+            return 1; // Se a data de estreia for futura, retorna dia 1
+        }
+        
+        // Calcular diferença em milissegundos
+        const diferencaMs = dataAtualCanal.getTime() - dataEstreia.getTime();
+        
+        // Converter para dias (arredondar para baixo)
+        const diasDesdeEstreia = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
+        
+        // Usar ((data atual do canal - data de estreia) + 1) para evitar dia 0
+        const diaProgramacao = diasDesdeEstreia + 1;
+        
+        return diaProgramacao;
+    }
+    
+    // Função para calcular slot atual no modo PLAYLIST
+    function calcularSlotAtualPlaylist() {
+        const agora = new Date();
+        const dataEstreia = new Date(RELEASE_DATE);
+        
+        // Ambas as datas ajustadas para 6h da manhã
+        const agoraAjustada = new Date(agora);
+        const dataEstreiaAjustada = new Date(dataEstreia);
+        
+        // Ajustar para 6h da manhã
+        agoraAjustada.setHours(6, 0, 0, 0);
+        dataEstreiaAjustada.setHours(6, 0, 0, 0);
+        
+        // Se a hora atual for antes das 6h, usar o dia anterior
+        if (agora.getHours() < 6) {
+            agoraAjustada.setDate(agoraAjustada.getDate() - 1);
+        }
+        
+        // Calcular diferença em minutos
+        const diferencaMs = agora.getTime() - dataEstreiaAjustada.getTime();
+        const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
+        
+        // Calcular slots de 25 minutos
+        let slotAtual = Math.floor(minutosDesdeEstreia / SLOT_DURATION);
+        
+        // Garantir que não seja negativo
+        if (slotAtual < 0) {
+            slotAtual = 0;
+        }
+        
+        return slotAtual;
+    }
+    
+    // Função para ajustar slot no modo PLAYLIST quando excede o total
+    function ajustarSlotPlaylist(slotAtual, totalSlotsCanal) {
+        if (totalSlotsCanal <= 0) return 1;
+        
+        let slotAjustado = slotAtual;
+        
+        // Subtrair o total de slots até que seja menor ou igual
+        while (slotAjustado > totalSlotsCanal) {
+            slotAjustado -= totalSlotsCanal;
+        }
+        
+        // Se for 0 ou negativo, definir para 1
+        if (slotAjustado <= 0) {
+            slotAjustado = 1;
+        }
+        
+        return slotAjustado;
+    }
+    
+    // Função para calcular slot atual no modo GRADE
+    function calcularSlotAtualGrade() {
+        const agora = new Date();
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        
+        let horaBase;
+        
+        // Se for entre 00:00 e 05:59, usar 6h do dia anterior
+        if (horas < 6) {
+            const dataOntem = new Date(agora);
+            dataOntem.setDate(dataOntem.getDate() - 1);
+            horaBase = new Date(dataOntem);
+            horaBase.setHours(6, 0, 0, 0);
+        } else {
+            // Se for 6h ou mais, usar 6h do dia atual
+            horaBase = new Date(agora);
+            horaBase.setHours(6, 0, 0, 0);
+        }
+        
+        // Calcular diferença em minutos desde as 6h
+        const diferencaMs = agora.getTime() - horaBase.getTime();
+        const minutosDesde6h = Math.floor(diferencaMs / (1000 * 60));
+        
+        // Calcular slot (cada slot tem 25 minutos)
+        let slotAtual = Math.floor(minutosDesde6h / SLOT_DURATION) + 1; // +1 porque o slot 1 começa às 6h
+        
+        // Limitar ao máximo de 58 slots
+        if (slotAtual > TOTAL_SLOTS) {
+            slotAtual = TOTAL_SLOTS;
+        }
+        
+        // Se for antes das 6h, o slot é 58 (último slot do dia anterior)
+        if (horas < 6 && slotAtual <= 0) {
+            slotAtual = TOTAL_SLOTS;
+        }
+        
+        return slotAtual;
+    }
+    
+    // Função para ajustar vídeo dentro de um slot no modo GRADE
+    function ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot) {
+        if (totalVideosSlot <= 0) return 1;
+        
+        let videoAjustado = diasDesdeEstreia;
+        
+        // Subtrair o total de vídeos até que seja menor ou igual
+        while (videoAjustado > totalVideosSlot) {
+            videoAjustado -= totalVideosSlot;
+        }
+        
+        // Garantir que seja pelo menos 1
+        if (videoAjustado <= 0) {
+            videoAjustado = 1;
+        }
+        
+        return videoAjustado;
+    }
+    
+    // Função unificada para calcular slot atual baseado no modo
+    function calcularSlotAtual() {
+        if (PROGRAMMING_MODE === 'grade') {
+            return calcularSlotAtualGrade();
+        } else {
+            return calcularSlotAtualPlaylist();
+        }
+    }
+    
+    // Função para verificar se precisa recarregar a página no modo GRADE
+    function verificarRecarregamentoGrade() {
+        if (PROGRAMMING_MODE !== 'grade') return;
+        
+        const agora = new Date();
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        const segundos = agora.getSeconds();
+        
+        // Se estiver entre 06:00:00 e 06:24:59
+        if (horas === 6 && minutos >= 0 && minutos <= 24) {
+            // E o canal não estiver no slot 1
+            if (currentPlayingSlot !== 1) {
+                console.log('Recarregando página para iniciar novo dia com slot 1');
+                location.reload();
+            }
+        }
+    }
+    
+    // Função principal para obter vídeo para o slot atual (ATUALIZADA)
+    function obterVideoParaSlot(slotIndex) {
+        if (PROGRAMMING_MODE === 'grade') {
+            // Modo Grade
+            const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
+            currentDay = diasDesdeEstreia;
+            currentPlayingSlot = slotIndex;
+            
+            if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
+                return null;
+            }
+            
+            // Obter o programa do slot
+            const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
+            const programa = TV_PROGRAMS[programIndex];
+            
+            if (!programa || !programa.videos || programa.videos.length === 0) {
+                return null;
+            }
+            
+            // Ajustar o vídeo baseado nos dias desde a estreia
+            const totalVideosSlot = programa.videos.length;
+            const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
+            
+            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            
+            return {
+                programa: programa,
+                videoUrl: programa.videos[currentVideoIndex],
+                programaIndex: programIndex,
+                videoIndex: currentVideoIndex,
+                dia: currentDay,
+                nome: programa.name
+            };
+        } else {
+            // Modo Playlist
+            const totalSlotsCanal = TV_PLAYLIST.length;
+            
+            // Ajustar slot se exceder o total
+            const slotAjustado = ajustarSlotPlaylist(slotIndex + 1, totalSlotsCanal); // +1 porque slotIndex vem como base 0
+            
+            const videoInfo = TV_PLAYLIST[slotAjustado - 1]; // -1 para base 0
+            
+            if (!videoInfo) {
+                return null;
+            }
+            
+            currentPlayingSlot = slotAjustado;
+            
+            return {
+                videoUrl: videoInfo.url,
+                nome: videoInfo.name,
+                slotAjustado: slotAjustado,
+                slotOriginal: slotIndex + 1
+            };
+        }
+    }
+<\/script>
+`;
             
             // HTML do canal
             const html = `<!DOCTYPE html>
@@ -3363,1855 +3566,49 @@
             updateAuthUIChannel();
         }
         
-       <!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Playtronic Publisher - Crie seu Canal de TV Online</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
-        }
-
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-            position: relative;
-        }
-
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-        }
-
-        .header p {
-            font-size: 1.1em;
-            opacity: 0.9;
-        }
-
-        .auth-container {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-
-        #loginButton {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: 2px solid white;
-            padding: 8px 20px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
-
-        #loginButton:hover {
-            background: white;
-            color: #667eea;
-        }
-
-        #userInfo {
-            display: none;
-            position: relative;
-        }
-
-        #userAvatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            cursor: pointer;
-            border: 2px solid white;
-            transition: transform 0.3s;
-        }
-
-        #userAvatar:hover {
-            transform: scale(1.1);
-        }
-
-        .user-card {
-            display: none;
-            position: absolute;
-            top: 50px;
-            right: 0;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            padding: 20px;
-            min-width: 200px;
-            z-index: 1000;
-        }
-
-        .user-card.active {
-            display: block;
-        }
-
-        .user-card-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #eee;
-        }
-
-        .user-card-avatar {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-        }
-
-        .user-card-info {
-            flex: 1;
-        }
-
-        .user-card-info h3 {
-            color: #333;
-            font-size: 16px;
-            margin-bottom: 5px;
-        }
-
-        .user-card-info p {
-            color: #666;
-            font-size: 12px;
-        }
-
-        #logoutButton {
-            width: 100%;
-            background: #e74c3c;
-            color: white;
-            border: none;
-            padding: 10px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s;
-        }
-
-        #logoutButton:hover {
-            background: #c0392b;
-        }
-
-        .login-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
-            z-index: 2000;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .login-modal {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            max-width: 400px;
-            width: 90%;
-            text-align: center;
-            position: relative;
-        }
-
-        .login-modal h2 {
-            color: #333;
-            margin-bottom: 20px;
-        }
-
-        .login-modal p {
-            color: #666;
-            margin-bottom: 30px;
-        }
-
-        #googleLoginBtn {
-            background: white;
-            color: #333;
-            border: 2px solid #ddd;
-            padding: 12px 30px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin: 0 auto;
-            transition: all 0.3s;
-        }
-
-        #googleLoginBtn:hover {
-            border-color: #667eea;
-            color: #667eea;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-
-        #closeLoginBtn {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: none;
-            border: none;
-            font-size: 24px;
-            cursor: pointer;
-            color: #999;
-            width: 30px;
-            height: 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            transition: all 0.3s;
-        }
-
-        #closeLoginBtn:hover {
-            background: #f0f0f0;
-            color: #333;
-        }
-
-        .content {
-            padding: 40px;
-        }
-
-        .screen {
-            display: none;
-        }
-
-        .screen.active {
-            display: block;
-        }
-
-        .step-indicator {
-            display: none;
-            justify-content: center;
-            gap: 20px;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-
-        .step-indicator.active {
-            display: flex;
-        }
-
-        .step {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .step-number {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            background: #ddd;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-        }
-
-        .step.active .step-number {
-            background: #667eea;
-        }
-
-        .step.completed .step-number {
-            background: #2ecc71;
-        }
-
-        .step-label {
-            color: #666;
-            font-size: 14px;
-        }
-
-        .step.active .step-label {
-            color: #667eea;
-            font-weight: bold;
-        }
-
-        .channels-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-
-        .channel-card {
-            background: white;
-            border: 2px solid #eee;
-            border-radius: 15px;
-            padding: 20px;
-            transition: all 0.3s;
-            position: relative;
-        }
-
-        .channel-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            border-color: #667eea;
-        }
-
-        .channel-logo-small {
-            width: 80px;
-            height: 80px;
-            object-fit: cover;
-            border-radius: 10px;
-            margin-bottom: 15px;
-        }
-
-        .channel-name-with-emoji {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-
-        .channel-name-with-emoji h3 {
-            color: #333;
-            font-size: 1.2em;
-            word-break: break-word;
-        }
-
-        .visibility-icon {
-            width: 25px;
-            height: 25px;
-        }
-
-        .adult-content-icon {
-            width: 25px;
-            height: 25px;
-        }
-
-        .channel-status {
-            display: inline-block;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 12px;
-            margin: 10px 0;
-            font-weight: bold;
-        }
-
-        .status-published {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-unpublished {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        .status-offline {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .spectators {
-            color: #666;
-            font-size: 14px;
-            margin: 10px 0;
-        }
-
-        .channel-actions {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-top: 15px;
-        }
-
-        .channel-actions button {
-            padding: 10px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
-
-        .watch-channel {
-            background: #667eea;
-            color: white;
-        }
-
-        .watch-channel:hover {
-            background: #5568d3;
-        }
-
-        .edit-channel {
-            background: #3498db;
-            color: white;
-        }
-
-        .edit-channel:hover {
-            background: #2980b9;
-        }
-
-        .toggle-offline-channel {
-            background: #f39c12;
-            color: white;
-        }
-
-        .toggle-offline-channel:hover {
-            background: #d68910;
-        }
-
-        .delete-button {
-            background: #e74c3c;
-            color: white;
-        }
-
-        .delete-button:hover {
-            background: #c0392b;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-        }
-
-        .empty-state img {
-            width: 150px;
-            opacity: 0.5;
-            margin-bottom: 20px;
-        }
-
-        .empty-state h3 {
-            color: #666;
-            margin-bottom: 10px;
-        }
-
-        .empty-state p {
-            color: #999;
-        }
-
-        .form-group {
-            margin-bottom: 25px;
-        }
-
-        .form-group label {
-            display: block;
-            color: #333;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .form-group input,
-        .form-group textarea,
-        .form-group select {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-
-        .form-group input:focus,
-        .form-group textarea:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .form-group textarea {
-            min-height: 100px;
-            resize: vertical;
-        }
-
-        .char-counter {
-            text-align: right;
-            font-size: 12px;
-            color: #999;
-            margin-top: 5px;
-        }
-
-        .char-counter.near-limit {
-            color: #f39c12;
-        }
-
-        .char-counter.over-limit {
-            color: #e74c3c;
-        }
-
-        .error-message {
-            color: #e74c3c;
-            font-size: 14px;
-            margin-top: 5px;
-            display: none;
-        }
-
-        .info-message {
-            background: #e8f4fd;
-            color: #0c5460;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border-left: 4px solid #0c5460;
-        }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .checkbox-group input[type="checkbox"] {
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-        }
-
-        .checkbox-group label {
-            margin: 0;
-            cursor: pointer;
-        }
-
-        .logo-preview {
-            width: 150px;
-            height: 150px;
-            object-fit: cover;
-            border-radius: 10px;
-            margin-top: 15px;
-            border: 2px solid #ddd;
-        }
-
-        .button-group {
-            display: flex;
-            gap: 15px;
-            margin-top: 30px;
-        }
-
-        .btn {
-            flex: 1;
-            padding: 15px 30px;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-weight: 600;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-primary:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-secondary {
-            background: white;
-            color: #667eea;
-            border: 2px solid #667eea;
-        }
-
-        .btn-secondary:hover {
-            background: #667eea;
-            color: white;
-        }
-
-        .btn-create {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px 40px;
-            border: none;
-            border-radius: 12px;
-            font-size: 18px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-weight: 600;
-            display: inline-block;
-        }
-
-        .btn-create:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
-        }
-
-        .program-card {
-            background: #f8f9fa;
-            border: 2px solid #ddd;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .program-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .program-title {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .expand-btn {
-            background: #667eea;
-            color: white;
-            border: none;
-            width: 30px;
-            height: 30px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .program-body {
-            padding-top: 15px;
-            border-top: 1px solid #ddd;
-        }
-
-        .video-list {
-            list-style: none;
-            margin: 15px 0;
-        }
-
-        .video-list li {
-            background: white;
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .video-list li span {
-            word-break: break-all;
-        }
-
-        .remove-video {
-            background: #e74c3c;
-            color: white;
-            border: none;
-            padding: 5px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-
-        .add-video-form {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .add-video-form input {
-            flex: 1;
-        }
-
-        .add-episode-btn {
-            background: #2ecc71;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            white-space: nowrap;
-        }
-
-        .add-episode-btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-
-        .playlist-video-card {
-            background: #f8f9fa;
-            border: 2px solid #ddd;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .playlist-video-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .remove-playlist-video {
-            background: #e74c3c;
-            color: white;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-
-        .commercial-card {
-            background: #f8f9fa;
-            border: 2px solid #ddd;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .commercial-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .remove-commercial {
-            background: #e74c3c;
-            color: white;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-
-        .progress-container {
-            width: 100%;
-            height: 6px;
-            background: #e0e0e0;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 20px;
-        }
-
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            transition: width 0.5s ease;
-        }
-
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .channel-link {
-            display: inline-block;
-            background: #667eea;
-            color: white;
-            padding: 15px 30px;
-            border-radius: 8px;
-            text-decoration: none;
-            margin-top: 20px;
-            transition: all 0.3s;
-        }
-
-        .channel-link:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-        }
-
-        .server-result {
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-
-        .server-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-
-        .name-disabled {
-            background-color: #f0f0f0 !important;
-            cursor: not-allowed !important;
-            opacity: 0.6;
-        }
-
-        #nameCheckStatus {
-            font-size: 12px;
-            margin-top: 5px;
-            font-weight: bold;
-        }
-
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 1.8em;
-            }
-
-            .content {
-                padding: 20px;
-            }
-
-            .channels-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .button-group {
-                flex-direction: column;
-            }
-
-            .auth-container {
-                position: static;
-                justify-content: center;
-                margin-top: 20px;
-            }
-
-            .step-indicator {
-                flex-wrap: wrap;
-                gap: 10px;
-            }
-
-            .step {
-                font-size: 12px;
-            }
-
-            .step-number {
-                width: 25px;
-                height: 25px;
-                font-size: 12px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="login-overlay" id="loginOverlay">
-        <div class="login-modal">
-            <button id="closeLoginBtn">×</button>
-            <h2>Fazer Login</h2>
-            <p>Faça login para criar e gerenciar seus canais de TV</p>
-            <button id="googleLoginBtn">
-                <svg width="20" height="20" viewBox="0 0 20 20">
-                    <path fill="#4285F4" d="M19.6 10.23c0-.82-.1-1.42-.25-2.05H10v3.72h5.5c-.15.96-.74 2.31-2.04 3.22v2.45h3.16c1.89-1.73 2.98-4.3 2.98-7.34z"/>
-                    <path fill="#34A853" d="M13.46 15.13c-.83.59-1.96 1-3.46 1-2.64 0-4.88-1.74-5.68-4.15H1.07v2.52C2.72 17.75 6.09 20 10 20c2.7 0 4.96-.89 6.62-2.42l-3.16-2.45z"/>
-                    <path fill="#FBBC05" d="M3.99 10c0-.69.12-1.35.32-1.97V5.51H1.07A9.973 9.973 0 000 10c0 1.61.39 3.14 1.07 4.49l3.24-2.52c-.2-.62-.32-1.28-.32-1.97z"/>
-                    <path fill="#EA4335" d="M10 3.88c1.88 0 3.13.81 3.85 1.48l2.84-2.76C14.96.99 12.7 0 10 0 6.09 0 2.72 2.25 1.07 5.51l3.24 2.52C5.12 5.62 7.36 3.88 10 3.88z"/>
-                </svg>
-                Entrar com Google
-            </button>
-        </div>
-    </div>
-
-    <div class="container">
-        <div class="header">
-            <div class="auth-container">
-                <button id="loginButton">Login</button>
-                <div id="userInfo">
-                    <img id="userAvatar" src="" alt="Avatar">
-                    <div class="user-card" id="userCard">
-                        <div class="user-card-header">
-                            <img id="userCardAvatar" class="user-card-avatar" src="" alt="Avatar">
-                            <div class="user-card-info">
-                                <h3 id="userName">Usuário</h3>
-                                <p id="userEmail">email@exemplo.com</p>
-                            </div>
-                        </div>
-                        <button id="logoutButton">Sair</button>
-                    </div>
-                </div>
-            </div>
-            <h1>📺 Playtronic Publisher</h1>
-            <p>Crie seu próprio canal de TV online em minutos</p>
-        </div>
-
-        <div class="content">
-            <div class="step-indicator" id="stepIndicator">
-                <div class="step" id="step1">
-                    <div class="step-number">1</div>
-                    <div class="step-label">Básico</div>
-                </div>
-                <div class="step" id="step2">
-                    <div class="step-number">2</div>
-                    <div class="step-label">Config</div>
-                </div>
-                <div class="step" id="step3">
-                    <div class="step-number">3</div>
-                    <div class="step-label">Programação</div>
-                </div>
-                <div class="step" id="step4">
-                    <div class="step-number">4</div>
-                    <div class="step-label">Comerciais</div>
-                </div>
-                <div class="step" id="step5">
-                    <div class="step-number">5</div>
-                    <div class="step-label">Social</div>
-                </div>
-                <div class="step" id="step6">
-                    <div class="step-number">6</div>
-                    <div class="step-label">Publicar</div>
-                </div>
-            </div>
-
-            <div id="screen0" class="screen active">
-                <h2 style="text-align: center; color: #333; margin-bottom: 30px;">Meus Canais</h2>
-                
-                <div style="text-align: center; margin-bottom: 30px;">
-                    <button id="createNewChannel" class="btn-create">+ Criar Novo Canal</button>
-                </div>
-
-                <div id="emptyState" class="empty-state">
-                    <h3>Nenhum canal criado ainda</h3>
-                    <p>Clique em "Criar Novo Canal" para começar</p>
-                </div>
-
-                <div id="channelsList" class="channels-grid" style="display: none;"></div>
-            </div>
-
-            <div id="screen1" class="screen">
-                <h2 style="color: #333; margin-bottom: 20px;">Informações Básicas do Canal</h2>
-                
-                <div class="form-group">
-                    <label for="tvEmail">E-mail de contato:</label>
-                    <input type="email" id="tvEmail" placeholder="seu@email.com" required>
-                    <div class="error-message" id="emailError">Por favor, insira um e-mail válido.</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="tvName">Nome do Canal (máx. 50 caracteres):</label>
-                    <input type="text" id="tvName" maxlength="50" placeholder="Ex: Minha TV" required>
-                    <div class="char-counter" id="tvNameCounter">0/50</div>
-                    <div class="error-message" id="nameError">O nome do canal é obrigatório.</div>
-                    <div class="error-message" id="nameDuplicateError" style="display: none;">Já existe um canal com este nome.</div>
-                    <div id="nameCheckStatus" style="display: none;"></div>
-                </div>
-
-                <div class="form-group">
-                    <label for="tvSlogan">Slogan do Canal (máx. 100 caracteres):</label>
-                    <input type="text" id="tvSlogan" maxlength="100" placeholder="Ex: A melhor programação online">
-                    <div class="char-counter" id="tvSloganCounter">0/100</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="tvLogo">Logo do Canal (URL da imagem):</label>
-                    <input type="url" id="tvLogo" placeholder="https://exemplo.com/logo.png">
-                    <div class="error-message" id="logoError">Não foi possível carregar a imagem.</div>
-                    <img id="logoPreview" class="logo-preview" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect fill='%23ddd' width='200' height='200'/%3E%3Ctext fill='%23999' font-family='sans-serif' font-size='20' x='50%25' y='50%25' text-anchor='middle' dy='.3em'%3ELogo%3C/text%3E%3C/svg%3E" alt="Logo Preview">
-                </div>
-
-                <div class="button-group">
-                    <button type="button" class="btn btn-secondary" id="backToHome">← Voltar</button>
-                    <button type="button" class="btn btn-primary" id="toScreen2" disabled>Próximo →</button>
-                </div>
-            </div>
-
-            <div id="screen2" class="screen">
-                <h2 style="color: #333; margin-bottom: 20px;">Configurações do Canal</h2>
-
-                <div class="form-group">
-                    <label for="visibilitySelect">Visibilidade do Canal:</label>
-                    <select id="visibilitySelect">
-                        <option value="brazil">Apenas Brasil</option>
-                        <option value="world">Mundo Todo</option>
-                    </select>
-                    <p id="visibilityInfo" style="font-size: 12px; color: #666; margin-top: 5px;">Seu canal será acessível apenas no Brasil</p>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="showTime" checked>
-                    <label for="showTime">Mostrar relógio na tela</label>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="enableRewind10" checked>
-                    <label for="enableRewind10">Habilitar botão de voltar 10 segundos</label>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="enableRestart" checked>
-                    <label for="enableRestart">Habilitar botão de reiniciar programa</label>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="enableLive" checked>
-                    <label for="enableLive">Habilitar botão "Ao Vivo"</label>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="enableDebug" checked>
-                    <label for="enableDebug">Modo Debug (exibe informações técnicas)</label>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="customReleaseDate">
-                    <label for="customReleaseDate">Definir data de estreia personalizada</label>
-                </div>
-
-                <div id="releaseDateContainer" style="display: none; margin-left: 30px;">
-                    <div class="form-group">
-                        <label for="releaseDate">Data de Estreia:</label>
-                        <input type="date" id="releaseDate" min="2025-01-01">
-                        <p style="font-size: 12px; color: #666; margin-top: 5px;">A programação começará às 6h da manhã desta data</p>
-                    </div>
-                </div>
-
-                <div class="button-group">
-                    <button type="button" class="btn btn-secondary" id="backToScreen1">← Voltar</button>
-                    <button type="button" class="btn btn-secondary" id="backToHomeFromScreen2">🏠 Início</button>
-                    <button type="button" class="btn btn-primary" id="toScreen3">Próximo →</button>
-                </div>
-            </div>
-
-            <div id="screen3" class="screen">
-                <h2 style="color: #333; margin-bottom: 20px;">Programação do Canal</h2>
-
-                <div class="form-group">
-                    <label for="programmingMode">Modo de Programação:</label>
-                    <select id="programmingMode">
-                        <option value="grade">Grade (58 programas fixos, vídeos por dia)</option>
-                        <option value="playlist">Playlist (lista contínua de vídeos)</option>
-                    </select>
-                    <p id="programmingModeInfo" style="font-size: 12px; color: #666; margin-top: 5px;">Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.</p>
-                </div>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="adultContent">
-                    <label for="adultContent">Este canal transmite conteúdo adulto (18+)</label>
-                </div>
-
-                <div id="gradeModeContainer">
-                    <h3 style="color: #333; margin: 20px 0;">Programas (Grade)</h3>
-                    <p style="color: #666; margin-bottom: 20px;">Total de programas: <span id="programCount">0</span>/58</p>
-                    <div id="programsContainer"></div>
-                    <button type="button" id="addProgram" class="btn btn-primary" style="width: 100%; margin-top: 20px;">+ Adicionar Novo Programa</button>
-                    <div class="error-message" id="programsError" style="margin-top: 15px;"></div>
-                </div>
-
-                <div id="playlistModeContainer" style="display: none;">
-                    <h3 style="color: #333; margin: 20px 0;">Vídeos da Playlist</h3>
-                    <p style="color: #666; margin-bottom: 20px;">Total de vídeos: <span id="playlistCount">0</span></p>
-                    <div id="playlistContainer"></div>
-                    <button type="button" id="addPlaylistVideo" class="btn btn-primary" style="width: 100%; margin-top: 20px;">+ Adicionar Novo Vídeo</button>
-                    <div class="error-message" id="playlistError" style="margin-top: 15px;"></div>
-                </div>
-
-                <div class="button-group">
-                    <button type="button" class="btn btn-secondary" id="backToScreen2">← Voltar</button>
-                    <button type="button" class="btn btn-secondary" id="backToHomeFromScreen3">🏠 Início</button>
-                    <button type="button" class="btn btn-primary" id="toScreen4" disabled>Próximo →</button>
-                </div>
-            </div>
-
-            <div id="screen4" class="screen">
-                <h2 style="color: #333; margin-bottom: 20px;">Intervalos Comerciais</h2>
-
-                <div class="checkbox-group">
-                    <input type="checkbox" id="enableCommercials">
-                    <label for="enableCommercials">Habilitar intervalos comerciais</label>
-                </div>
-
-                <div id="commercialSettings" style="display: none; margin-left: 30px;">
-                    <div class="form-group">
-                        <label for="commercialsPerBreak">Número de comerciais por intervalo (1-8):</label>
-                        <input type="number" id="commercialsPerBreak" min="1" max="8" value="2">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="commercialsOrder">Ordem de exibição:</label>
-                        <select id="commercialsOrder">
-                            <option value="sequential">Sequencial</option>
-                            <option value="random">Aleatório</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div id="commercialsContainer" style="display: none; margin-top: 30px;"></div>
-
-                <button type="button" id="addCommercial" class="btn btn-primary" style="width: 100%; margin-top: 20px; display: none;">+ Adicionar Novo Comercial</button>
-
-                <div class="button-group">
-                    <button type="button" class="btn btn-secondary" id="backToScreen3">← Voltar</button>
-                    <button type="button" class="btn btn-secondary" id="backToHomeFromScreen4">🏠 Início</button>
-                    <button type="button" class="btn btn-primary" id="toScreen5">Próximo →</button>
-                </div>
-            </div>
-
-            <div id="screen5" class="screen">
-                <h2 style="color: #333; margin-bottom: 20px;">Redes Sociais e Links</h2>
-
-                <p style="color: #666; margin-bottom: 20px;">Adicione links para suas redes sociais (opcional)</p>
-
-                <div class="form-group">
-                    <label for="facebookUrl">Facebook:</label>
-                    <input type="url" id="facebookUrl" placeholder="https://facebook.com/seu-perfil">
-                    <div class="error-message" id="facebookError">URL do Facebook inválida.</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="instagramUrl">Instagram:</label>
-                    <input type="url" id="instagramUrl" placeholder="https://instagram.com/seu-perfil">
-                    <div class="error-message" id="instagramError">URL do Instagram inválida.</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="blueskyUrl">Bluesky:</label>
-                    <input type="url" id="blueskyUrl" placeholder="https://bsky.app/profile/seu-perfil">
-                    <div class="error-message" id="blueskyError">URL do Bluesky inválida.</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="tiktokUrl">TikTok:</label>
-                    <input type="url" id="tiktokUrl" placeholder="https://tiktok.com/@seu-perfil">
-                    <div class="error-message" id="tiktokError">URL do TikTok inválida.</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="twitterUrl">X (Twitter):</label>
-                    <input type="url" id="twitterUrl" placeholder="https://x.com/seu-perfil ou https://twitter.com/seu-perfil">
-                    <div class="error-message" id="twitterError">URL do X/Twitter inválida.</div>
-                </div>
-
-                <h3 style="color: #333; margin: 30px 0 20px;">Botão Personalizado</h3>
-                <p style="color: #666; margin-bottom: 20px;">Adicione um botão customizado com link externo (opcional)</p>
-
-                <div class="form-group">
-                    <label for="customButtonText">Texto do Botão (máx. 20 caracteres):</label>
-                    <input type="text" id="customButtonText" maxlength="20" placeholder="Ex: Loja">
-                    <div class="char-counter" id="customButtonTextCounter">0/20</div>
-                </div>
-
-                <div class="form-group">
-                    <label for="customButtonUrl">URL do Botão:</label>
-                    <input type="url" id="customButtonUrl" placeholder="https://exemplo.com">
-                    <div class="error-message" id="customButtonError"></div>
-                </div>
-
-                <div class="button-group">
-                    <button type="button" class="btn btn-secondary" id="backToScreen4">← Voltar</button>
-                    <button type="button" class="btn btn-secondary" id="backToHomeFromScreen5">🏠 Início</button>
-                    <button type="button" class="btn btn-primary" id="toScreen6">Publicar Canal →</button>
-                </div>
-            </div>
-
-            <div id="screen6" class="screen">
-                <h2 style="color: #333; margin-bottom: 30px; text-align: center;">Publicação do Canal</h2>
-
-                <div id="authRequiredMessage" style="display: none; text-align: center; padding: 40px;">
-                    <h3 style="color: #333; margin-bottom: 20px;">Login Necessário</h3>
-                    <p style="color: #666; margin-bottom: 30px;">Para publicar seu canal, você precisa fazer login primeiro.</p>
-                    <button id="loginFromPublish" class="btn-create">Fazer Login</button>
-                </div>
-
-                <div id="publishingStatus" style="display: none; text-align: center;">
-                    <div class="spinner"></div>
-                    <h3>Preparando publicação...</h3>
-                    <p>Gerando arquivos do canal</p>
-                    <div class="progress-container">
-                        <div class="progress-bar" style="width: 30%;"></div>
-                    </div>
-                </div>
-
-                <div id="processingMessage" style="display: none; text-align: center;">
-                    <div class="spinner"></div>
-                    <h3>Publicando canal...</h3>
-                    <p>Enviando para o servidor</p>
-                    <div class="progress-container">
-                        <div class="progress-bar" style="width: 60%;"></div>
-                    </div>
-                </div>
-
-                <div id="successMessage" style="display: none; text-align: center;"></div>
-
-                <div id="serverResult" class="server-result" style="display: none;"></div>
-
-                <div style="text-align: center; margin-top: 30px;">
-                    <button type="button" class="btn btn-secondary" id="backToScreen5" style="display: none;">← Voltar</button>
-                    <button type="button" class="btn btn-primary" id="retryPublish" style="display: none;">Tentar Novamente</button>
-                    <button type="button" class="btn btn-primary" id="backToHomeFromSuccess" style="display: none;">🏠 Voltar ao Início</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyBha3VdfkDP_p7wLh5r7BTW_GB9-0xKc3w",
-            authDomain: "playtronic-86b48.firebaseapp.com",
-            databaseURL: "https://playtronic-86b48-default-rtdb.firebaseio.com",
-            projectId: "playtronic-86b48",
-            storageBucket: "playtronic-86b48.firebasestorage.app",
-            messagingSenderId: "655675549458",
-            appId: "1:655675549458:web:3835f818eb3ea1a66da18f"
-        };
-
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const rtdb = firebase.database();
-        const db = firebase.firestore();
-
-        const DEFAULT_LOGO = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'200\' height=\'200\'%3E%3Crect fill=\'%23ddd\' width=\'200\' height=\'200\'/%3E%3Ctext fill=\'%23999\' font-family=\'sans-serif\' font-size=\'20\' x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\'%3ELogo%3C/text%3E%3C/svg%3E';
-        const BRAZIL_FLAG = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'30\' height=\'20\'%3E%3Crect fill=\'%2300923F\' width=\'30\' height=\'20\'/%3E%3Cpath fill=\'%23FFDF00\' d=\'M15 2 L28 10 L15 18 L2 10 Z\'/%3E%3Ccircle cx=\'15\' cy=\'10\' r=\'3.5\' fill=\'%23002776\'/%3E%3C/svg%3E';
-        const WORLD_ICON = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'30\' height=\'30\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23667eea\' stroke-width=\'2\'%3E%3Ccircle cx=\'12\' cy=\'12\' r=\'10\'/%3E%3Cline x1=\'2\' y1=\'12\' x2=\'22\' y2=\'12\'/%3E%3Cpath d=\'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z\'/%3E%3C/svg%3E';
-        const ADULT_ICON = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'30\' height=\'30\' viewBox=\'0 0 24 24\' fill=\'%23e74c3c\'%3E%3Ctext x=\'12\' y=\'16\' text-anchor=\'middle\' font-family=\'Arial\' font-size=\'14\' font-weight=\'bold\' fill=\'white\'%3E18%2B%3C/text%3E%3Ccircle cx=\'12\' cy=\'12\' r=\'11\' fill=\'none\' stroke=\'%23e74c3c\' stroke-width=\'2\'/%3E%3C/svg%3E';
-
-        let currentUser = null;
-        let tvData = {
-            email: '',
-            name: '',
-            slogan: '',
-            logo: '',
-            visibility: 'brazil',
-            showTime: true,
-            enableRewind10: true,
-            enableRestart: true,
-            enableLive: true,
-            enableDebug: true,
-            customReleaseDate: false,
-            releaseDate: '',
-            programmingMode: 'grade',
-            programs: [],
-            playlistVideos: [],
-            commercials: [],
-            enableCommercials: false,
-            commercialsPerBreak: 2,
-            commercialsOrder: 'sequential',
-            isOffline: false,
-            isAdultContent: false,
-            socialMedia: {
-                facebook: '',
-                instagram: '',
-                bluesky: '',
-                tiktok: '',
-                twitter: ''
-            },
-            customButton: {
-                text: '',
-                url: ''
-            },
-            url: '',
-            published: false,
-            userId: '',
-            createdAt: null,
-            updatedAt: null,
-            version: '1.0.0.0'
-        };
-
-        let channels = [];
-        let currentChannelId = null;
-        let editingChannel = false;
-        let originalChannelName = '';
-        let channelViewerListeners = {};
-        let versionCheckInterval = null;
-        let publicationStarted = false;
-        let isOnScreen6 = false;
-
-        const totalSlots = 58;
-
-        function showScreen(screenId) {
-            document.querySelectorAll('.screen').forEach(screen => {
-                screen.classList.remove('active');
-            });
-            document.getElementById(screenId).classList.add('active');
-
-            const stepIndicator = document.getElementById('stepIndicator');
-            if (screenId === 'screen0') {
-                stepIndicator.classList.remove('active');
-                isOnScreen6 = false;
-            } else {
-                stepIndicator.classList.add('active');
-                
-                const stepMap = {
-                    'screen1': 1,
-                    'screen2': 2,
-                    'screen3': 3,
-                    'screen4': 4,
-                    'screen5': 5,
-                    'screen6': 6
-                };
-                
-                const currentStep = stepMap[screenId];
-                
-                for (let i = 1; i <= 6; i++) {
-                    const stepElement = document.getElementById('step' + i);
-                    stepElement.classList.remove('active', 'completed');
-                    
-                    if (i < currentStep) {
-                        stepElement.classList.add('completed');
-                    } else if (i === currentStep) {
-                        stepElement.classList.add('active');
-                    }
-                }
-
-                if (screenId === 'screen6') {
-                    isOnScreen6 = true;
-                    if (!currentUser) {
-                        mostrarMensagemAutenticacao();
-                    } else if (!publicationStarted) {
-                        resetScreen6();
-                        setTimeout(() => {
-                            iniciarPublicacao();
-                        }, 500);
-                    }
-                } else {
-                    isOnScreen6 = false;
-                }
-            }
-        }
-
-        function mostrarMensagemAutenticacao() {
-            const publishingStatus = document.getElementById('publishingStatus');
-            const processingMessage = document.getElementById('processingMessage');
-            const successMessage = document.getElementById('successMessage');
-            const serverResult = document.getElementById('serverResult');
-            const authRequiredMessage = document.getElementById('authRequiredMessage');
-            const backToScreen5Btn = document.getElementById('backToScreen5');
-            const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
-            const retryPublish = document.getElementById('retryPublish');
-            
-            publishingStatus.style.display = 'none';
-            processingMessage.style.display = 'none';
-            successMessage.style.display = 'none';
-            serverResult.style.display = 'none';
-            backToScreen5Btn.style.display = 'inline-block';
-            backToHomeFromSuccess.style.display = 'none';
-            retryPublish.style.display = 'none';
-            authRequiredMessage.style.display = 'block';
-        }
-
-        function resetScreen6() {
-            const publishingStatus = document.getElementById('publishingStatus');
-            const processingMessage = document.getElementById('processingMessage');
-            const successMessage = document.getElementById('successMessage');
-            const serverResult = document.getElementById('serverResult');
-            const authRequiredMessage = document.getElementById('authRequiredMessage');
-            const backToScreen5Btn = document.getElementById('backToScreen5');
-            const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
-            const retryPublish = document.getElementById('retryPublish');
-            
-            publishingStatus.style.display = 'none';
-            processingMessage.style.display = 'none';
-            successMessage.style.display = 'none';
-            serverResult.style.display = 'none';
-            authRequiredMessage.style.display = 'none';
-            backToScreen5Btn.style.display = 'none';
-            backToHomeFromSuccess.style.display = 'none';
-            retryPublish.style.display = 'none';
-        }
-
-        function incrementarVersao(versaoAtual) {
-            const partes = versaoAtual.split('.');
-            partes[3] = (parseInt(partes[3]) + 1).toString();
-            return partes.join('.');
-        }
-
-        function inicializarAutenticacao() {
-            auth.onAuthStateChanged(user => {
-                currentUser = user;
-                updateAuthUI();
-            });
-        }
-
-        function determinarDataEstreia(config) {
-            if (config.customReleaseDate && config.releaseDate) {
-                return config.releaseDate;
-            }
-
-            const agora = new Date();
-            const horaAtual = agora.getHours();
-            
-            if (horaAtual < 6) {
-                const diaAnterior = new Date(agora);
-                diaAnterior.setDate(diaAnterior.getDate() - 1);
-                return diaAnterior.toISOString().split('T')[0];
-            } else {
-                return agora.toISOString().split('T')[0];
-            }
-        }
-
-        function gerarHTMLdoCanal(dados) {
-            const html = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="${dados.version}">
-    <title>${dados.name}</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: Arial, sans-serif; 
-            background: #000; 
-            color: #fff;
-            overflow: hidden;
-        }
-        .video-wrapper { 
-            position: relative; 
-            width: 100vw; 
-            height: 100vh; 
-            background: #000; 
-        }
-        #myVideo, #youtubeContainer { 
-            width: 100%; 
-            height: 100%; 
-            object-fit: contain; 
-        }
-        .youtube-iframe { 
-            width: 100%; 
-            height: 100%; 
-        }
-        #autoplayOverlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.9);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-        }
-        #autoplayOverlay.hidden { display: none; }
-        #autoplayButton {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 20px 40px;
-            font-size: 18px;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: transform 0.3s;
-        }
-        #autoplayButton:hover { transform: scale(1.05); }
-        .overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 20%, transparent 80%, rgba(0,0,0,0.7) 100%);
-            pointer-events: none;
-            z-index: 10;
-        }
-        .top-bar {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 20;
-        }
-        .logo-container {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        .logo {
-            width: 60px;
-            height: 60px;
-            object-fit: contain;
-            border-radius: 10px;
-        }
-        .channel-info h1 {
-            font-size: 24px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-        }
-        .channel-info p {
-            font-size: 14px;
-            opacity: 0.8;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-        }
-        .time-display {
-            font-size: 20px;
-            font-weight: bold;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-        }
-        .program-info {
-            position: absolute;
-            bottom: 80px;
-            left: 20px;
-            right: 20px;
-            background: rgba(0,0,0,0.8);
-            padding: 20px;
-            border-radius: 10px;
-            z-index: 20;
-        }
-        .current-program {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .live-indicator {
-            background: #e74c3c;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 5px;
-            font-size: 12px;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        .next-programs {
-            font-size: 14px;
-            opacity: 0.8;
-        }
-        .custom-controls {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            padding: 20px;
-            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 30;
-            transition: opacity 0.3s;
-        }
-        .playback-controls {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-        }
-        .control-btn {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: white;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-size: 18px;
-        }
-        .control-btn:hover {
-            background: rgba(255,255,255,0.4);
-            transform: scale(1.1);
-        }
-        .volume-control {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        #volumeSlider {
-            width: 100px;
-            cursor: pointer;
-        }
-        .debug-info {
-            position: absolute;
-            top: 100px;
-            right: 20px;
-            background: rgba(0,0,0,0.8);
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 12px;
-            z-index: 20;
-        }
-        .commercial-indicator {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.9);
-            padding: 20px 40px;
-            border-radius: 10px;
-            font-size: 24px;
-            z-index: 25;
-            display: none;
-        }
-        .like-dislike-container {
-            position: absolute;
-            top: 50%;
-            right: 20px;
-            transform: translateY(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            z-index: 20;
-            transition: opacity 0.3s;
-        }
-        .like-dislike-btn {
-            background: rgba(0,0,0,0.7);
-            border: 2px solid rgba(255,255,255,0.3);
-            color: white;
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            cursor: pointer;
-            font-size: 24px;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .like-dislike-btn:hover {
-            background: rgba(255,255,255,0.2);
-            transform: scale(1.1);
-        }
-        .like-dislike-btn.active {
-            background: #667eea;
-            border-color: #667eea;
-        }
-        #loadingMessage {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.9);
-            padding: 20px 40px;
-            border-radius: 10px;
-            font-size: 18px;
-            z-index: 15;
-        }
-        @media (max-width: 768px) {
-            .logo { width: 40px; height: 40px; }
-            .channel-info h1 { font-size: 18px; }
-            .channel-info p { font-size: 12px; }
-            .time-display { font-size: 16px; }
-            .program-info { bottom: 70px; padding: 15px; }
-            .current-program { font-size: 16px; }
-            .next-programs { font-size: 12px; }
-        }
-    </style>
-</head>
-<body>
-    <div class="video-wrapper">
-        <video id="myVideo" playsinline></video>
-        <div id="youtubeContainer"></div>
+        // ==================== SISTEMA DE CONTAGEM DE ESPECTADORES ====================
         
-        <div id="autoplayOverlay">
-            <button id="autoplayButton">▶ Assistir ${dados.name}</button>
-        </div>
-
-        <div class="overlay"></div>
-
-        <div class="top-bar">
-            <div class="logo-container">
-                <img src="${dados.logo || DEFAULT_LOGO}" alt="Logo" class="logo">
-                <div class="channel-info">
-                    <h1>${dados.name}</h1>
-                    ${dados.slogan ? `<p>${dados.slogan}</p>` : ''}
-                </div>
-            </div>
-            ${dados.showTime ? '<div class="time-display" id="timeDisplay">00:00</div>' : ''}
-        </div>
-
-        ${!dados.isOffline ? `
-        <div class="program-info">
-            <div class="current-program">
-                <span class="live-indicator">● AO VIVO</span>
-                <span id="currentProgram">Carregando...</span>
-            </div>
-            <div class="next-programs">
-                A seguir: <span id="nextProgram">-</span> | 
-                Depois: <span id="afterNextProgram">-</span>
-            </div>
-        </div>
-        ` : ''}
-
-        <div id="commercialIndicator" class="commercial-indicator">
-            📺 Intervalo Comercial
-        </div>
-
-        <div id="loadingMessage">Carregando...</div>
-
-        <div class="custom-controls" id="custom-controls">
-            <div class="playback-controls" id="playbackControls">
-                ${dados.enableRewind10 ? '<button class="control-btn" id="rewind10Btn" title="Voltar 10s">⏪</button>' : ''}
-                ${dados.enableRestart ? '<button class="control-btn" id="restartBtn" title="Reiniciar">⟲</button>' : ''}
-                ${dados.enableLive ? '<button class="control-btn" id="liveBtn" title="Ao Vivo"><span id="liveDot">●</span></button>' : ''}
-            </div>
-            <div class="volume-control">
-                <button class="control-btn" id="volumeBtn">🔊</button>
-                <input type="range" id="volumeSlider" min="0" max="1" step="0.1" value="1">
-                <button class="control-btn" id="fullscreenBtn">⛶</button>
-            </div>
-        </div>
-
-        ${dados.enableDebug ? `
-        <div class="debug-info">
-            <div>Dias: <span id="debugDays">-</span></div>
-            <div>Programa: <span id="debugProgram">-</span></div>
-            <div>Espectadores: <span id="onlineViewers">0</span></div>
-        </div>
-        ` : ''}
-    </div>
-
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"><\/script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"><\/script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"><\/script>
-    <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyBha3VdfkDP_p7wLh5r7BTW_GB9-0xKc3w",
-            authDomain: "playtronic-86b48.firebaseapp.com",
-            databaseURL: "https://playtronic-86b48-default-rtdb.firebaseio.com",
-            projectId: "playtronic-86b48",
-            storageBucket: "playtronic-86b48.firebasestorage.app",
-            messagingSenderId: "655675549458",
-            appId: "1:655675549458:web:3835f818eb3ea1a66da18f"
-        };
-
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-
-        const CHANNEL_ID = "${dados.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}";
-        const CHANNEL_NAME = "${dados.name}";
-        const CHANNEL_SLOGAN = "${dados.slogan}";
-        const CHANNEL_LOGO = "${dados.logo || DEFAULT_LOGO}";
-        const PROGRAMMING_MODE = "${dados.programmingMode}";
-        const RELEASE_DATE = "${dados.release}";
-        const SLOT_DURATION = 25;
-        const TOTAL_SLOTS = ${totalSlots};
-        const SHOW_TIME = ${dados.showTime};
-        const ENABLE_DEBUG = ${dados.enableDebug};
-        const IS_OFFLINE = ${dados.isOffline};
-        const ENABLE_COMMERCIALS = ${dados.enableCommercials};
-        const COMMERCIALS_PER_BREAK = ${dados.commercialsPerBreak};
-        const COMMERCIALS_ORDER = "${dados.commercialsOrder}";
-        const CONTROLS_HIDE_DELAY = 3000;
-
-        const TV_PROGRAMS = ${JSON.stringify(dados.programas)};
-        const TV_PLAYLIST = ${JSON.stringify(dados.playlistVideos)};
-        const TV_COMMERCIALS = ${JSON.stringify(dados.comerciais.map(c => c.url || c))};
-        const GRADE = ${JSON.stringify(dados.grade)};
-
-        let videoElement, youtubeContainer, autoplayOverlay, autoplayButton;
-        let volumeBtn, volumeSlider, fullscreenBtn, videoWrapper;
-        let rewind10Btn, restartBtn, liveBtn, liveDot;
-        let timeDisplay, debugDays, debugProgram, onlineViewersElement;
-        let commercialIndicator, playbackControls, customControls, loadingMessage;
-        let likeDislikeContainer;
-
-        let currentState = 'program';
-        let currentDay = 1;
-        let currentProgramIndex = 0;
-        let currentVideoIndex = 0;
-        let currentPlayingSlot = 0;
-        let currentCommercialIndex = 0;
-        let commercialBreakCount = 0;
-        let availableCommercials = [];
-        let userStartedPlayback = false;
-        let controlsVisible = true;
-        let controlsTimer;
-
-        let viewerSessionId = null;
-        let viewerRef = null;
-        let onlineViewersRef = null;
-
-        function calcularDataAtualCanal() {
-            const agora = new Date();
-            const horaAtual = agora.getHours();
+        // Inicializar Firebase para contagem de espectadores
+        function inicializarContagemEspectadores() {
+            viewerSessionId = 'viewer_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             
-            if (horaAtual < 6) {
-                const dataCanal = new Date(agora);
-                dataCanal.setDate(dataCanal.getDate() - 1);
-                return dataCanal;
-            }
+            onlineViewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+            viewerRef = database.ref('onlineUsers/' + CHANNEL_ID + '/' + viewerSessionId);
             
-            return agora;
+            viewerRef.set({
+                timestamp: Date.now(),
+                userAgent: navigator.userAgent,
+                isActive: true
+            }).then(() => {
+                viewerRef.onDisconnect().remove();
+                
+                onlineViewersRef.on('value', (snapshot) => {
+                    const count = snapshot.numChildren();
+                    if (onlineViewersElement) {
+                        onlineViewersElement.textContent = count;
+                    }
+                });
+            }).catch(error => {
+                console.error('Erro ao registrar espectador:', error);
+            });
+            
+            setInterval(() => {
+                if (viewerRef) {
+                    viewerRef.update({
+                        timestamp: Date.now()
+                    });
+                }
+            }, 30000);
         }
-
+        
+        // ==================== FUNÇÕES PRINCIPAIS ====================
+        
+        // NOVA FUNÇÃO: Calcular dias desde a estreia (usando a função definida no script)
         function calcularDiasDesdeEstreia() {
-            const dataAtualCanal = calcularDataAtualCanal();
-            const dataEstreia = new Date(RELEASE_DATE + 'T06:00:00');
-            
-            const dataAtualCanalSemHora = new Date(dataAtualCanal.getFullYear(), dataAtualCanal.getMonth(), dataAtualCanal.getDate());
-            const dataEstreiaSemHora = new Date(dataEstreia.getFullYear(), dataEstreia.getMonth(), dataEstreia.getDate());
-            
-            const diferencaMs = dataAtualCanalSemHora.getTime() - dataEstreiaSemHora.getTime();
-            const diferencaDias = Math.floor(diferencaMs / (1000 * 60 * 60 * 24));
-            
-            return diferencaDias + 1;
+            return window.calcularDiasDesdeEstreiaCanal ? window.calcularDiasDesdeEstreiaCanal() : 1;
         }
-
-        function calcularSlotAtualGrade() {
-            const agora = new Date();
-            let horas = agora.getHours();
-            const minutos = agora.getMinutes();
-            
-            if (horas < 6) {
-                horas += 24;
-            }
-            
-            const minutosDesde6h = (horas - 6) * 60 + minutos;
-            const slotAtual = Math.floor(minutosDesde6h / SLOT_DURATION);
-            
-            return Math.min(slotAtual, TOTAL_SLOTS - 1);
-        }
-
-        function calcularSlotAtualPlaylist() {
-            const agora = new Date();
-            const dataEstreia = new Date(RELEASE_DATE + 'T06:00:00');
-            
-            let dataReferencia = new Date(agora);
-            if (agora.getHours() < 6) {
-                dataReferencia.setDate(dataReferencia.getDate() - 1);
-            }
-            dataReferencia.setHours(6, 0, 0, 0);
-            
-            const diferencaMs = agora.getTime() - dataEstreia.getTime();
-            const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
-            
-            let slotAtual = Math.floor(minutosDesdeEstreia / SLOT_DURATION);
-            
-            if (slotAtual < 0) {
-                slotAtual = 0;
-            }
-            
-            return slotAtual;
-        }
-
-        function calcularSlotAtual() {
-            if (PROGRAMMING_MODE === 'grade') {
-                return calcularSlotAtualGrade();
-            } else {
-                return calcularSlotAtualPlaylist();
-            }
-        }
-
+        
+        // Calcular percentual decorrido do slot atual (MANTIDA)
         function calcularPercentualSlot() {
             const agora = new Date();
             
@@ -5224,99 +3621,28 @@
                 
                 return Math.min(segundosNoSlotAtual / totalSegundosSlot, 0.99);
             } else {
-                const dataEstreia = new Date(RELEASE_DATE + 'T06:00:00');
-                const diferencaMs = agora.getTime() - dataEstreia.getTime();
+                const agoraAjustada = new Date(agora);
+                const dataEstreiaAjustada = new Date(RELEASE_DATE);
+                
+                agoraAjustada.setHours(6, 0, 0, 0);
+                dataEstreiaAjustada.setHours(6, 0, 0, 0);
+                
+                if (agora.getHours() < 6) {
+                    agoraAjustada.setDate(agoraAjustada.getDate() - 1);
+                }
+                
+                const diferencaMs = agoraAjustada.getTime() - dataEstreiaAjustada.getTime();
                 const minutosDesdeEstreia = diferencaMs / (1000 * 60);
                 
                 const minutosNoSlotAtual = minutosDesdeEstreia % SLOT_DURATION;
                 return Math.min(minutosNoSlotAtual / SLOT_DURATION, 0.99);
             }
         }
-
-        function ajustarSlotParaPlaylist(slotIndex) {
-            const totalVideos = TV_PLAYLIST.length;
-            
-            if (totalVideos === 0) {
-                return 0;
-            }
-            
-            if (slotIndex < totalVideos) {
-                return slotIndex;
-            }
-            
-            let slotAjustado = slotIndex;
-            while (slotAjustado >= totalVideos) {
-                slotAjustado -= totalVideos;
-            }
-            
-            if (slotAjustado <= 0) {
-                slotAjustado = 0;
-            }
-            
-            return slotAjustado;
-        }
-
-        function ajustarVideoParaDia(totalVideos, diasDesdeEstreia) {
-            if (totalVideos === 0) return 0;
-            
-            let videoIndex = diasDesdeEstreia - 1;
-            
-            while (videoIndex >= totalVideos) {
-                videoIndex -= totalVideos;
-            }
-            
-            if (videoIndex < 0) {
-                videoIndex = 0;
-            }
-            
-            return videoIndex;
-        }
-
-        function obterVideoParaSlot(slotIndex) {
-            if (PROGRAMMING_MODE === 'grade') {
-                currentDay = calcularDiasDesdeEstreia();
-                currentPlayingSlot = slotIndex;
-                
-                if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
-                    return null;
-                }
-                
-                currentProgramIndex = GRADE[slotIndex];
-                const programa = TV_PROGRAMS[currentProgramIndex];
-                
-                if (!programa || !programa.videos || programa.videos.length === 0) {
-                    return null;
-                }
-                
-                currentVideoIndex = ajustarVideoParaDia(programa.videos.length, currentDay);
-                
-                return {
-                    programa: programa,
-                    videoUrl: programa.videos[currentVideoIndex],
-                    programaIndex: currentProgramIndex,
-                    videoIndex: currentVideoIndex,
-                    dia: currentDay,
-                    nome: programa.name
-                };
-            } else {
-                currentPlayingSlot = slotIndex;
-                
-                const slotAjustado = ajustarSlotParaPlaylist(slotIndex);
-                const videoInfo = TV_PLAYLIST[slotAjustado];
-                
-                if (!videoInfo) {
-                    return null;
-                }
-                
-                return {
-                    videoUrl: videoInfo.url,
-                    nome: videoInfo.name,
-                    slotAjustado: slotAjustado,
-                    slotOriginal: slotIndex
-                };
-            }
-        }
-
+        
+        // NOTA: As funções calcularSlotAtualGrade(), calcularSlotAtualPlaylist(), 
+        // calcularSlotAtual(), e obterVideoParaSlot() agora estão definidas
+        // no script global (diasScript) acima
+        
         function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
             if (youtubeContainer) {
                 youtubeContainer.style.display = 'none';
@@ -5342,6 +3668,7 @@
                     const playPromise = videoElement.play();
                     if (playPromise !== undefined) {
                         playPromise.catch(error => {
+                            console.log('Autoplay bloqueado, tentando com mute:', error);
                             videoElement.muted = true;
                             videoElement.play().catch(e => console.log('Autoplay com mute também falhou:', e));
                         });
@@ -5357,7 +3684,7 @@
                 videoElement.load();
             }
         }
-
+        
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
             if (videoElement) {
                 videoElement.style.display = 'none';
@@ -5387,7 +3714,7 @@
                 }
             }
         }
-
+        
         function obterProximoComercial() {
             if (TV_COMMERCIALS.length === 0) {
                 return null;
@@ -5411,13 +3738,14 @@
                 return commercialUrl;
             }
         }
-
+        
         function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
             const videoInfo = obterVideoParaSlot(slotIndex);
             
             if (!videoInfo) {
+                console.error('Nenhum vídeo encontrado para o slot', slotIndex);
                 setTimeout(() => {
-                    const proximoSlot = PROGRAMMING_MODE === 'grade' ? (slotIndex + 1) % TOTAL_SLOTS : slotIndex + 1;
+                    const proximoSlot = (slotIndex + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                     reproduzirPrograma(proximoSlot, 0);
                 }, 5000);
                 return;
@@ -5491,10 +3819,10 @@
             
             currentState = 'program';
         }
-
+        
         function reproduzirComercial() {
             if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
-                const proximoSlot = PROGRAMMING_MODE === 'grade' ? (currentPlayingSlot + 1) % TOTAL_SLOTS : currentPlayingSlot + 1;
+                const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                 reproduzirPrograma(proximoSlot, 0);
                 return;
             }
@@ -5512,7 +3840,7 @@
             
             if (!commercialUrl) {
                 commercialBreakCount = 0;
-                const proximoSlot = PROGRAMMING_MODE === 'grade' ? (currentPlayingSlot + 1) % TOTAL_SLOTS : currentPlayingSlot + 1;
+                const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                 reproduzirPrograma(proximoSlot, 0);
                 return;
             }
@@ -5537,7 +3865,7 @@
                         if (commercialIndicator) {
                             commercialIndicator.style.display = 'none';
                         }
-                        const proximoSlot = PROGRAMMING_MODE === 'grade' ? (currentPlayingSlot + 1) % TOTAL_SLOTS : currentPlayingSlot + 1;
+                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                         reproduzirPrograma(proximoSlot, 0);
                     }
                 };
@@ -5552,13 +3880,13 @@
                         if (commercialIndicator) {
                             commercialIndicator.style.display = 'none';
                         }
-                        const proximoSlot = PROGRAMMING_MODE === 'grade' ? (currentPlayingSlot + 1) % TOTAL_SLOTS : currentPlayingSlot + 1;
+                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                         reproduzirPrograma(proximoSlot, 0);
                     }
                 }, 25000);
             }
         }
-
+        
         function showControls() {
             if (customControls) {
                 customControls.style.opacity = '1';
@@ -5569,7 +3897,7 @@
                 resetControlsTimer();
             }
         }
-
+        
         function hideControls() {
             if (customControls) {
                 customControls.style.opacity = '0';
@@ -5579,12 +3907,12 @@
             }
             controlsVisible = false;
         }
-
+        
         function resetControlsTimer() {
             clearTimeout(controlsTimer);
             controlsTimer = setTimeout(hideControls, CONTROLS_HIDE_DELAY);
         }
-
+        
         function configurarControles() {
             if (volumeBtn && volumeSlider && videoElement) {
                 volumeSlider.addEventListener('input', function() {
@@ -5694,7 +4022,7 @@
                 resetControlsTimer();
             });
         }
-
+        
         function atualizarHora() {
             if (SHOW_TIME && timeDisplay) {
                 const agora = new Date();
@@ -5703,14 +4031,14 @@
                 timeDisplay.textContent = \`\${horas}:\${minutos}\`;
             }
         }
-
+        
         function verificarFimDoVideo() {
             if (currentState === 'program') {
                 if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
                     commercialBreakCount = 0;
                     reproduzirComercial();
                 } else {
-                    const proximoSlot = PROGRAMMING_MODE === 'grade' ? (currentPlayingSlot + 1) % TOTAL_SLOTS : currentPlayingSlot + 1;
+                    const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                     reproduzirPrograma(proximoSlot, 0);
                 }
             } else if (currentState === 'commercial') {
@@ -5721,59 +4049,31 @@
                     if (commercialIndicator) {
                         commercialIndicator.style.display = 'none';
                     }
-                    const proximoSlot = PROGRAMMING_MODE === 'grade' ? (currentPlayingSlot + 1) % TOTAL_SLOTS : currentPlayingSlot + 1;
+                    const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                     reproduzirPrograma(proximoSlot, 0);
                 }
             }
         }
-
-        function verificarMudancaDeDia() {
+        
+              function verificarMudancaDeDia() {
             if (PROGRAMMING_MODE === 'grade') {
                 const agora = new Date();
                 const horas = agora.getHours();
                 const minutos = agora.getMinutes();
                 
-                if (horas === 6 && minutos >= 0 && minutos < 25 && currentState === 'program') {
-                    const slotAtual = calcularSlotAtual();
-                    if (slotAtual === 0 && currentPlayingSlot !== 0) {
-                        location.reload();
-                    }
+                // Verificar se precisa recarregar entre 06:00 e 06:24
+                verificarRecarregamentoGrade();
+                
+                // Verificar mudança de slot a cada minuto
+                const slotAtual = calcularSlotAtual();
+                if (slotAtual !== currentPlayingSlot && currentState === 'program') {
+                    console.log('Mudança de slot detectada. Slot atual:', slotAtual);
+                    currentPlayingSlot = slotAtual;
+                    reproduzirPrograma(slotAtual - 1, 0); // -1 porque a função espera base 0
                 }
             }
         }
-
-        function inicializarContagemEspectadores() {
-            viewerSessionId = 'viewer_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            
-            onlineViewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-            viewerRef = database.ref('onlineUsers/' + CHANNEL_ID + '/' + viewerSessionId);
-            
-            viewerRef.set({
-                timestamp: Date.now(),
-                userAgent: navigator.userAgent,
-                isActive: true
-            }).then(() => {
-                viewerRef.onDisconnect().remove();
-                
-                onlineViewersRef.on('value', (snapshot) => {
-                    const count = snapshot.numChildren();
-                    if (onlineViewersElement) {
-                        onlineViewersElement.textContent = count;
-                    }
-                });
-            }).catch(error => {
-                console.error('Erro ao registrar espectador:', error);
-            });
-            
-            setInterval(() => {
-                if (viewerRef) {
-                    viewerRef.update({
-                        timestamp: Date.now()
-                    });
-                }
-            }, 30000);
-        }
-
+        
         function inicializarPlayer() {
             videoElement = document.getElementById('myVideo');
             youtubeContainer = document.getElementById('youtubeContainer');
@@ -5791,6 +4091,7 @@
             debugDays = document.getElementById('debugDays');
             debugProgram = document.getElementById('debugProgram');
             onlineViewersElement = document.getElementById('onlineViewers');
+            channelRatingElement = document.getElementById('channelRating');
             commercialIndicator = document.getElementById('commercialIndicator');
             playbackControls = document.getElementById('playbackControls');
             customControls = document.getElementById('custom-controls');
@@ -5810,8 +4111,9 @@
             if (videoElement) {
                 videoElement.addEventListener('ended', verificarFimDoVideo);
                 videoElement.addEventListener('error', function() {
+                    console.error('Erro no vídeo, tentando próximo...');
                     setTimeout(() => {
-                        const proximoSlot = PROGRAMMING_MODE === 'grade' ? (currentPlayingSlot + 1) % TOTAL_SLOTS : currentPlayingSlot + 1;
+                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
                         reproduzirPrograma(proximoSlot, 0);
                     }, 5000);
                 });
@@ -5834,9 +4136,16 @@
             }
             
             const slotAtual = calcularSlotAtual();
-            currentPlayingSlot = slotAtual;
             
-            const videoInfo = obterVideoParaSlot(slotAtual);
+            if (PROGRAMMING_MODE === 'playlist') {
+                const totalSlotsCanal = TV_PLAYLIST.length;
+                const slotAjustado = ajustarSlotPlaylist(slotAtual, totalSlotsCanal);
+                currentPlayingSlot = slotAjustado;
+            } else {
+                currentPlayingSlot = slotAtual;
+            }
+            
+            const videoInfo = obterVideoParaSlot(currentPlayingSlot);
             if (videoInfo) {
                 if (PROGRAMMING_MODE === 'grade') {
                     document.getElementById('currentProgram').textContent = \`\${videoInfo.programa.name}\`;
@@ -5893,10 +4202,13 @@
         }
         
         document.addEventListener('DOMContentLoaded', function() {
+            inicializarAutenticacao();
+            
             if (!IS_OFFLINE) {
                 inicializarPlayer();
             } else {
                 document.querySelector('.program-info').style.display = 'none';
+                console.log("Canal offline - player desativado, mas autenticação ativa");
             }
         });
     <\/script>
@@ -5906,7 +4218,10 @@
             return html;
         }
 
+        // FUNÇÃO ATUALIZADA: Verificar disponibilidade do canal
         function verificarDisponibilidadeCanal(url, expectedVersion, isNewChannel, callback) {
+            console.log(`Iniciando verificação. URL: ${url}, Versão esperada: ${expectedVersion}, É novo canal: ${isNewChannel}`);
+            
             if (versionCheckInterval) {
                 clearInterval(versionCheckInterval);
                 versionCheckInterval = null;
@@ -5927,6 +4242,7 @@
                         const html = await response.text();
                         
                         if (isNewChannel) {
+                            console.log(`✅ NOVO CANAL DISPONÍVEL! Status: ${response.status}`);
                             if (versionCheckInterval) {
                                 clearInterval(versionCheckInterval);
                                 versionCheckInterval = null;
@@ -5943,15 +4259,25 @@
                         
                         const foundVersion = publishedVersion || metaVersion;
                         
+                        console.log(`Versão encontrada no canal: ${foundVersion}, Versão esperada: ${expectedVersion}`);
+                        
                         if (foundVersion === expectedVersion) {
+                            console.log(`✅ ATUALIZAÇÃO CONFIRMADA! Versão ${foundVersion} disponível.`);
                             if (versionCheckInterval) {
                                 clearInterval(versionCheckInterval);
                                 versionCheckInterval = null;
                             }
                             callback(true, foundVersion);
+                        } else {
+                            console.log(`⏳ Versão encontrada (${foundVersion}) não é a esperada (${expectedVersion}), continuando verificação...`);
                         }
+                    } else if (response.status === 404 && !isNewChannel) {
+                        console.log(`📡 Canal não encontrado (404), mas esperado para atualização. Continuando...`);
+                    } else {
+                        console.log(`📡 Status inesperado: ${response.status}, continuando verificação...`);
                     }
                 } catch (error) {
+                    console.log(`❌ Erro na verificação (${error.message}), continuando verificação...`);
                 }
             };
             
@@ -5967,8 +4293,11 @@
             };
         }
 
+        // Função para publicar canal (ATUALIZADA COM NOVA LÓGICA DE DATA)
         async function publicarCanal(nomeCanal, dadosGerador) {
             try {
+                console.log("Iniciando publicação do canal:", nomeCanal);
+                
                 const htmlCanal = gerarHTMLdoCanal(dadosGerador);
                 
                 const dadosEnvio = {
@@ -5977,6 +4306,8 @@
                     dadosConfig: dadosGerador,
                     isNewChannel: !editingChannel
                 };
+
+                console.log("Enviando para o servidor...");
                 
                 const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
                     method: "POST",
@@ -5991,6 +4322,7 @@
                 }
 
                 const resultado = await resposta.json();
+                console.log("Resposta do servidor:", resultado);
                 
                 if (resultado.success) {
                     const nomeArquivo = nomeCanal.toLowerCase()
@@ -6007,10 +4339,12 @@
                     throw new Error(resultado.error || "Erro desconhecido do servidor");
                 }
             } catch (error) {
+                console.error("Erro na publicação:", error);
                 throw error;
             }
         }
 
+        // Função para apagar canal do servidor
         async function apagarCanalServidor(nomeCanal) {
             try {
                 const nomeArquivo = nomeCanal.toLowerCase()
@@ -6028,10 +4362,14 @@
                 const resultado = await resposta.json();
                 return resultado.success;
             } catch (error) {
+                console.error("Erro ao apagar canal do servidor:", error);
                 return false;
             }
         }
 
+        // ==================== FUNÇÕES DO BANCO DE DADOS ====================
+
+        // Função para buscar canal por nome no banco de dados
         async function buscarCanalPorNome(nomeCanal, userId) {
             try {
                 const querySnapshot = await db.collection('users').doc(userId)
@@ -6049,10 +4387,12 @@
                 }
                 return null;
             } catch (error) {
+                console.error("Erro ao buscar canal por nome:", error);
                 return null;
             }
         }
 
+        // Função para normalizar dados do canal
         function normalizarDadosCanal(channelData) {
             const dadosNormalizados = {
                 email: channelData.email || '',
@@ -6107,8 +4447,10 @@
             return dadosNormalizados;
         }
 
+        // Função para salvar canal no banco de dados
         async function salvarCanalBancoDados(channelData, isPublication = false) {
             if (!currentUser) {
+                console.error("Usuário não autenticado para salvar canal");
                 return null;
             }
             
@@ -6141,26 +4483,33 @@
                 
                 if (currentChannelId) {
                     await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).update(channelToSave);
+                    console.log("Canal atualizado no banco de dados:", currentChannelId);
                     return currentChannelId;
                 } else {
                     const docRef = await db.collection('users').doc(userId).collection('channels').add({
                         ...channelToSave,
                         createdAt: now
                     });
+                    console.log("Novo canal criado no banco de dados:", docRef.id);
                     currentChannelId = docRef.id;
                     return docRef.id;
                 }
             } catch (error) {
+                console.error("Erro ao salvar canal no banco de dados:", error);
                 throw error;
             }
         }
 
+        // Função para carregar canais do banco de dados
         async function carregarCanaisBancoDados() {
             if (!currentUser) {
+                console.log("Usuário não autenticado, não é possível carregar canais");
                 return [];
             }
             
             try {
+                console.log("Carregando canais do banco de dados para usuário:", currentUser.uid);
+                
                 const querySnapshot = await db.collection('users').doc(currentUser.uid)
                     .collection('channels')
                     .orderBy('updatedAt', 'desc')
@@ -6176,12 +4525,15 @@
                     });
                 });
                 
+                console.log(`${channels.length} canais carregados do banco de dados (normalizados)`);
                 return channels;
             } catch (error) {
+                console.error("Erro ao carregar canais do banco de dados:", error);
                 return [];
             }
         }
 
+        // Função para verificar limite de canais
         async function verificarLimiteCanais() {
             if (!currentUser) return true;
             
@@ -6189,23 +4541,29 @@
                 const canais = await carregarCanaisBancoDados();
                 return canais.length < 15;
             } catch (error) {
+                console.error("Erro ao verificar limite de canais:", error);
                 return true;
             }
         }
 
+        // Função para deletar canal do banco de dados
         async function deletarCanalBancoDados(channelId) {
             if (!currentUser) {
+                console.error("Usuário não autenticado para deletar canal");
                 return false;
             }
             
             try {
                 await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).delete();
+                console.log("Canal deletado do banco de dados:", channelId);
                 return true;
             } catch (error) {
+                console.error("Erro ao deletar canal do banco de dados:", error);
                 return false;
             }
         }
 
+        // Função para deletar canal do banco de dados em tempo real
         async function deletarCanalBancoTempoReal(channelName) {
             try {
                 const channelId = channelName.toLowerCase()
@@ -6215,21 +4573,29 @@
                 try {
                     await rtdb.ref(`channelStats/${channelId}`).remove();
                 } catch (error) {
+                    console.warn("Não foi possível deletar channelStats (permissão negada):", error);
                 }
                 
                 try {
                     await rtdb.ref(`onlineUsers/${channelId}`).remove();
                 } catch (error) {
+                    console.warn("Não foi possível deletar onlineUsers (permissão negada):", error);
                 }
                 
+                console.log("Canal deletado do banco de dados em tempo real (ou tentativa):", channelId);
                 return true;
             } catch (error) {
+                console.error("Erro ao deletar canal do banco de dados em tempo real:", error);
                 return false;
             }
         }
 
+        // Função principal de publicação (ATUALIZADA COM NOVA LÓGICA DE DATA)
         async function iniciarPublicacao() {
+            console.log("Iniciando publicação...");
+            
             if (!currentUser) {
+                console.log("Usuário não autenticado, mostrando mensagem de autenticação");
                 mostrarMensagemAutenticacao();
                 return;
             }
@@ -6238,8 +4604,10 @@
             
             if (editingChannel) {
                 tvData.version = incrementarVersao(tvData.version);
+                console.log(`Versão incrementada para atualização: ${tvData.version}`);
             } else {
                 tvData.version = '1.0.0.0';
+                console.log(`Novo canal com versão: ${tvData.version}`);
             }
             
             const dadosNormalizados = normalizarDadosCanal(tvData);
@@ -6259,10 +4627,13 @@
                 }
             }
             
+            // NOVA LÓGICA: Determinar data de estreia usando a função determinarDataEstreia
             const releaseDate = determinarDataEstreia({
                 customReleaseDate: dadosNormalizados.customReleaseDate,
                 releaseDate: dadosNormalizados.releaseDate
             });
+            
+            console.log(`Data de estreia determinada: ${releaseDate}`);
             
             const dadosParaEnvio = {
                 name: dadosNormalizados.name,
@@ -6281,7 +4652,7 @@
                 })),
                 grade: GRADE,
                 comerciais: dadosNormalizados.commercials,
-                release: releaseDate,
+                release: releaseDate, // Usar a data determinada pela nova função
                 showTime: dadosNormalizados.showTime,
                 enableRewind10: dadosNormalizados.enableRewind10,
                 enableRestart: dadosNormalizados.enableRestart,
@@ -6323,6 +4694,7 @@
                 processingMessage.style.display = 'block';
                 document.querySelector('#processingMessage .progress-bar').style.width = '60%';
                 
+                console.log("Enviando para publicação...");
                 const resultado = await publicarCanal(dadosNormalizados.name, dadosParaEnvio);
                 
                 tvData.url = resultado.url;
@@ -6357,7 +4729,7 @@
                             
                             successMessage.innerHTML = `
                                 <h3>${mensagemSucesso}</h3>
-                                <a href__="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
+                                <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
                             `;
                             
                             backToHomeFromSuccess.style.display = 'inline-block';
@@ -6374,6 +4746,8 @@
                 }
                 
             } catch (error) {
+                console.error("Erro na publicação:", error);
+                
                 if (versionCheckInterval) {
                     clearInterval(versionCheckInterval);
                     versionCheckInterval = null;
@@ -6411,8 +4785,13 @@
             }
         }
 
+        // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
+
+        // Função para carregar todos os canais
         async function carregarCanais() {
             try {
+                console.log("Carregando canais do banco de dados...");
+                
                 const channelsList = document.getElementById('channelsList');
                 const emptyState = document.getElementById('emptyState');
                 
@@ -6427,6 +4806,7 @@
                 channelViewerListeners = {};
                 
                 const canaisBancoDados = await carregarCanaisBancoDados();
+                console.log(`${canaisBancoDados.length} canais carregados do banco de dados`);
                 
                 channels = canaisBancoDados;
                 
@@ -6554,7 +4934,10 @@
                         });
                     }
                 }
+                
+                console.log(`Total de ${channels.length} canais exibidos`);
             } catch (error) {
+                console.error("Erro ao carregar canais:", error);
                 const emptyState = document.getElementById('emptyState');
                 const channelsList = document.getElementById('channelsList');
                 if (emptyState) emptyState.style.display = 'block';
@@ -6562,6 +4945,7 @@
             }
         }
 
+        // Alternar estado "fora do ar" do canal
         async function toggleChannelOffline(channelId, isCurrentlyOffline) {
             if (!currentUser) {
                 alert("É necessário fazer login para modificar canais");
@@ -6591,10 +4975,14 @@
                 showScreen('screen6');
                 
             } catch (error) {
+                console.error("Erro ao alternar estado do canal:", error);
                 alert("Erro ao modificar canal. Tente novamente.");
             }
         }
+        
+        // ==================== FUNÇÕES PARA PROGRAMAÇÃO (TELA 3) ====================
 
+        // Função para adicionar cartão de programa (ACORDEÃO) - Modo Grade
         function addProgramCard(program, index) {
             const programId = program.id || `program-${Date.now()}-${index}`;
             const programCard = document.createElement('div');
@@ -6700,8 +5088,7 @@
                     validateScreen3Navigation();
                 }
             });
-            
-            addEpisodeBtn.addEventListener('click', function() {
+  addEpisodeBtn.addEventListener('click', function() {
                 const videoUrl = newVideoInput.value.trim();
                 
                 if (!videoUrl) {
@@ -6770,6 +5157,7 @@
             }
         }
 
+        // Adicionar cartão de vídeo para modo Playlist
         function addPlaylistVideoCard(video, index) {
             const videoId = video.id || `playlist-video-${Date.now()}-${index}`;
             const videoCard = document.createElement('div');
@@ -6862,6 +5250,7 @@
             }
         }
 
+        // Função para obter o índice de um programa
         function getProgramIndex(programId) {
             const programCards = document.querySelectorAll('.program-card');
             for (let i = 0; i < programCards.length; i++) {
@@ -6872,6 +5261,7 @@
             return -1;
         }
 
+        // Obter o índice de um vídeo na playlist
         function getPlaylistVideoIndex(videoId) {
             const videoCards = document.querySelectorAll('.playlist-video-card');
             for (let i = 0; i < videoCards.length; i++) {
@@ -6882,6 +5272,7 @@
             return -1;
         }
 
+        // Função para reindexar os programas (após remoção)
         function reindexPrograms() {
             const programCards = document.querySelectorAll('.program-card');
             programCards.forEach((card, index) => {
@@ -6894,6 +5285,7 @@
             });
         }
 
+        // Reindexar vídeos da playlist
         function reindexPlaylistVideos() {
             const videoCards = document.querySelectorAll('.playlist-video-card');
             videoCards.forEach((card, index) => {
@@ -6906,6 +5298,7 @@
             });
         }
 
+        // Função para validar se o botão "Adicionar Programa" deve estar habilitado (modo grade)
         function validateAddProgramButton() {
             const addProgramBtn = document.getElementById('addProgram');
             
@@ -6936,6 +5329,7 @@
             addProgramBtn.textContent = "+ Adicionar Novo Programa";
         }
 
+        // Validar se o botão "Adicionar Vídeo" deve estar habilitado (modo playlist)
         function validateAddPlaylistVideoButton() {
             const addPlaylistVideoBtn = document.getElementById('addPlaylistVideo');
             
@@ -6960,6 +5354,7 @@
             addPlaylistVideoBtn.textContent = "+ Adicionar Novo Vídeo";
         }
 
+        // Função para atualizar a lista de programas no tvData (modo grade)
         function updatePrograms() {
             tvData.programs = [];
             const programElements = document.querySelectorAll('.program-card');
@@ -6989,6 +5384,7 @@
             updateCounters();
         }
 
+        // Atualizar a lista de vídeos da playlist no tvData (modo playlist)
         function updatePlaylistVideos() {
             tvData.playlistVideos = [];
             const videoElements = document.querySelectorAll('.playlist-video-card');
@@ -7010,6 +5406,7 @@
             updateCounters();
         }
 
+        // Função para atualizar contadores
         function updateCounters() {
             if (tvData.programmingMode === 'grade') {
                 const programCount = document.getElementById('programCount');
@@ -7024,6 +5421,7 @@
             }
         }
 
+        // Função para validar navegação da tela 3
         function validateScreen3Navigation() {
             const toScreen4Btn = document.getElementById('toScreen4');
             const programsError = document.getElementById('programsError');
@@ -7117,6 +5515,7 @@
             }
         }
 
+        // Alternar entre modos de programação na tela 3
         function alternarModoProgramacao() {
             const programmingModeSelect = document.getElementById('programmingMode');
             const gradeModeContainer = document.getElementById('gradeModeContainer');
@@ -7140,6 +5539,9 @@
             validateScreen3Navigation();
         }
 
+        // ==================== FUNÇÕES PARA COMERCIAIS (TELA 4) ====================
+
+        // Adicionar cartão de comercial com numeração correta
         function addCommercialCard(commercial, index) {
             const commercialId = 'commercial-' + Date.now() + '-' + index;
             const commercialCard = document.createElement('div');
@@ -7217,6 +5619,7 @@
             }
         }
 
+        // Reindexar comerciais após remoção
         function reindexCommercials() {
             const commercialElements = document.querySelectorAll('.commercial-card');
             commercialElements.forEach((commercialElement, index) => {
@@ -7235,6 +5638,7 @@
             updateCommercials();
         }
 
+        // Função para atualizar comerciais
         function updateCommercials() {
             tvData.commercials = [];
             const commercialElements = document.querySelectorAll('.commercial-card');
@@ -7258,6 +5662,7 @@
             });
         }
 
+        // Validar se pode adicionar novo comercial
         function validateAddCommercialButton() {
             const addCommercialBtn = document.getElementById('addCommercial');
             
@@ -7287,6 +5692,7 @@
             addCommercialBtn.textContent = "+ Adicionar Novo Comercial";
         }
 
+        // Validar navegação da tela 4
         function validateScreen4Navigation() {
             const toScreen5Btn = document.getElementById('toScreen5');
             
@@ -7313,6 +5719,7 @@
             return !hasErrors;
         }
 
+        // Validar número de comerciais por intervalo
         function validateCommercialsPerBreak() {
             const commercialsPerBreakInput = document.getElementById('commercialsPerBreak');
             const value = parseInt(commercialsPerBreakInput.value);
@@ -7328,6 +5735,7 @@
             return true;
         }
 
+        // Alternar visibilidade dos comerciais
         function toggleCommercialsVisibility() {
             const enableCommercialsCheckbox = document.getElementById('enableCommercials');
             const commercialSettings = document.getElementById('commercialSettings');
@@ -7349,7 +5757,10 @@
             validateScreen4Navigation();
         }
 
+        // Editar canal
         async function editChannel(channelId) {
+            console.log("Iniciando edição do canal:", channelId);
+            
             if (!currentUser) {
                 alert("É necessário fazer login para editar canais");
                 return;
@@ -7359,13 +5770,16 @@
                 const doc = await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).get();
                 
                 if (!doc.exists) {
+                    console.error("Documento não encontrado no banco de dados");
                     alert("Canal não encontrado");
                     return;
                 }
                 
                 const channel = doc.data();
+                console.log("Dados brutos do banco de dados:", channel);
                 
                 const dadosNormalizados = normalizarDadosCanal(channel);
+                console.log("Dados normalizados:", dadosNormalizados);
                 
                 tvData = { ...dadosNormalizados };
                 
@@ -7373,6 +5787,9 @@
                 editingChannel = true;
                 originalChannelName = dadosNormalizados.name;
                 
+                console.log("Preenchendo formulário...");
+                
+                // Preencher tela 1
                 document.getElementById('tvEmail').value = tvData.email;
                 document.getElementById('tvName').value = tvData.name;
                 document.getElementById('tvSlogan').value = tvData.slogan;
@@ -7388,6 +5805,7 @@
                 document.getElementById('tvNameCounter').textContent = `${tvData.name.length}/50`;
                 document.getElementById('tvSloganCounter').textContent = `${tvData.slogan.length}/100`;
                 
+                // Preencher tela 2
                 document.getElementById('visibilitySelect').value = tvData.visibility;
                 document.getElementById('visibilityInfo').textContent = tvData.visibility === 'brazil' 
                     ? 'Seu canal será acessível apenas no Brasil' 
@@ -7417,6 +5835,7 @@
                 }
                 
                 if (tvData.customReleaseDate && tvData.releaseDate) {
+                    // Configurar data mínima (01/01/2025) e máxima (hoje)
                     const hoje = new Date().toISOString().split('T')[0];
                     releaseDateInput.min = '2025-01-01';
                     releaseDateInput.max = hoje;
@@ -7428,6 +5847,7 @@
                 
                 updateLogoPreview();
                 
+                // Preencher tela 3
                 const programmingModeSelect = document.getElementById('programmingMode');
                 programmingModeSelect.value = tvData.programmingMode || 'grade';
                 
@@ -7471,6 +5891,7 @@
                 
                 toggleCommercialsVisibility();
                 
+                // Preencher redes sociais
                 document.getElementById('facebookUrl').value = tvData.socialMedia.facebook || '';
                 document.getElementById('instagramUrl').value = tvData.socialMedia.instagram || '';
                 document.getElementById('blueskyUrl').value = tvData.socialMedia.bluesky || '';
@@ -7488,13 +5909,17 @@
                 validateScreen3Navigation();
                 validateScreen4Navigation();
                 
+                console.log("Formulário preenchido com sucesso. Indo para tela 1...");
                 showScreen('screen1');
                 
             } catch (error) {
+                console.error("Erro detalhado ao carregar canal para edição:", error);
+                console.error("Stack trace:", error.stack);
                 alert("Erro ao carregar canal. Tente novamente. Detalhes no console.");
             }
         }
-
+        
+        // Apagar canal completamente
         async function deleteChannel(channelId) {
             if (!currentUser) {
                 alert("É necessário fazer login para apagar canais");
@@ -7518,12 +5943,14 @@
                         try {
                             apagadoDoServidor = await apagarCanalServidor(channel.name);
                         } catch (error) {
+                            console.log("Não foi possível apagar do servidor:", error);
                         }
                     }
                     
                     try {
                         apagadoDoBancoTempoReal = await deletarCanalBancoTempoReal(channel.name);
                     } catch (error) {
+                        console.log("Não foi possível apagar do banco de dados em tempo real (permissão negada):", error);
                         apagadoDoBancoTempoReal = true;
                     }
                     
@@ -7540,20 +5967,27 @@
                     }
                     
                 } catch (error) {
+                    console.error("Erro ao apagar canal:", error);
                     alert('Erro ao apagar canal. Tente novamente.');
                 }
             }
         }
 
+        // ==================== OBSERVADOR DE AUTENTICAÇÃO ====================
         auth.onAuthStateChanged(async (user) => {
+            console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
             currentUser = user;
             
             updateAuthUI();
             
             if (user) {
+                console.log("Usuário logado:", user.email);
+                
                 await carregarCanais();
                 
                 if (isOnScreen6 && !publicationStarted) {
+                    console.log("Usuário autenticado na tela 6. Iniciando publicação automática...");
+                    
                     const authRequiredMessage = document.getElementById('authRequiredMessage');
                     if (authRequiredMessage) {
                         authRequiredMessage.style.display = 'none';
@@ -7587,12 +6021,16 @@
                 }
                 
                 if (isOnScreen6) {
+                    console.log("Usuário deslogou na tela 6. Mostrando mensagem de autenticação.");
                     mostrarMensagemAutenticacao();
                     publicationStarted = false;
                 }
             }
         });
 
+        // ==================== FUNÇÕES DE AUTENTICAÇÃO ====================
+
+        // Função de login
         document.getElementById('googleLoginBtn').addEventListener('click', async () => {
             try {
                 const provider = new firebase.auth.GoogleAuthProvider();
@@ -7600,14 +6038,17 @@
                 provider.addScope('email');
                 
                 const result = await auth.signInWithPopup(provider);
+                console.log('Login bem-sucedido:', result.user.email);
                 
                 document.getElementById('loginOverlay').style.display = 'none';
                 
             } catch (error) {
+                console.error('Erro no login:', error);
                 alert("Erro no login: " + error.message);
             }
         });
 
+        // Abrir/fechar login
         document.getElementById('loginButton').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
@@ -7616,29 +6057,36 @@
             document.getElementById('loginOverlay').style.display = 'none';
         });
 
+        // Logout
         document.getElementById('logoutButton').addEventListener('click', () => {
             auth.signOut()
                 .then(() => {
+                    console.log('Logout realizado com sucesso');
                     document.getElementById('userCard').classList.remove('active');
                     updateAuthUI();
                 })
                 .catch(err => {
+                    console.error('Erro no logout:', err);
                 });
         });
 
+        // Botão de login na tela de publicação
         document.getElementById('loginFromPublish').addEventListener('click', () => {
             document.getElementById('loginOverlay').style.display = 'flex';
         });
 
+        // Toggle user card
         document.getElementById('userAvatar').addEventListener('click', (e) => {
             e.stopPropagation();
             document.getElementById('userCard').classList.toggle('active');
         });
 
+        // Fechar user card ao clicar fora
         document.addEventListener('click', () => {
             document.getElementById('userCard').classList.remove('active');
         });
 
+        // Atualizar UI de autenticação
         function updateAuthUI() {
             const userInfo = document.getElementById('userInfo');
             const loginButton = document.getElementById('loginButton');
@@ -7676,6 +6124,9 @@
             }
         }
 
+        // ==================== FUNÇÕES AUXILIARES GLOBAIS ====================
+        
+        // Função para atualizar o preview da logo
         function updateLogoPreview() {
             const tvLogoInput = document.getElementById('tvLogo');
             const logoPreview = document.getElementById('logoPreview');
@@ -7702,7 +6153,8 @@
                 logoError.style.display = 'none';
             }
         }
-
+        
+        // Função para validar URL
         function isValidUrl(string) {
             try {
                 new URL(string);
@@ -7711,12 +6163,14 @@
                 return false;
             }
         }
-
+        
+        // Função para validar e-mail
         function isValidEmail(email) {
             const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
             return re.test(String(email).toLowerCase());
         }
-
+        
+        // Função para validar URL do X (Twitter) aceitando twitter.com e x.com
         function isValidSocialMediaUrl(url, platform) {
             if (!url) return true;
             if (!isValidUrl(url)) return false;
@@ -7740,11 +6194,14 @@
                     return true;
             }
         }
-
+        
+        // ==================== INICIALIZAÇÃO DA APLICAÇÃO ====================
         document.addEventListener('DOMContentLoaded', function() {
+            // Elementos da tela 0
             const screen0 = document.getElementById('screen0');
             const createNewChannelBtn = document.getElementById('createNewChannel');
             
+            // Elementos da tela 1
             const screen1 = document.getElementById('screen1');
             const tvEmailInput = document.getElementById('tvEmail');
             const tvNameInput = document.getElementById('tvName');
@@ -7761,6 +6218,7 @@
             const toScreen2Btn = document.getElementById('toScreen2');
             const backToHomeBtn = document.getElementById('backToHome');
             
+            // Elementos da tela 2
             const screen2 = document.getElementById('screen2');
             const visibilitySelect = document.getElementById('visibilitySelect');
             const visibilityInfo = document.getElementById('visibilityInfo');
@@ -7776,6 +6234,7 @@
             const backToHomeFromScreen2Btn = document.getElementById('backToHomeFromScreen2');
             const toScreen3Btn = document.getElementById('toScreen3');
             
+            // Elementos da tela 3
             const screen3 = document.getElementById('screen3');
             const adultContentCheckbox = document.getElementById('adultContent');
             const programmingModeSelect = document.getElementById('programmingMode');
@@ -7793,6 +6252,7 @@
             const programsError = document.getElementById('programsError');
             const playlistError = document.getElementById('playlistError');
             
+            // Elementos da tela 4
             const screen4 = document.getElementById('screen4');
             const enableCommercialsCheckbox = document.getElementById('enableCommercials');
             const commercialSettings = document.getElementById('commercialSettings');
@@ -7804,6 +6264,7 @@
             const backToHomeFromScreen4Btn = document.getElementById('backToHomeFromScreen4');
             const toScreen5Btn = document.getElementById('toScreen5');
             
+            // Elementos da tela 5
             const screen5 = document.getElementById('screen5');
             const facebookUrlInput = document.getElementById('facebookUrl');
             const instagramUrlInput = document.getElementById('instagramUrl');
@@ -7823,6 +6284,7 @@
             const backToHomeFromScreen5Btn = document.getElementById('backToHomeFromScreen5');
             const toScreen6Btn = document.getElementById('toScreen6');
             
+            // Elementos da tela 6
             const screen6 = document.getElementById('screen6');
             const publishingStatus = document.getElementById('publishingStatus');
             const processingMessage = document.getElementById('processingMessage');
@@ -7834,8 +6296,10 @@
             const loginFromPublishBtn = document.getElementById('loginFromPublish');
             const retryPublish = document.getElementById('retryPublish');
             
+            // Elementos do indicador de etapas
             const stepIndicator = document.getElementById('stepIndicator');
 
+            // Configurar contadores de caracteres
             tvNameInput.addEventListener('input', function() {
                 tvNameCounter.textContent = `${this.value.length}/50`;
                 if (this.value.length > 45) {
@@ -7910,6 +6374,7 @@
                         botao.disabled = false;
                     }
                 } catch (error) {
+                    console.error("Erro ao verificar nome:", error);
                     nameCheckStatus.textContent = "Erro na verificação. Tente novamente.";
                     nameCheckStatus.style.color = "#e74c3c";
                     botao.disabled = true;
@@ -7936,6 +6401,7 @@
                                 botao.disabled = false;
                             }
                         } catch (error2) {
+                            console.error("Erro na segunda tentativa de verificação:", error2);
                             nameCheckStatus.textContent = "Não foi possível verificar o nome. Tente mais tarde.";
                             nameCheckStatus.style.color = "#e74c3c";
                             botao.disabled = true;
@@ -7966,6 +6432,7 @@
                 }
             });
 
+            // Configurar dropdown de visibilidade
             visibilitySelect.addEventListener('change', function() {
                 tvData.visibility = this.value;
                 if (this.value === 'brazil') {
@@ -7975,32 +6442,33 @@
                 }
             });
             
+            // Configurar checkbox de conteúdo adulto
             adultContentCheckbox.addEventListener('change', function() {
                 tvData.isAdultContent = this.checked;
             });
             
+            // Configurar dropdown de modo de programação
             programmingModeSelect.addEventListener('change', alternarModoProgramacao);
             
+            // Configurar dropdown de ordem de comerciais
             commercialsOrderSelect.addEventListener('change', function() {
                 tvData.commercialsOrder = this.value;
             });
             
+            // Configurar checkbox de data de estreia personalizada
             customReleaseDateCheckbox.addEventListener('change', function() {
                 tvData.customReleaseDate = this.checked;
                 if (this.checked) {
                     releaseDateContainer.style.display = 'block';
                     
-                    const hoje = new Date();
-                    const ontem = new Date(hoje);
-                    ontem.setDate(hoje.getDate() - 1);
-                    const dataMaxima = ontem.toISOString().split('T')[0];
-                    
+                    // Configurar data mínima (01/01/2025) e máxima (hoje)
+                    const hoje = new Date().toISOString().split('T')[0];
                     releaseDateInput.min = '2025-01-01';
-                    releaseDateInput.max = dataMaxima;
+                    releaseDateInput.max = hoje;
                     
                     if (!releaseDateInput.value) {
-                        releaseDateInput.value = dataMaxima;
-                        tvData.releaseDate = dataMaxima;
+                        releaseDateInput.value = hoje;
+                        tvData.releaseDate = hoje;
                     }
                 } else {
                     releaseDateContainer.style.display = 'none';
@@ -8008,16 +6476,15 @@
                 }
             });
             
+            // Configurar data de estreia com validação
             releaseDateInput.addEventListener('change', function() {
                 const dataSelecionada = new Date(this.value);
-                const hoje = new Date();
-                const ontem = new Date(hoje);
-                ontem.setDate(hoje.getDate() - 1);
+                const dataAtual = new Date();
                 const dataMinima = new Date('2025-01-01');
                 
-                if (dataSelecionada >= hoje) {
-                    alert("A data de estreia não pode ser hoje ou uma data futura. Será usada a data de ontem.");
-                    this.value = ontem.toISOString().split('T')[0];
+                if (dataSelecionada > dataAtual) {
+                    alert("A data de estreia não pode ser uma data futura. Será usada a data atual.");
+                    this.value = dataAtual.toISOString().split('T')[0];
                 } else if (dataSelecionada < dataMinima) {
                     alert("A data de estreia não pode ser anterior a 01/01/2025. Será usada a data mínima permitida.");
                     this.value = '2025-01-01';
@@ -8025,7 +6492,8 @@
                 
                 tvData.releaseDate = this.value;
             });
-
+            
+            // Criar novo canal
             createNewChannelBtn.addEventListener('click', async function() {
                 const podeCriar = await verificarLimiteCanais();
                 if (!podeCriar) {
@@ -8135,9 +6603,11 @@
                 showScreen('screen1');
             });
 
+            // Atualizar preview da logo
             tvLogoInput.addEventListener('input', updateLogoPreview);
             tvLogoInput.addEventListener('change', updateLogoPreview);
             
+            // Adicionar programa (modo grade)
             addProgramBtn.addEventListener('click', function() {
                 if (tvData.programs.length < totalSlots) {
                     const newProgram = {
@@ -8153,6 +6623,7 @@
                 }
             });
             
+            // Adicionar vídeo (modo playlist)
             addPlaylistVideoBtn.addEventListener('click', function() {
                 const newVideo = {
                     id: `playlist-video-${Date.now()}`,
@@ -8166,6 +6637,7 @@
                 validateScreen3Navigation();
             });
             
+            // Configurar navegação
             backToHomeBtn.addEventListener('click', () => showScreen('screen0'));
             backToHomeFromScreen2Btn.addEventListener('click', () => showScreen('screen0'));
             backToHomeFromScreen3Btn.addEventListener('click', () => showScreen('screen0'));
@@ -8327,11 +6799,50 @@
                 }
             });
             
+            // Configurar checkbox de comerciais
             enableCommercialsCheckbox.addEventListener('change', function() {
                 tvData.enableCommercials = this.checked;
                 toggleCommercialsVisibility();
             });
             
+            // Configurar checkbox de data de estreia personalizada
+            customReleaseDateCheckbox.addEventListener('change', function() {
+                tvData.customReleaseDate = this.checked;
+                if (this.checked) {
+                    releaseDateContainer.style.display = 'block';
+                    
+                    const hoje = new Date().toISOString().split('T')[0];
+                    releaseDateInput.min = '2025-01-01';
+                    releaseDateInput.max = hoje;
+                    
+                    if (!releaseDateInput.value) {
+                        releaseDateInput.value = hoje;
+                        tvData.releaseDate = hoje;
+                    }
+                } else {
+                    releaseDateContainer.style.display = 'none';
+                    tvData.releaseDate = '';
+                }
+            });
+            
+            // Configurar data de estreia com validação
+            releaseDateInput.addEventListener('change', function() {
+                const dataSelecionada = new Date(this.value);
+                const dataAtual = new Date();
+                const dataMinima = new Date('2025-01-01');
+                
+                if (dataSelecionada > dataAtual) {
+                    alert("A data de estreia não pode ser uma data futura. Será usada a data atual.");
+                    this.value = dataAtual.toISOString().split('T')[0];
+                } else if (dataSelecionada < dataMinima) {
+                    alert("A data de estreia não pode ser anterior a 01/01/2025. Será usada a data mínima permitida.");
+                    this.value = '2025-01-01';
+                }
+                
+                tvData.releaseDate = this.value;
+            });
+            
+            // Configurar comerciais por intervalo
             commercialsPerBreakInput.addEventListener('input', function() {
                 const value = parseInt(this.value);
                 if (isNaN(value) || value < 1 || value > 8) {
@@ -8341,6 +6852,7 @@
                 tvData.commercialsPerBreak = parseInt(this.value) || 2;
             });
             
+            // Configurar botão de adicionar comercial
             addCommercialBtn.addEventListener('click', function() {
                 const newCommercial = {
                     name: `Comercial ${tvData.commercials.length + 1}`,
@@ -8353,15 +6865,17 @@
                 validateScreen4Navigation();
             });
             
+            // Configurar retry de publicação
             retryPublish.addEventListener('click', function() {
                 resetScreen6();
                 setTimeout(() => {
                     iniciarPublicacao();
-                }, 500);
-            });
+                }, 500);            });
             
+            // Inicializar autenticação
             updateAuthUI();
             
+            // Inicializar a tela 0
             showScreen('screen0');
         });
     </script>
