@@ -2450,13 +2450,8 @@ const diasScript = `
 <script>
     // ==================== NOVAS FUNÇÕES DE CÁLCULO ====================
     
-    // Função para calcular dias desde a estreia (APENAS PARA MODO GRADE)
+    // Função para calcular dias desde a estreia (PARA TODOS OS MODOS)
     function calcularDiasDesdeEstreiaCanal() {
-        // Se for modo Playlist, não usa dias - retorna 1
-        if (PROGRAMMING_MODE === 'playlist') {
-            return 1;
-        }
-        
         const RELEASE_DATE = "${releaseDate}";
         
         if (!RELEASE_DATE) {
@@ -2471,7 +2466,7 @@ const diasScript = `
         const agora = new Date();
         const horaAtual = agora.getHours();
         
-        // Calcular data atual do canal (considerando que o dia do canal vai de 06:00 até 05:59 do dia seguinte)
+        // Para ambos os modos, calcular data atual do canal (considerando que o dia do canal vai de 06:00 até 05:59 do dia seguinte)
         const dataAtualCanal = new Date(agora);
         
         // Se for antes das 6h, retrocede um dia
@@ -2614,12 +2609,48 @@ function calcularSlotAtualPlaylist() {
         return videoAjustado;
     }
     
+    
     // Função unificada para calcular slot atual baseado no modo
     function calcularSlotAtual() {
         if (PROGRAMMING_MODE === 'grade') {
             return calcularSlotAtualGrade();
         } else {
             return calcularSlotAtualPlaylist();
+        }
+    }
+    
+    // Função para obter slot para exibição (ajustado para playlist, normal para grade)
+    function obterSlotParaExibicao() {
+        if (PROGRAMMING_MODE === 'grade') {
+            return calcularSlotAtual();
+        } else {
+            // Modo Playlist: calcular slot bruto e ajustar
+            const slotBruto = calcularSlotAtualPlaylist();
+            const totalSlotsCanal = TV_PLAYLIST.length;
+            
+            if (totalSlotsCanal <= 0) {
+                return 1;
+            }
+            
+            let slotAjustado = slotBruto;
+            
+            // Subtrair o total de slots até que seja menor ou igual ao total
+            while (slotAjustado > totalSlotsCanal) {
+                slotAjustado -= totalSlotsCanal;
+            }
+            
+            // Garantir que seja pelo menos 1
+            if (slotAjustado <= 0) {
+                slotAjustado = 1;
+            }
+            
+            console.log('Slot para exibição:', {
+                slotBruto: slotBruto,
+                totalSlots: totalSlotsCanal,
+                slotExibicao: slotAjustado
+            });
+            
+            return slotAjustado;
         }
     }
     
@@ -3891,24 +3922,26 @@ function calcularSlotAtualPlaylist() {
             currentState = 'program';
         }
         
-        // ==================== ATUALIZAÇÃO PERIÓDICA DO DEBUG ====================
+            // ==================== ATUALIZAÇÃO PERIÓDICA DO DEBUG ====================
+    
+    function atualizarDebugPeriodicamente() {
+        if (!ENABLE_DEBUG) return;
         
-        function atualizarDebugPeriodicamente() {
-            if (!ENABLE_DEBUG) return;
-            
-            const debugProgram = document.getElementById('debugProgram');
-            const debugDays = document.getElementById('debugDays');
-            
-            if (debugProgram) {
-                const slotPeloTempo = calcularSlotAtual();
-                debugProgram.textContent = slotPeloTempo;
-            }
-            
-            if (debugDays && PROGRAMMING_MODE === 'grade') {
-                const dias = calcularDiasDesdeEstreiaCanal();
-                debugDays.textContent = dias;
-            }
+        const debugProgram = document.getElementById('debugProgram');
+        const debugDays = document.getElementById('debugDays');
+        
+        if (debugProgram) {
+            // Usar a função de exibição em vez da função de cálculo bruto
+            const slotExibicao = obterSlotParaExibicao();
+            debugProgram.textContent = slotExibicao;
         }
+        
+        if (debugDays) {
+            // Usar a função corrigida de cálculo de dias
+            const dias = calcularDiasDesdeEstreiaCanal();
+            debugDays.textContent = dias;
+        }
+    }
         
         // Atualizar a cada 30 segundos
         setInterval(atualizarDebugPeriodicamente, 30000);
