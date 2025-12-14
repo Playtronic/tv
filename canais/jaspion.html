@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.7.1">
+    <meta name="version" content="1.0.7.2">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -693,7 +693,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.7.1
+                    Versão 1.0.7.2
                 </div>
             
         
@@ -928,7 +928,7 @@
     
     // Função para calcular dias desde a estreia (PARA TODOS OS MODOS)
     function calcularDiasDesdeEstreiaCanal() {
-        const RELEASE_DATE = "2025-07-17";
+        const RELEASE_DATE = "2025-12-14";
         
         if (!RELEASE_DATE) {
             return 1;
@@ -1256,9 +1256,9 @@ function calcularSlotAtualPlaylist() {
         const ENABLE_DEBUG = true;
         const IS_ADULT_CONTENT = false;
         
-        const RELEASE_DATE = "2025-07-17";
+        const RELEASE_DATE = "2025-12-14";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.7.1";
+        const CHANNEL_VERSION = "1.0.7.2";
         const CHANNEL_ID = "jaspion";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -1574,20 +1574,29 @@ function calcularSlotAtualPlaylist() {
                         loadingMessage.style.display = 'none';
                     }
                     
-                    if (userStartedPlayback && currentState === 'program' && iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-                        const startTime = videoElement.duration * iniciarNoPercentual;
-                        videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
-                    } else {
-                        videoElement.currentTime = 0;
+                    // SEMPRE calcula o tempo inicial baseado no percentual do slot atual
+                    let startTime = 0;
+                    if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
+                        startTime = videoElement.duration * iniciarNoPercentual;
+                        startTime = Math.min(startTime, videoElement.duration - 1);
                     }
                     
-                    const playPromise = videoElement.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(error => {
-                            console.log('Autoplay bloqueado, tentando com mute:', error);
-                            videoElement.muted = true;
-                            videoElement.play().catch(e => console.log('Autoplay com mute também falhou:', e));
-                        });
+                    // Define o tempo inicial
+                    videoElement.currentTime = startTime;
+                    
+                    // Só dá play se autoplay for true E o usuário já tiver iniciado a reprodução
+                    if (autoplay && userStartedPlayback) {
+                        const playPromise = videoElement.play();
+                        if (playPromise !== undefined) {
+                            playPromise.catch(error => {
+                                console.log('Autoplay bloqueado, tentando com mute:', error);
+                                videoElement.muted = true;
+                                videoElement.play().catch(e => console.log('Autoplay com mute também falhou:', e));
+                            });
+                        }
+                    } else {
+                        // Pausa o vídeo explicitamente (para o primeiro vídeo)
+                        videoElement.pause();
                     }
                 });
                 
@@ -1600,7 +1609,6 @@ function calcularSlotAtualPlaylist() {
                 videoElement.load();
             }
         }
-        
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
             if (videoElement) {
                 videoElement.style.display = 'none';
@@ -1617,12 +1625,16 @@ function calcularSlotAtualPlaylist() {
                 }
                 
                 if (videoId) {
+                    // Calcula os segundos iniciais baseado no percentual do slot
                     let startSeconds = 0;
-                    if (userStartedPlayback && currentState === 'program' && iniciarNoPercentual > 0) {
+                    if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
                         startSeconds = Math.floor(300 * iniciarNoPercentual);
                     }
                     
-                    youtubeContainer.innerHTML = `<iframe class="youtube-iframe" src="https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&modestbranding=1&rel=0&start=${startSeconds}&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+                    // Configura o autoplay baseado no estado
+                    const autoplayParam = (autoplay && userStartedPlayback) ? 1 : 0;
+                    
+                    youtubeContainer.innerHTML = `<iframe class="youtube-iframe" src="https://www.youtube.com/embed/${videoId}?autoplay=${autoplayParam}&controls=0&modestbranding=1&rel=0&start=${startSeconds}&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
                     
                     if (loadingMessage) {
                         loadingMessage.style.display = 'none';
@@ -2117,6 +2129,7 @@ if (ENABLE_DEBUG) {
             const aoVivoRecarregado = sessionStorage.getItem('aoVivoRecarregado');
             
             if (aoVivoRecarregado === 'true') {
+                // Caso de recarregamento pelo botão "AO VIVO"
                 userStartedPlayback = true;
                 if (autoplayOverlay) {
                     autoplayOverlay.classList.add('hidden');
@@ -2127,7 +2140,26 @@ if (ENABLE_DEBUG) {
                 
                 sessionStorage.removeItem('aoVivoRecarregado');
             } else {
+                // Primeira carga da página
                 userStartedPlayback = false;
+                
+                // Calcula o percentual atual do slot
+                const percentualSlot = calcularPercentualSlot();
+                
+                // Carrega o vídeo PAUSADO no ponto correto
+                const videoInfo = obterVideoParaSlot(slotAtual);
+                if (videoInfo) {
+                    const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+                    
+                    // Para o primeiro vídeo, autoplay deve ser false
+                    if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+                        carregarVideoYouTube(videoUrl, percentualSlot, false);
+                    } else {
+                        carregarVideoHTML5(videoUrl, percentualSlot, false);
+                    }
+                }
+                
+                // Mostra o botão "Ligar TV"
                 if (autoplayOverlay) {
                     autoplayOverlay.classList.remove('hidden');
                 }
