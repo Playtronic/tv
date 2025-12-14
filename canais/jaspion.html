@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.7.3">
+    <meta name="version" content="1.0.7.4">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -693,7 +693,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.7.3
+                    Versão 1.0.7.4
                 </div>
             
         
@@ -1258,7 +1258,7 @@ function calcularSlotAtualPlaylist() {
         
         const RELEASE_DATE = "2025-12-14";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.7.3";
+        const CHANNEL_VERSION = "1.0.7.4";
         const CHANNEL_ID = "jaspion";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -1524,7 +1524,7 @@ function calcularSlotAtualPlaylist() {
             return window.calcularDiasDesdeEstreiaCanal ? window.calcularDiasDesdeEstreiaCanal() : 1;
         }
         
-        // Calcular percentual decorrido do slot atual (MANTIDA)
+        // Calcular percentual decorrido do slot atual (COM LOGS)
         function calcularPercentualSlot() {
             const agora = new Date();
             
@@ -1535,7 +1535,12 @@ function calcularSlotAtualPlaylist() {
                 const segundosNoSlotAtual = (minutos % SLOT_DURATION) * 60 + segundos;
                 const totalSegundosSlot = SLOT_DURATION * 60;
                 
-                return Math.min(segundosNoSlotAtual / totalSegundosSlot, 0.99);
+                const percentual = Math.min(segundosNoSlotAtual / totalSegundosSlot, 0.99);
+                console.log('Grade - Percentual slot:', (percentual*100).toFixed(1), '%', 
+                           'Tempo atual:', agora.getHours().toString().padStart(2, '0') + ':' + 
+                                          agora.getMinutes().toString().padStart(2, '0') + ':' + 
+                                          agora.getSeconds().toString().padStart(2, '0'));
+                return percentual;
             } else {
                 const agoraAjustada = new Date(agora);
                 const dataEstreiaAjustada = new Date(RELEASE_DATE);
@@ -1551,7 +1556,14 @@ function calcularSlotAtualPlaylist() {
                 const minutosDesdeEstreia = diferencaMs / (1000 * 60);
                 
                 const minutosNoSlotAtual = minutosDesdeEstreia % SLOT_DURATION;
-                return Math.min(minutosNoSlotAtual / SLOT_DURATION, 0.99);
+                const percentual = Math.min(minutosNoSlotAtual / SLOT_DURATION, 0.99);
+                
+                console.log('Playlist - Percentual slot:', (percentual*100).toFixed(1), '%,', 
+                           'Minutos no slot:', minutosNoSlotAtual.toFixed(1), ',',
+                           'Data estreia:', RELEASE_DATE, ',',
+                           'Hora atual:', agora.getHours().toString().padStart(2, '0') + ':' + 
+                                        agora.getMinutes().toString().padStart(2, '0'));
+                return percentual;
             }
         }
         
@@ -1585,16 +1597,22 @@ function calcularSlotAtualPlaylist() {
                     videoElement.currentTime = startTime;
                     
                     // Só dá play se autoplay for true E o usuário já tiver iniciado a reprodução
-                    if (autoplay && userStartedPlayback) {
+                                      if (autoplay && userStartedPlayback) {
+                       
+
+		   // Remove qualquer mute que possa ter sido aplicado
+                        videoElement.muted = false;
+                        
                         const playPromise = videoElement.play();
                         if (playPromise !== undefined) {
                             playPromise.catch(error => {
-                                console.log('Autoplay bloqueado, tentando com mute:', error);
-                                videoElement.muted = true;
-                                videoElement.play().catch(e => console.log('Autoplay com mute também falhou:', e));
+                                console.log('Autoplay bloqueado:', error);
                             });
                         }
-                    } else {
+                    }
+
+			else {
+
                         // Pausa o vídeo explicitamente (para o primeiro vídeo)
                         videoElement.pause();
                     }
@@ -1937,8 +1955,43 @@ if (ENABLE_DEBUG) {
             
             if (liveBtn) {
                 liveBtn.addEventListener('click', function() {
-                    sessionStorage.setItem('aoVivoRecarregado', 'true');
-                    location.reload();
+                    // Calcula o slot atual real (normalizado)
+                    const slotAtualReal = obterSlotParaExibicao();
+                    console.log('AO VIVO - Slot atual:', currentPlayingSlot, 'Slot real:', slotAtualReal);
+                    
+                    // Se o slot que está tocando for o mesmo que o slot real
+                    if (currentPlayingSlot === slotAtualReal) {
+                        // Apenas ajusta o tempo para o percentual atual
+                        const percentualSlot = calcularPercentualSlot();
+                        console.log('AO VIVO - Ajustando tempo para:', (percentualSlot*100).toFixed(1), '%');
+                        
+                        if (videoElement && videoElement.src && videoElement.src !== '') {
+                            if (videoElement.duration && percentualSlot > 0 && percentualSlot < 1) {
+                                const startTime = videoElement.duration * percentualSlot;
+                                videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
+                                console.log('AO VIVO: Ajustando para', startTime.toFixed(1), 'segundos (', (percentualSlot*100).toFixed(1), '%)');
+                            }
+                            
+                            // Se o vídeo estiver pausado, dá play
+                            if (videoElement.paused) {
+                                videoElement.muted = false;
+                                const playPromise = videoElement.play();
+                                if (playPromise !== undefined) {
+                                    playPromise.catch(error => {
+                                        console.log('Erro ao dar play:', error);
+                                    });
+                                }
+                            }
+                        }
+                        
+                        showControls();
+                        resetControlsTimer();
+                    } else {
+                        // Se não for o mesmo slot, recarrega a página
+                        console.log('AO VIVO: Slot diferente, recarregando página');
+                        sessionStorage.setItem('aoVivoRecarregado', 'true');
+                        location.reload();
+                    }
                 });
             }
             
@@ -1959,8 +2012,9 @@ if (ENABLE_DEBUG) {
                 autoplayButton.addEventListener('click', function() {
                     userStartedPlayback = true;
                     
-                    // Calcula o percentual ATUAL do slot (não o que estava antes)
+                    // Calcula o percentual ATUAL do slot (NO MOMENTO DO CLIQUE)
                     const percentualSlot = calcularPercentualSlot();
+                    console.log('Ligar TV - Percentual ATUAL:', (percentualSlot*100).toFixed(1), '%');
                     
                     if (autoplayOverlay) {
                         autoplayOverlay.classList.add('hidden');
@@ -1972,8 +2026,11 @@ if (ENABLE_DEBUG) {
                         if (videoElement.duration && percentualSlot > 0 && percentualSlot < 1) {
                             const startTime = videoElement.duration * percentualSlot;
                             videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
+                            console.log('Ligar TV - Ajustando vídeo para:', startTime.toFixed(1), 'segundos (', (percentualSlot*100).toFixed(1), '%)');
                         }
                         
+                        // Remove mute e dá play
+                        videoElement.muted = false;
                         const playPromise = videoElement.play();
                         if (playPromise !== undefined) {
                             playPromise.catch(error => {
@@ -1982,7 +2039,7 @@ if (ENABLE_DEBUG) {
                         }
                     }
                     
-                    // Também atualiza para o slot atual (para garantir sincronia)
+                    // Atualiza para o slot atual com o percentual ATUAL
                     reproduzirPrograma(currentPlayingSlot, percentualSlot);
                     
                     showControls();
