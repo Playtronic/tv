@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.7.4">
+    <meta name="version" content="1.0.7.5">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -693,7 +693,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.7.4
+                    Versão 1.0.7.5
                 </div>
             
         
@@ -1258,7 +1258,7 @@ function calcularSlotAtualPlaylist() {
         
         const RELEASE_DATE = "2025-12-14";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.7.4";
+        const CHANNEL_VERSION = "1.0.7.5";
         const CHANNEL_ID = "jaspion";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -1518,54 +1518,63 @@ function calcularSlotAtualPlaylist() {
         }
         
         // ==================== FUNÇÕES PRINCIPAIS ====================
+        // Calcular percentual decorrido do slot atual (COM LOGS) - VERSÃO EM SEGUNDOS
+function calcularPercentualSlot() {
+    const agora = new Date();
+    
+    if (PROGRAMMING_MODE === 'grade') {
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        const segundos = agora.getSeconds();
         
-        // NOVA FUNÇÃO: Calcular dias desde a estreia (usando a função definida no script)
-        function calcularDiasDesdeEstreia() {
-            return window.calcularDiasDesdeEstreiaCanal ? window.calcularDiasDesdeEstreiaCanal() : 1;
+        // Determinar hora base (6h da manhã do dia atual ou anterior)
+        let horaBase;
+        if (horas < 6) {
+            // Se for antes das 6h, usar 6h do dia anterior
+            const dataOntem = new Date(agora);
+            dataOntem.setDate(dataOntem.getDate() - 1);
+            horaBase = new Date(dataOntem);
+            horaBase.setHours(6, 0, 0, 0);
+        } else {
+            // Se for 6h ou mais, usar 6h do dia atual
+            horaBase = new Date(agora);
+            horaBase.setHours(6, 0, 0, 0);
         }
         
-        // Calcular percentual decorrido do slot atual (COM LOGS)
-        function calcularPercentualSlot() {
-            const agora = new Date();
-            
-            if (PROGRAMMING_MODE === 'grade') {
-                const minutos = agora.getMinutes();
-                const segundos = agora.getSeconds();
-                
-                const segundosNoSlotAtual = (minutos % SLOT_DURATION) * 60 + segundos;
-                const totalSegundosSlot = SLOT_DURATION * 60;
-                
-                const percentual = Math.min(segundosNoSlotAtual / totalSegundosSlot, 0.99);
-                console.log('Grade - Percentual slot:', (percentual*100).toFixed(1), '%', 
-                           'Tempo atual:', agora.getHours().toString().padStart(2, '0') + ':' + 
-                                          agora.getMinutes().toString().padStart(2, '0') + ':' + 
-                                          agora.getSeconds().toString().padStart(2, '0'));
-                return percentual;
-            } else {
-                const agoraAjustada = new Date(agora);
-                const dataEstreiaAjustada = new Date(RELEASE_DATE);
-                
-                agoraAjustada.setHours(6, 0, 0, 0);
-                dataEstreiaAjustada.setHours(6, 0, 0, 0);
-                
-                if (agora.getHours() < 6) {
-                    agoraAjustada.setDate(agoraAjustada.getDate() - 1);
-                }
-                
-                const diferencaMs = agoraAjustada.getTime() - dataEstreiaAjustada.getTime();
-                const minutosDesdeEstreia = diferencaMs / (1000 * 60);
-                
-                const minutosNoSlotAtual = minutosDesdeEstreia % SLOT_DURATION;
-                const percentual = Math.min(minutosNoSlotAtual / SLOT_DURATION, 0.99);
-                
-                console.log('Playlist - Percentual slot:', (percentual*100).toFixed(1), '%,', 
-                           'Minutos no slot:', minutosNoSlotAtual.toFixed(1), ',',
-                           'Data estreia:', RELEASE_DATE, ',',
-                           'Hora atual:', agora.getHours().toString().padStart(2, '0') + ':' + 
-                                        agora.getMinutes().toString().padStart(2, '0'));
-                return percentual;
-            }
+        // Calcular diferença em segundos desde as 6h
+        const diferencaMs = agora.getTime() - horaBase.getTime();
+        const segundosDesde6h = diferencaMs / 1000; // em segundos com fração
+        
+        // Calcular segundos dentro do slot atual (cada slot tem 25 minutos = 1500 segundos)
+        const segundosNoSlotAtual = segundosDesde6h % (SLOT_DURATION * 60);
+        const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
+        
+        console.log('Grade - Percentual slot:', (percentual*100).toFixed(1) + '%', 
+                   'Segundos desde 6h:', segundosDesde6h.toFixed(0), 's',
+                   'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
+        
+        return percentual;
+    } else {
+        // Modo Playlist: cálculo baseado no tempo desde a estreia
+        const dataEstreia = new Date(RELEASE_DATE + 'T06:00:00');
+        const diferencaMs = agora.getTime() - dataEstreia.getTime();
+        const segundosDesdeEstreia = diferencaMs / 1000; // em segundos com fração
+        
+        // Se for negativo, ainda não começou
+        if (segundosDesdeEstreia < 0) {
+            return 0;
         }
+        
+        const segundosNoSlotAtual = segundosDesdeEstreia % (SLOT_DURATION * 60);
+        const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
+        
+        console.log('Playlist - Percentual slot:', (percentual*100).toFixed(1) + '%', 
+                   'Segundos desde estreia:', segundosDesdeEstreia.toFixed(0), 's',
+                   'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
+        
+        return percentual;
+    }
+}
         
         // NOTA: As funções calcularSlotAtualGrade(), calcularSlotAtualPlaylist(), 
         // calcularSlotAtual(), e obterVideoParaSlot() agora estão definidas
