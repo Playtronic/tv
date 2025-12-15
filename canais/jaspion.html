@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.9.9">
+    <meta name="version" content="1.1.0.0">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -704,7 +704,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.9.9
+                    Versão 1.1.0.0
                 </div>
             
         
@@ -1046,43 +1046,34 @@ function calcularSlotAtualPlaylist() {
     
     // Função para calcular slot atual no modo GRADE
     function calcularSlotAtualGrade() {
-        const agora = new Date();
-        const horas = agora.getHours();
-        const minutos = agora.getMinutes();
-        
-        let horaBase;
-        
-        // Se for entre 00:00 e 05:59, usar 6h do dia anterior
-        if (horas < 6) {
-            const dataOntem = new Date(agora);
-            dataOntem.setDate(dataOntem.getDate() - 1);
-            horaBase = new Date(dataOntem);
-            horaBase.setHours(6, 0, 0, 0);
-        } else {
-            // Se for 6h ou mais, usar 6h do dia atual
-            horaBase = new Date(agora);
-            horaBase.setHours(6, 0, 0, 0);
-        }
-        
-        // Calcular diferença em minutos desde as 6h
-        const diferencaMs = agora.getTime() - horaBase.getTime();
-        const minutosDesde6h = Math.floor(diferencaMs / (1000 * 60));
-        
-        // Calcular slot (cada slot tem 25 minutos)
-        let slotAtual = Math.floor(minutosDesde6h / SLOT_DURATION) + 1; // +1 porque o slot 1 começa às 6h
-        
-        // Limitar ao máximo de 58 slots
-        if (slotAtual > TOTAL_SLOTS) {
-            slotAtual = TOTAL_SLOTS;
-        }
-        
-        // Se for antes das 6h, o slot é 58 (último slot do dia anterior)
-        if (horas < 6 && slotAtual <= 0) {
-            slotAtual = TOTAL_SLOTS;
-        }
-        
-        return slotAtual;
+    const agora = new Date();
+    const horas = agora.getHours();
+    
+    // Determinar a última 6h da manhã
+    let horaBase = new Date(agora);
+    if (horas < 6) {
+        horaBase.setDate(horaBase.getDate() - 1);
     }
+    horaBase.setHours(6, 0, 0, 0);
+    
+    // Diferença em minutos
+    const diffMs = agora - horaBase;
+    const diffMinutos = Math.floor(diffMs / (1000 * 60));
+    
+    // Calcular slot (25 minutos cada)
+    let slot = Math.floor(diffMinutos / 25) + 1;
+    
+    // Garantir que está entre 1 e 58
+    if (slot < 1) slot = 1;
+    if (slot > 58) slot = 58;
+    
+    // Caso especial: se for antes das 6h e cálculo deu 1, usar slot 58
+    if (horas < 6 && slot === 1) {
+        slot = 58;
+    }
+    
+    return slot;
+}
     
     // Função para ajustar vídeo dentro de um slot no modo GRADE
     function ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot) {
@@ -1258,7 +1249,7 @@ function calcularSlotAtual() {
         
         const RELEASE_DATE = "2025-12-14";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.9.9";
+        const CHANNEL_VERSION = "1.1.0.0";
         const CHANNEL_ID = "jaspion";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2135,34 +2126,27 @@ if (ENABLE_DEBUG) {
             
 if (liveBtn) {
     liveBtn.addEventListener('click', function() {
-        console.log('=== AO VIVO - CÁLCULO IDÊNTICO AO INICIAL ===');
+        console.log('=== BOTÃO AO VIVO CLICADO ===');
         
-        // 1. CALCULAR SLOT EXATAMENTE COMO NA INICIALIZAÇÃO
-        let slotCalculado;
-        
-        if (PROGRAMMING_MODE === 'grade') {
-            slotCalculado = calcularSlotAtualGrade();
-        } else {
-            slotCalculado = calcularSlotAtualPlaylist();
-        }
+        // 1. USAR A MESMA FUNÇÃO QUE A PÁGINA USA PARA EXIBIÇÃO
+        const slotCalculadoAgora = obterSlotParaExibicao();
         
         console.log('DEBUG:', {
-            modo: PROGRAMMING_MODE,
             slotAtual: currentPlayingSlot,
-            slotCalculado: slotCalculado,
-            igual: currentPlayingSlot === slotCalculado
+            slotCalculado: slotCalculadoAgora,
+            modo: PROGRAMMING_MODE
         });
         
-        // 2. SE FOR DIFERENTE, RECARREGAR
-        if (currentPlayingSlot !== slotCalculado) {
-            console.log('DIFERENTE -> RECARREGAR');
+        // 2. COMPARAÇÃO SIMPLES E DIRETA
+        if (currentPlayingSlot !== slotCalculadoAgora) {
+            console.log('❌ DIFERENTE -> RECARREGANDO');
             sessionStorage.setItem('aoVivoRecarregado', 'true');
             location.reload();
             return;
         }
         
-        // 3. SE FOR IGUAL, SINCRONIZAR O VÍDEO
-        console.log('IGUAL -> SINCRONIZAR');
+        // 3. SE IGUAL, SINCRONIZAR O VÍDEO
+        console.log('✅ IGUAL -> SINCRONIZANDO');
         const percentual = calcularPercentualSlot();
         
         if (videoElement && videoElement.duration > 0) {
@@ -2174,7 +2158,6 @@ if (liveBtn) {
         resetControlsTimer();
     });
 }
-
             if (fullscreenBtn && videoWrapper) {
                 fullscreenBtn.addEventListener('click', function() {
                     if (!document.fullscreenElement) {
@@ -2341,8 +2324,18 @@ if (liveBtn) {
             if (COMMERCIALS_ORDER === 'random') {
                 availableCommercials = [...TV_COMMERCIALS];
             }
-                                    const slotAtual = obterSlotParaExibicao(); // Usar a função de exibição que já normaliza
-            currentPlayingSlot = slotAtual;
+                                    // INICIALIZAÇÃO CORRETA DO SLOT
+const slotAtual = obterSlotParaExibicao();
+currentPlayingSlot = slotAtual;
+console.log('🔵 INICIALIZAÇÃO: Slot definido como', currentPlayingSlot);
+
+// ATUALIZAR DISPLAY DE DEBUG SE ESTIVER ATIVADO
+if (ENABLE_DEBUG) {
+    const debugElement = document.getElementById('debugProgram');
+    if (debugElement) {
+        debugElement.textContent = currentPlayingSlot;
+    }
+}
             const videoInfo = obterVideoParaSlot(currentPlayingSlot);
             if (videoInfo) {
                 if (PROGRAMMING_MODE === 'grade') {
