@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.8.0">
+    <meta name="version" content="1.0.8.1">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -421,6 +421,17 @@
             opacity: 0;
         }
         
+        .commercial-controls .playback-controls {
+            /* Manter flex para alinhamento, mas esconder botões específicos */
+            display: flex !important;
+        }
+        
+        .commercial-controls #rewind10Btn,
+        .commercial-controls #restartBtn,
+        .commercial-controls #liveBtn {
+            display: none !important;
+        }
+        
         .like-btn, .dislike-btn {
             background: #555555;
             border: none;
@@ -693,7 +704,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.8.0
+                    Versão 1.0.8.1
                 </div>
             
         
@@ -1258,7 +1269,7 @@ function calcularSlotAtualPlaylist() {
         
         const RELEASE_DATE = "2025-12-14";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.8.0";
+        const CHANNEL_VERSION = "1.0.8.1";
         const CHANNEL_ID = "jaspion";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -1757,12 +1768,18 @@ if (ENABLE_DEBUG) {
     }
 }
             
-            if (commercialIndicator) {
+                        if (commercialIndicator) {
                 commercialIndicator.style.display = 'none';
             }
             
+            // MOSTRAR TODOS OS CONTROLES DURANTE PROGRAMAS
             if (playbackControls) {
                 playbackControls.style.display = 'flex';
+                
+                // Habilitar todos os botões
+                if (rewind10Btn) rewind10Btn.style.display = 'block';
+                if (restartBtn) restartBtn.style.display = 'block';
+                if (liveBtn) liveBtn.style.display = 'block';
             }
             
             if (customControls) {
@@ -1815,75 +1832,100 @@ if (ENABLE_DEBUG) {
         setTimeout(atualizarDebugPeriodicamente, 100);
     }
     // ==================== FIM ATUALIZAÇÃO DO DEBUG ====================
-
-        function reproduzirComercial() {
-            if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
-                const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-                reproduzirPrograma(proximoSlot, 0);
-                return;
-            }
-            
-            if (commercialIndicator) {
-                commercialIndicator.style.display = 'block';
-            }
-            document.getElementById('currentProgram').textContent = 'Intervalo Comercial';
-            
-            if (customControls) {
-                customControls.classList.remove('commercial-controls');
-            }
-            
-            const commercialUrl = obterProximoComercial();
-            
-            if (!commercialUrl) {
-                commercialBreakCount = 0;
-                const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-                reproduzirPrograma(proximoSlot, 0);
-                return;
-            }
-            
-            if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
-                carregarVideoYouTube(commercialUrl, 0, true);
-            } else {
-                carregarVideoHTML5(commercialUrl, 0, true);
-            }
-            
-            currentState = 'commercial';
-            commercialBreakCount++;
-            
-            if (videoElement) {
-                const handleCommercialEnd = function() {
-                    videoElement.removeEventListener('ended', handleCommercialEnd);
-                    
-                    if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
-                        reproduzirComercial();
-                    } else {
-                        commercialBreakCount = 0;
-                        if (commercialIndicator) {
-                            commercialIndicator.style.display = 'none';
-                        }
-                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-                        reproduzirPrograma(proximoSlot, 0);
-                    }
-                };
-                
-                videoElement.addEventListener('ended', handleCommercialEnd);
-            } else {
-                setTimeout(() => {
-                    if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
-                        reproduzirComercial();
-                    } else {
-                        commercialBreakCount = 0;
-                        if (commercialIndicator) {
-                            commercialIndicator.style.display = 'none';
-                        }
-                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-                        reproduzirPrograma(proximoSlot, 0);
-                    }
-                }, 25000);
-            }
+    function reproduzirComercial() {
+        console.log('=== INICIANDO INTERVALO COMERCIAL ===');
+        console.log('CommercialBreakCount:', commercialBreakCount, 'COMMERCIALS_PER_BREAK:', COMMERCIALS_PER_BREAK);
+        
+        if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
+            console.log('Comerciais desativados ou sem comerciais, indo para próximo programa');
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+            return;
         }
         
-        function showControls() {
+        if (commercialIndicator) {
+            commercialIndicator.style.display = 'block';
+        }
+        document.getElementById('currentProgram').textContent = 'Intervalo Comercial';
+        
+        // OCULTAR CONTROLES ESPECÍFICOS DURANTE COMERCIAIS
+        if (playbackControls) {
+            playbackControls.style.display = 'flex';
+            if (rewind10Btn) rewind10Btn.style.display = 'none';
+            if (restartBtn) restartBtn.style.display = 'none';
+            if (liveBtn) liveBtn.style.display = 'none';
+        }
+        
+        if (customControls) {
+            customControls.classList.add('commercial-controls');
+        }
+        
+        const commercialUrl = obterProximoComercial();
+        
+        if (!commercialUrl) {
+            console.log('Nenhum comercial disponível, indo para próximo programa');
+            commercialBreakCount = 0;
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+            return;
+        }
+        
+        console.log('Reproduzindo comercial:', commercialUrl);
+        
+        if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
+            carregarVideoYouTube(commercialUrl, 0, true);
+        } else {
+            carregarVideoHTML5(commercialUrl, 0, true);
+        }
+        
+        currentState = 'commercial';
+        commercialBreakCount++;
+        
+        const handleCommercialEnd = function() {
+            console.log('Comercial terminado. CommercialBreakCount:', commercialBreakCount, 'de', COMMERCIALS_PER_BREAK);
+            
+            if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
+                console.log('Ainda há comerciais neste intervalo. Chamando próximo...');
+                reproduzirComercial();
+            } else {
+                console.log('Intervalo comercial completo. Indo para próximo programa...');
+                commercialBreakCount = 0;
+                if (commercialIndicator) {
+                    commercialIndicator.style.display = 'none';
+                }
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }
+        };
+        
+        if (videoElement) {
+            videoElement.removeEventListener('ended', handleCommercialEnd);
+            videoElement.addEventListener('ended', handleCommercialEnd);        } else {
+            console.log('Video element não disponível, usando timeout');
+            setTimeout(handleCommercialEnd, 25000);
+        }
+    }
+    
+    // Função para obter próximo slot corretamente
+    function getNextSlot() {
+        if (PROGRAMMING_MODE === 'grade') {
+            // Modo Grade: circular entre 1 e 58
+            const nextSlot = (currentPlayingSlot % TOTAL_SLOTS) + 1;
+            console.log('Modo Grade - próximo slot:', nextSlot, '(atual:', currentPlayingSlot, ')');
+            return nextSlot;
+        } else {
+            // Modo Playlist: circular na playlist
+            const totalVideos = TV_PLAYLIST.length;
+            if (totalVideos === 0) return 1;
+            
+            const nextSlot = (currentPlayingSlot % totalVideos) + 1;
+            console.log('Modo Playlist - próximo slot:', nextSlot, 
+                       '(atual:', currentPlayingSlot, 'total:', totalVideos, ')');
+            return nextSlot;
+        }
+    }
+    
+    function showControls() {
             if (customControls) {
                 customControls.style.opacity = '1';
                 if (likeDislikeContainer) {
@@ -2129,29 +2171,38 @@ if (liveBtn) {
                 timeDisplay.textContent = `${horas}:${minutos}`;
             }
         }
+            function verificarFimDoVideo() {
+        console.log('=== FIM DO VÍDEO DETECTADO ===');
+        console.log('Estado atual:', currentState);
+        console.log('Slot atual:', currentPlayingSlot);
         
-        function verificarFimDoVideo() {
-            if (currentState === 'program') {
-                if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
-                    commercialBreakCount = 0;
-                    reproduzirComercial();
-                } else {
-                    const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-                    reproduzirPrograma(proximoSlot, 0);
+        if (currentState === 'program') {
+            console.log('Programa terminou. Verificando comerciais...');
+            if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
+                commercialBreakCount = 0; // Resetar contador ANTES de começar
+                console.log('Iniciando intervalo comercial...');
+                reproduzirComercial();
+            } else {
+                console.log('Sem comerciais. Indo para próximo programa...');
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }
+        } else if (currentState === 'commercial') {
+            console.log('Comercial terminou. CommercialBreakCount:', commercialBreakCount, 'de', COMMERCIALS_PER_BREAK);
+            
+            // Esta lógica agora está dentro do handler de fim do comercial
+            // Mantemos vazio ou redireciona para lógica de segurança
+            if (commercialBreakCount >= COMMERCIALS_PER_BREAK) {
+                console.log('Intervalo comercial deve ter terminado, mas não foi tratado. Corrigindo...');
+                commercialBreakCount = 0;
+                if (commercialIndicator) {
+                    commercialIndicator.style.display = 'none';
                 }
-            } else if (currentState === 'commercial') {
-                if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
-                    reproduzirComercial();
-                } else {
-                    commercialBreakCount = 0;
-                    if (commercialIndicator) {
-                        commercialIndicator.style.display = 'none';
-                    }
-                    const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-                    reproduzirPrograma(proximoSlot, 0);
-                }
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
             }
         }
+    }
         
               function verificarMudancaDeDia() {
             if (PROGRAMMING_MODE === 'grade') {
