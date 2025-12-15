@@ -2621,6 +2621,12 @@ function calcularSlotAtualPlaylist() {
     
     // Função para obter slot para exibição (ajustado para playlist, normal para grade)
     function obterSlotParaExibicao() {
+        // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
+        if (currentState === 'commercial') {
+            console.log('Em intervalo comercial, mantendo slot atual:', currentPlayingSlot);
+            return currentPlayingSlot;
+        }
+        
         if (PROGRAMMING_MODE === 'grade') {
             return calcularSlotAtual();
         } else {
@@ -2633,19 +2639,12 @@ function calcularSlotAtualPlaylist() {
             }
             
             // CORREÇÃO: Usar módulo para obter o número normalizado entre 1 e totalSlotsCanal
-            // Exemplo: se slotBruto = 150 e totalSlotsCanal = 50, então ((150-1) % 50) + 1 = 50
             let slotAjustado = ((slotBruto - 1) % totalSlotsCanal) + 1;
             
             // Garantir que seja pelo menos 1 (nunca deve ser menor, mas por segurança)
             if (slotAjustado < 1) {
                 slotAjustado = 1;
             }
-            
-            console.log('Slot para exibição (normalizado):', {
-                slotBruto: slotBruto,
-                totalSlots: totalSlotsCanal,
-                slotExibicao: slotAjustado
-            });
             
             return slotAjustado;
         }
@@ -4012,6 +4011,35 @@ if (ENABLE_DEBUG) {
         setTimeout(atualizarDebugPeriodicamente, 100);
     }
     // ==================== FIM ATUALIZAÇÃO DO DEBUG ====================
+
+    // Função para verificar se URL é acessível (simplificada)
+    function isUrlAccessible(url) {
+        // Se for URL HTTP (não HTTPS), pode funcionar mesmo com problemas de SSL
+        if (url.startsWith('http://')) {
+            return true;
+        }
+        
+        // Se for HTTPS de jwplatform, pode ter problemas - vamos tentar forçar HTTP
+        if (url.includes('jwplatform.com') || url.includes('jwpsrv.com')) {
+            console.log('URL do JWPlatform detectada, pode ter problemas SSL');
+            // Retornar false para tentar corrigir
+            return false;
+        }
+        
+        return true;
+    }
+    
+    // Função para corrigir URL do JWPlatform (remover HTTPS)
+    function corrigirUrlJwplatform(url) {
+        if (url.includes('https://content.jwplatform.com')) {
+            return url.replace('https://', 'http://');
+        }
+        if (url.includes('https://videos-cloudfront.jwpsrv.com')) {
+            return url.replace('https://', 'http://');
+        }
+        return url;
+    }
+
     function reproduzirComercial() {
         console.log('=== INICIANDO INTERVALO COMERCIAL ===');
         console.log('CommercialBreakCount:', commercialBreakCount, 'COMMERCIALS_PER_BREAK:', COMMERCIALS_PER_BREAK);
@@ -4040,7 +4068,7 @@ if (ENABLE_DEBUG) {
             customControls.classList.add('commercial-controls');
         }
         
-        const commercialUrl = obterProximoComercial();
+        let commercialUrl = obterProximoComercial();
         
         if (!commercialUrl) {
             console.log('Nenhum comercial disponível, indo para próximo programa');
@@ -4050,12 +4078,50 @@ if (ENABLE_DEBUG) {
             return;
         }
         
-        console.log('Reproduzindo comercial:', commercialUrl);
+        // CORREÇÃO: Se for URL do JWPlatform com HTTPS, tentar HTTP
+        if (commercialUrl.includes('jwplatform.com') || commercialUrl.includes('jwpsrv.com')) {
+            if (commercialUrl.startsWith('https://')) {
+                const httpUrl = commercialUrl.replace('https://', 'http://');
+                console.log('Convertendo URL HTTPS para HTTP:', httpUrl);
+                commercialUrl = httpUrl;
+            }
+        }
         
-        if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
+        console.log('Reproduzindo comercial:', commercialUrl);
+                if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
             carregarVideoYouTube(commercialUrl, 0, true);
         } else {
             carregarVideoHTML5(commercialUrl, 0, true);
+        }
+        
+        // Adicionar timeout de segurança para comerciais
+        const commercialTimeout = setTimeout(() => {
+            console.log('Timeout de segurança: comercial não carregou em 5 segundos');
+            handleCommercialError();
+        }, 5000);
+        
+        // Handler de erro para comercial
+        const handleCommercialError = function() {
+            clearTimeout(commercialTimeout);
+            console.error('Erro no comercial, tentando próximo...');
+            
+            if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
+                console.log('Tentando próximo comercial...');
+                reproduzirComercial();
+            } else {
+                console.log('Todos os comerciais falharam, indo para próximo programa');
+                commercialBreakCount = 0;
+                if (commercialIndicator) {
+                    commercialIndicator.style.display = 'none';
+                }
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }
+        };
+        
+        // Adicionar listener de erro no vídeo
+        if (videoElement) {
+            videoElement.addEventListener('error', handleCommercialError);
         }
         
         currentState = 'commercial';
@@ -4088,6 +4154,12 @@ if (ENABLE_DEBUG) {
     
     // Função para obter próximo slot corretamente
     function getNextSlot() {
+        // SE ESTIVER EM COMERCIAL, NÃO AVANÇA O SLOT
+        if (currentState === 'commercial') {
+            console.log('AVISO: Tentando avançar slot durante comercial! Mantendo atual:', currentPlayingSlot);
+            return currentPlayingSlot;
+        }
+        
         if (PROGRAMMING_MODE === 'grade') {
             // Modo Grade: circular entre 1 e 58
             const nextSlot = (currentPlayingSlot % TOTAL_SLOTS) + 1;
