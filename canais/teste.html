@@ -3486,6 +3486,7 @@ function calcularSlotAtualPlaylist() {
         let controlsVisible = false;
         let controlsTimer = null;
         const CONTROLS_HIDE_DELAY = 3000;
+        let isLoadingVideo = false;
         
         // VARIÁVEIS PARA CONTAGEM DE ESPECTADORES
         let viewerSessionId = null;
@@ -3770,66 +3771,126 @@ function calcularPercentualSlot() {
         // NOTA: As funções calcularSlotAtualGrade(), calcularSlotAtualPlaylist(), 
         // calcularSlotAtual(), e obterVideoParaSlot() agora estão definidas
         // no script global (diasScript) acima
+
+
+          function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    // Evitar múltiplos carregamentos simultâneos
+    if (isLoadingVideo) {
+        console.log('Já está carregando um vídeo, ignorando chamada duplicada');
+        return;
+    }
+    isLoadingVideo = true;
+    
+    // Limpar container do YouTube se existir
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+        youtubeContainer.innerHTML = '';
+    }
+    
+    // Verificar se temos elemento de vídeo
+    if (!videoElement) {
+        console.error('Elemento de vídeo não encontrado');
+        isLoadingVideo = false; // Resetar flag
+        return;
+    }
+    
+    // Parar qualquer vídeo atual ANTES de carregar novo
+    if (videoElement.src) {
+        videoElement.pause();
+        videoElement.src = '';
+    }
+    
+    // Resetar mensagem de loading
+    if (loadingMessage) {
+        loadingMessage.style.display = 'block';
+    }
+    
+    // Remover event listeners antigos para evitar duplicação
+    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    
+    // Configurar nova URL
+    videoElement.style.display = 'block';
+    videoElement.src = url;
+    
+    // Função para quando os metadados são carregados
+    function handleMetadataLoaded() {
+        if (loadingMessage) {
+            loadingMessage.style.display = 'none';
+        }
         
-        function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-            if (youtubeContainer) {
-                youtubeContainer.style.display = 'none';
-                youtubeContainer.innerHTML = '';
-            }
-            
-            if (videoElement) {
-                videoElement.style.display = 'block';
-                videoElement.src = url;
-                
-                videoElement.addEventListener('loadedmetadata', function() {
-                    if (loadingMessage) {
-                        loadingMessage.style.display = 'none';
-                    }
-                    
-                    // SEMPRE calcula o tempo inicial baseado no percentual do slot atual
-                    let startTime = 0;
-                    if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-                        startTime = videoElement.duration * iniciarNoPercentual;
-                        startTime = Math.min(startTime, videoElement.duration - 1);
-                    }
-                    
-                    // Define o tempo inicial
-                    videoElement.currentTime = startTime;
-                    
-                    // Só dá play se autoplay for true E o usuário já tiver iniciado a reprodução
-                                      if (autoplay && userStartedPlayback) {
-                       
-
-		   // Remove qualquer mute que possa ter sido aplicado
-                        videoElement.muted = false;
-                        
-                        const playPromise = videoElement.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch(error => {
-                                console.log('Autoplay bloqueado:', error);
-                            });
-                        }
-                    }
-
-			else {
-
-                        // Pausa o vídeo explicitamente (para o primeiro vídeo)
-                        videoElement.pause();
-                    }
-                });
-                
-                videoElement.addEventListener('canplay', function() {
-                    if (loadingMessage) {
-                        loadingMessage.style.display = 'none';
-                    }
-                });
-                
-                videoElement.load();
+        // Calcular tempo inicial baseado no percentual do slot
+        let startTime = 0;
+        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
+            const videoDuration = videoElement.duration || 0;
+            if (videoDuration > 0) {
+                startTime = videoDuration * iniciarNoPercentual;
+                startTime = Math.min(startTime, videoDuration - 1);
             }
         }
+        
+        // Definir tempo inicial
+        videoElement.currentTime = startTime;
+        
+        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
+        if (autoplay && userStartedPlayback) {
+            videoElement.muted = false;
+            
+            const playPromise = videoElement.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.log('Autoplay bloqueado:', error);
+                });
+            }
+        } else {
+            videoElement.pause();
+        }
+    }
+    
+    // Função para quando o vídeo pode começar a tocar
+    function handleCanPlay() {
+        if (loadingMessage) {
+            loadingMessage.style.display = 'none';
+        }
+    }
+    
+    // Adicionar novos event listeners
+    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
+    videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    
+    // Resetar flag de carregamento quando o vídeo estiver pronto
+    const resetLoadingFlag = function() {
+        isLoadingVideo = false;
+    };
+    
+    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
+    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
+    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
+    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
+    
+    // Iniciar carregamento
+    videoElement.load();
+    
+    // Timeout de segurança para vídeos que não carregam
+    setTimeout(() => {
+        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
+            console.warn('Vídeo demorando para carregar:', url);
+        }
+    }, 10000);
+}
+
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
+            // Evitar múltiplos carregamentos simultâneos
+            if (isLoadingVideo) {
+                console.log('Já está carregando um vídeo (YouTube), ignorando chamada duplicada');
+                return;
+            }
+            isLoadingVideo = true;
+            
             if (videoElement) {
                 videoElement.style.display = 'none';
+                videoElement.pause();
+                videoElement.src = '';
             }
             
             if (youtubeContainer) {
@@ -3852,38 +3913,39 @@ function calcularPercentualSlot() {
                     // Configura o autoplay baseado no estado
                     const autoplayParam = (autoplay && userStartedPlayback) ? 1 : 0;
                     
-                    youtubeContainer.innerHTML = \`<iframe class="youtube-iframe" src="https://www.youtube.com/embed/\${videoId}?autoplay=\${autoplayParam}&controls=0&modestbranding=1&rel=0&start=\${startSeconds}&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>\`;
+                    // Usar concatenação de string para evitar problemas com template strings aninhadas
+                    youtubeContainer.innerHTML = '<iframe class="youtube-iframe" src="https://www.youtube.com/embed/' + videoId + '?autoplay=' + autoplayParam + '&controls=0&modestbranding=1&rel=0&start=' + startSeconds + '&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
                     
                     if (loadingMessage) {
                         loadingMessage.style.display = 'none';
                     }
+                    
+                    // Tentar detectar quando o iframe está carregado
+                    const iframe = youtubeContainer.querySelector('iframe');
+                    if (iframe) {
+                        iframe.onload = function() {
+                            isLoadingVideo = false;
+                            console.log('Iframe do YouTube carregado');
+                        };
+                        iframe.onerror = function() {
+                            isLoadingVideo = false;
+                            console.error('Erro ao carregar iframe do YouTube');
+                        };
+                    } else {
+                        // Se não conseguir obter o iframe, resetar após um tempo
+                        setTimeout(() => {
+                            isLoadingVideo = false;
+                        }, 3000);
+                    }
+                } else {
+                    // Se não houver videoId, resetar imediatamente
+                    isLoadingVideo = false;
                 }
-            }
-        }
-        
-        function obterProximoComercial() {
-            if (TV_COMMERCIALS.length === 0) {
-                return null;
-            }
-            
-            if (COMMERCIALS_ORDER === 'sequential') {
-                const commercialIndex = currentCommercialIndex % TV_COMMERCIALS.length;
-                const commercialUrl = TV_COMMERCIALS[commercialIndex];
-                currentCommercialIndex = (currentCommercialIndex + 1) % TV_COMMERCIALS.length;
-                return commercialUrl;
             } else {
-                if (availableCommercials.length === 0) {
-                    availableCommercials = [...TV_COMMERCIALS];
-                }
-                
-                const randomIndex = Math.floor(Math.random() * availableCommercials.length);
-                const commercialUrl = availableCommercials[randomIndex];
-                
-                availableCommercials.splice(randomIndex, 1);
-                
-                return commercialUrl;
+                isLoadingVideo = false;
             }
         }
+
         
         function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
             const videoInfo = obterVideoParaSlot(slotIndex);
@@ -3997,8 +4059,12 @@ if (ENABLE_DEBUG) {
         }
     }
     
-    // Atualizar a cada 30 segundos
-    setInterval(atualizarDebugPeriodicamente, 30000);
+    // Atualizar a cada 30 segundos, mas NÃO durante comerciais
+    setInterval(() => {
+        if (currentState !== 'commercial') {
+            atualizarDebugPeriodicamente();
+        }
+    }, 30000);
     
     // CHAMADA INICIAL - mostra o valor correto logo ao carregar
     // Aguarda o DOM estar completamente carregado
@@ -4012,33 +4078,6 @@ if (ENABLE_DEBUG) {
     }
     // ==================== FIM ATUALIZAÇÃO DO DEBUG ====================
 
-    // Função para verificar se URL é acessível (simplificada)
-    function isUrlAccessible(url) {
-        // Se for URL HTTP (não HTTPS), pode funcionar mesmo com problemas de SSL
-        if (url.startsWith('http://')) {
-            return true;
-        }
-        
-        // Se for HTTPS de jwplatform, pode ter problemas - vamos tentar forçar HTTP
-        if (url.includes('jwplatform.com') || url.includes('jwpsrv.com')) {
-            console.log('URL do JWPlatform detectada, pode ter problemas SSL');
-            // Retornar false para tentar corrigir
-            return false;
-        }
-        
-        return true;
-    }
-    
-    // Função para corrigir URL do JWPlatform (remover HTTPS)
-    function corrigirUrlJwplatform(url) {
-        if (url.includes('https://content.jwplatform.com')) {
-            return url.replace('https://', 'http://');
-        }
-        if (url.includes('https://videos-cloudfront.jwpsrv.com')) {
-            return url.replace('https://', 'http://');
-        }
-        return url;
-    }
 
     function reproduzirComercial() {
         console.log('=== INICIANDO INTERVALO COMERCIAL ===');
@@ -4051,12 +4090,11 @@ if (ENABLE_DEBUG) {
             return;
         }
         
-        if (commercialIndicator) {
-            commercialIndicator.style.display = 'block';
-        }
+        // Configurações visuais do comercial
+        if (commercialIndicator) commercialIndicator.style.display = 'block';
         document.getElementById('currentProgram').textContent = 'Intervalo Comercial';
         
-        // OCULTAR CONTROLES ESPECÍFICOS DURANTE COMERCIAIS
+        // Controles específicos para comerciais
         if (playbackControls) {
             playbackControls.style.display = 'flex';
             if (rewind10Btn) rewind10Btn.style.display = 'none';
@@ -4064,10 +4102,9 @@ if (ENABLE_DEBUG) {
             if (liveBtn) liveBtn.style.display = 'none';
         }
         
-        if (customControls) {
-            customControls.classList.add('commercial-controls');
-        }
+        if (customControls) customControls.classList.add('commercial-controls');
         
+        // Obter próximo comercial
         let commercialUrl = obterProximoComercial();
         
         if (!commercialUrl) {
@@ -4078,79 +4115,85 @@ if (ENABLE_DEBUG) {
             return;
         }
         
-        // CORREÇÃO: Se for URL do JWPlatform com HTTPS, tentar HTTP
-        if (commercialUrl.includes('jwplatform.com') || commercialUrl.includes('jwpsrv.com')) {
-            if (commercialUrl.startsWith('https://')) {
-                const httpUrl = commercialUrl.replace('https://', 'http://');
-                console.log('Convertendo URL HTTPS para HTTP:', httpUrl);
-                commercialUrl = httpUrl;
-            }
-        }
-        
+        // REMOVI a conversão forçada de HTTPS para HTTP (causa problemas)
         console.log('Reproduzindo comercial:', commercialUrl);
-                if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
+        
+        // Carregar o comercial
+        if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
             carregarVideoYouTube(commercialUrl, 0, true);
         } else {
             carregarVideoHTML5(commercialUrl, 0, true);
         }
         
-        // Adicionar timeout de segurança para comerciais
-        const commercialTimeout = setTimeout(() => {
-            console.log('Timeout de segurança: comercial não carregou em 5 segundos');
-            handleCommercialError();
-        }, 5000);
-        
-        // Handler de erro para comercial
-        const handleCommercialError = function() {
-            clearTimeout(commercialTimeout);
-            console.error('Erro no comercial, tentando próximo...');
-            
-            if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
-                console.log('Tentando próximo comercial...');
-                reproduzirComercial();
-            } else {
-                console.log('Todos os comerciais falharam, indo para próximo programa');
-                commercialBreakCount = 0;
-                if (commercialIndicator) {
-                    commercialIndicator.style.display = 'none';
-                }
-                const proximoSlot = getNextSlot();
-                reproduzirPrograma(proximoSlot, 0);
-            }
-        };
-        
-        // Adicionar listener de erro no vídeo
-        if (videoElement) {
-            videoElement.addEventListener('error', handleCommercialError);
-        }
-        
+        // Estado atual
         currentState = 'commercial';
-        commercialBreakCount++;
         
+        // Handler de fim do comercial
         const handleCommercialEnd = function() {
-            console.log('Comercial terminado. CommercialBreakCount:', commercialBreakCount, 'de', COMMERCIALS_PER_BREAK);
+            console.log('Comercial terminado. CommercialBreakCount:', commercialBreakCount + 1, 'de', COMMERCIALS_PER_BREAK);
+            
+            // Incrementar contador
+            commercialBreakCount++;
             
             if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
-                console.log('Ainda há comerciais neste intervalo. Chamando próximo...');
+                // Ainda há comerciais para exibir neste intervalo
+                console.log('Próximo comercial...');
                 reproduzirComercial();
             } else {
-                console.log('Intervalo comercial completo. Indo para próximo programa...');
+                // Todos os comerciais do intervalo foram exibidos
+                console.log('Intervalo comercial COMPLETO. Indo para próximo programa...');
                 commercialBreakCount = 0;
-                if (commercialIndicator) {
-                    commercialIndicator.style.display = 'none';
-                }
-                const proximoSlot = getNextSlot();
+                if (commercialIndicator) commercialIndicator.style.display = 'none';
+                const proximoSlot = getNextSlot(); // Agora SIM avança o slot
                 reproduzirPrograma(proximoSlot, 0);
             }
         };
         
+        // Handler de erro (SIMPLES - sem fallback automático)
+        const handleCommercialError = function() {
+            console.error('ERRO NO COMERCIAL. Interrompendo intervalo comercial.');
+            
+            // Limpar listeners
+            if (videoElement) {
+                videoElement.removeEventListener('ended', handleCommercialEnd);
+                videoElement.removeEventListener('error', handleCommercialError);
+            }
+            
+            // Resetar e ir para próximo programa
+            commercialBreakCount = 0;
+            if (commercialIndicator) commercialIndicator.style.display = 'none';
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        };
+        
+        // Configurar listeners - usar {once: true} para garantir execução única
         if (videoElement) {
-            videoElement.removeEventListener('ended', handleCommercialEnd);
-            videoElement.addEventListener('ended', handleCommercialEnd);        } else {
-            console.log('Video element não disponível, usando timeout');
-            setTimeout(handleCommercialEnd, 25000);
+            // Criar versões encapsuladas das funções para poder remover depois
+            const commercialEndHandler = function() {
+                videoElement.removeEventListener('error', commercialErrorHandler);
+                handleCommercialEnd();
+            };
+            
+            const commercialErrorHandler = function() {
+                videoElement.removeEventListener('ended', commercialEndHandler);
+                handleCommercialError();
+            };
+            
+            // Remover qualquer listener anterior
+            videoElement.removeEventListener('ended', commercialEndHandler);
+            videoElement.removeEventListener('error', commercialErrorHandler);
+            
+            // Adicionar novos listeners com once: true
+            videoElement.addEventListener('ended', commercialEndHandler, { once: true });
+            videoElement.addEventListener('error', commercialErrorHandler, { once: true });
+        } else {
+            // Fallback se não houver elemento de vídeo
+            console.log('Elemento de vídeo não disponível, usando timeout');
+            setTimeout(() => handleCommercialEnd(), 25000);
         }
+
     }
+
     
     // Função para obter próximo slot corretamente
     function getNextSlot() {
@@ -4422,12 +4465,12 @@ if (liveBtn) {
                 const minutos = agora.getMinutes().toString().padStart(2, '0');
                 timeDisplay.textContent = \`\${horas}:\${minutos}\`;
             }
-        }
-            function verificarFimDoVideo() {
+        }    function verificarFimDoVideo() {
         console.log('=== FIM DO VÍDEO DETECTADO ===');
         console.log('Estado atual:', currentState);
         console.log('Slot atual:', currentPlayingSlot);
         
+        // SÓ TRATA PROGRAMAS - COMERCIAIS TEM HANDLER PRÓPRIO
         if (currentState === 'program') {
             console.log('Programa terminou. Verificando comerciais...');
             if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
@@ -4439,24 +4482,10 @@ if (liveBtn) {
                 const proximoSlot = getNextSlot();
                 reproduzirPrograma(proximoSlot, 0);
             }
-        } else if (currentState === 'commercial') {
-            console.log('Comercial terminou. CommercialBreakCount:', commercialBreakCount, 'de', COMMERCIALS_PER_BREAK);
-            
-            // Esta lógica agora está dentro do handler de fim do comercial
-            // Mantemos vazio ou redireciona para lógica de segurança
-            if (commercialBreakCount >= COMMERCIALS_PER_BREAK) {
-                console.log('Intervalo comercial deve ter terminado, mas não foi tratado. Corrigindo...');
-                commercialBreakCount = 0;
-                if (commercialIndicator) {
-                    commercialIndicator.style.display = 'none';
-                }
-                const proximoSlot = getNextSlot();
-                reproduzirPrograma(proximoSlot, 0);
-            }
         }
+        // NÃO FAZ NADA PARA COMERCIAIS - eles têm seu próprio handler
     }
-        
-              function verificarMudancaDeDia() {
+                      function verificarMudancaDeDia() {
             if (PROGRAMMING_MODE === 'grade') {
                 const agora = new Date();
                 const horas = agora.getHours();
@@ -4511,12 +4540,9 @@ if (liveBtn) {
             
             if (videoElement) {
                 videoElement.addEventListener('ended', verificarFimDoVideo);
-                videoElement.addEventListener('error', function() {
-                    console.error('Erro no vídeo, tentando próximo...');
-                    setTimeout(() => {
-                        const proximoSlot = (currentPlayingSlot + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-                        reproduzirPrograma(proximoSlot, 0);
-                    }, 5000);
+                videoElement.addEventListener('error', function(e) {
+                    console.error('Erro no vídeo:', e);
+                    // NÃO tentar próximo automaticamente - deixar o fluxo normal tratar
                 });
                 
                 videoElement.addEventListener('contextmenu', function(e) {
