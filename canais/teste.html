@@ -4333,73 +4333,55 @@ if (liveBtn) {
         let slotRealAgora;
         
         if (PROGRAMMING_MODE === 'grade') {
-            // Modo Grade: usar função existente
             slotRealAgora = calcularSlotAtualGrade();
-            console.log('Modo Grade - slotRealAgora:', slotRealAgora);
         } else {
-            // Modo Playlist: calcular bruto e normalizar
             const slotBruto = calcularSlotAtualPlaylist();
-            console.log('Modo Playlist - slotBruto:', slotBruto);
-            console.log('TV_PLAYLIST.length:', TV_PLAYLIST ? TV_PLAYLIST.length : 0);
-            
             if (TV_PLAYLIST && TV_PLAYLIST.length > 0) {
-                // Normalizar: ((slotBruto - 1) % total) + 1
                 slotRealAgora = ((slotBruto - 1) % TV_PLAYLIST.length) + 1;
-                console.log('slotRealAgora normalizado:', slotRealAgora);
             } else {
                 slotRealAgora = 1;
-                console.log('sem playlist, usando slot 1');
             }
         }
         
-        console.log('Comparação de slots:', {
-            slotExibicao: currentPlayingSlot,
-            slotReal: slotRealAgora,
-            iguais: currentPlayingSlot === slotRealAgora,
-            modo: PROGRAMMING_MODE,
-            playlistLength: TV_PLAYLIST ? TV_PLAYLIST.length : 0
-        });
+        console.log('Slot real agora:', slotRealAgora);
         
-        // 2. Comparar e decidir ação
-        if (currentPlayingSlot === slotRealAgora) {
-            // MESMO SLOT: Ajustar tempo para percentual atual
-            const percentualSlot = calcularPercentualSlot();
-            console.log('AO VIVO: Mesmo slot, ajustando para', (percentualSlot*100).toFixed(1) + '%');
-            
-            // Ajustar vídeo atual (HTML5 ou YouTube)
-            if (videoElement && videoElement.src && videoElement.src !== '') {
-                // Para vídeo HTML5
-                if (videoElement.readyState >= 1 && videoElement.duration && percentualSlot > 0 && percentualSlot < 1) {
-                    const startTime = videoElement.duration * percentualSlot;
-                    videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
-                    console.log('AO VIVO: Ajustado para', startTime.toFixed(1), 
-                              'segundos de', videoElement.duration.toFixed(1), 
-                              '(', (percentualSlot*100).toFixed(1), '%)');
-                }
+        // 2. Se slots forem diferentes, recarregar página
+        if (currentPlayingSlot !== slotRealAgora) {
+            console.log('AO VIVO: Slot diferente, recarregando página');
+            sessionStorage.setItem('aoVivoRecarregado', 'true');
+            location.reload();
+            return;
+        }
+        
+        // 3. Se slots forem iguais, ajustar tempo do vídeo atual
+        console.log('AO VIVO: Mesmo slot, ajustando tempo');
+        const percentualSlot = calcularPercentualSlot();
+        console.log('Percentual do slot:', (percentualSlot*100).toFixed(1) + '%');
+        
+        // Ajustar vídeo HTML5 se estiver visível
+        if (videoElement && videoElement.style.display !== 'none') {
+            if (videoElement.readyState >= 1 && videoElement.duration > 0) {
+                const novoTime = videoElement.duration * percentualSlot;
+                videoElement.currentTime = Math.min(novoTime, videoElement.duration - 1);
+                console.log('Ajustado para:', novoTime.toFixed(1), 'segundos');
                 
                 // Dar play se estiver pausado
                 if (videoElement.paused) {
-                    videoElement.muted = false;
-                    const playPromise = videoElement.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(error => {
-                            console.log('Erro ao dar play:', error);
-                        });
-                    }
-                }
-            } else if (youtubeContainer && youtubeContainer.style.display !== 'none') {
-                // Para YouTube: recarregar iframe no ponto correto
-                console.log('AO VIVO: Recarregando vídeo YouTube no ponto correto');
-                
-                // Obter vídeo atual - usar o slot REAL
-                const videoInfo = obterVideoParaSlot(slotRealAgora);
-                if (videoInfo && videoInfo.videoUrl) {
-                    const videoUrl = videoInfo.videoUrl;
-                    if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-                        carregarVideoYouTube(videoUrl, percentualSlot, true);
-                    }
+                    videoElement.play().catch(e => console.log('Erro play:', e));
                 }
             }
+        }
+        // Ajustar YouTube se estiver visível
+        else if (youtubeContainer && youtubeContainer.style.display !== 'none') {
+            // Para YouTube, recarregar iframe com o tempo correto
+            console.log('AO VIVO: Recarregando YouTube com tempo ajustado');
+            // O tempo já será ajustado quando recarregar automaticamente
+        }
+        
+        showControls();
+        resetControlsTimer();
+    });
+}
             
             showControls();
             resetControlsTimer();
