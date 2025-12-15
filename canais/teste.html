@@ -2501,33 +2501,26 @@ function calcularSlotAtualPlaylist() {
     const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
     const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
     
-    // DEBUG - Verificar datas
-    console.log('DEBUG PLAYLIST - Data de estreia REAL:', dataEstreia.toLocaleString());
-    console.log('DEBUG PLAYLIST - Data atual:', agora.toLocaleString());
-    
     // CALCULAR DIFERENÇA ABSOLUTA em minutos desde a estreia (sem ajustes de "dia do canal")
     const diferencaMs = agora.getTime() - dataEstreia.getTime();
     const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
     
-    console.log('DEBUG PLAYLIST - Diferença TOTAL em minutos:', minutosDesdeEstreia);
-    
     // Se for negativo, ainda não começou (retorna slot 1)
     if (minutosDesdeEstreia < 0) {
-        console.log('DEBUG PLAYLIST - Ainda não começou a estreia, usando slot 1');
         return 1;
     }
     
     // Cada slot tem 25 minutos, slot 1 começa em 0 minutos após a estreia
     const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
     
-    console.log('DEBUG PLAYLIST - Cálculo final:', {
-        dataEstreia: dataEstreia.toLocaleString(),
-        dataAtual: agora.toLocaleString(),
-        minutosDesdeEstreia: minutosDesdeEstreia,
-        slotBruto: slotAtualBruto
-    });
+    // Aplicar normalização para a playlist
+    const totalVideos = TV_PLAYLIST.length;
+    if (totalVideos <= 0) return 1;
     
-    return slotAtualBruto; // Retorna BASE 1
+    // Normalizar: ((slotBruto - 1) % totalVideos) + 1
+    const slotNormalizado = ((slotAtualBruto - 1) % totalVideos) + 1;
+    
+    return slotNormalizado; // Retorna BASE 1 e já normalizado
 }
 
     
@@ -2619,36 +2612,19 @@ function calcularSlotAtualPlaylist() {
         }
     }
     
-    // Função para obter slot para exibição (ajustado para playlist, normal para grade)
-    function obterSlotParaExibicao() {
-        // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
-        if (currentState === 'commercial') {
-            console.log('Em intervalo comercial, mantendo slot atual:', currentPlayingSlot);
-            return currentPlayingSlot;
-        }
-        
-        if (PROGRAMMING_MODE === 'grade') {
-            return calcularSlotAtual();
-        } else {
-            // Modo Playlist: calcular slot bruto e ajustar
-            const slotBruto = calcularSlotAtualPlaylist();
-            const totalSlotsCanal = TV_PLAYLIST.length;
-            
-            if (totalSlotsCanal <= 0) {
-                return 1;
-            }
-            
-            // CORREÇÃO: Usar módulo para obter o número normalizado entre 1 e totalSlotsCanal
-            let slotAjustado = ((slotBruto - 1) % totalSlotsCanal) + 1;
-            
-            // Garantir que seja pelo menos 1 (nunca deve ser menor, mas por segurança)
-            if (slotAjustado < 1) {
-                slotAjustado = 1;
-            }
-            
-            return slotAjustado;
-        }
+    // Função para obter slot para exibição (ajustado para playlist, normal para grade)function obterSlotParaExibicao() {
+    // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
+    if (currentState === 'commercial') {
+        return currentPlayingSlot;
     }
+    
+    if (PROGRAMMING_MODE === 'grade') {
+        return calcularSlotAtualGrade();
+    } else {
+        // Modo Playlist: usar a função que já retorna normalizado
+        return calcularSlotAtualPlaylist();
+    }
+}
     
     // Função para verificar se precisa recarregar a página no modo GRADE
     function verificarRecarregamentoGrade() {
@@ -4329,21 +4305,9 @@ if (liveBtn) {
         console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
         console.log('currentPlayingSlot (slot exibido):', currentPlayingSlot);
         
-        // 1. Calcular slot real AGORA (no momento do clique)
-        let slotRealAgora;
-        
-        if (PROGRAMMING_MODE === 'grade') {
-            slotRealAgora = calcularSlotAtualGrade();
-        } else {
-            const slotBruto = calcularSlotAtualPlaylist();
-            if (TV_PLAYLIST && TV_PLAYLIST.length > 0) {
-                slotRealAgora = ((slotBruto - 1) % TV_PLAYLIST.length) + 1;
-            } else {
-                slotRealAgora = 1;
-            }
-        }
-        
-        console.log('Slot real agora:', slotRealAgora);
+        // 1. Calcular slot real AGORA (usando a função unificada)
+        const slotRealAgora = obterSlotParaExibicao();
+        console.log('Slot real agora (normalizado):', slotRealAgora);
         
         // 2. Se slots forem diferentes, recarregar página
         if (currentPlayingSlot !== slotRealAgora) {
@@ -4370,12 +4334,6 @@ if (liveBtn) {
                     videoElement.play().catch(e => console.log('Erro play:', e));
                 }
             }
-        }
-        // Ajustar YouTube se estiver visível
-        else if (youtubeContainer && youtubeContainer.style.display !== 'none') {
-            // Para YouTube, recarregar iframe com o tempo correto
-            console.log('AO VIVO: Recarregando YouTube com tempo ajustado');
-            // O tempo já será ajustado quando recarregar automaticamente
         }
         
         showControls();
