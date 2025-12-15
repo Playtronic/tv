@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.9.6">
+    <meta name="version" content="1.0.9.7">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -704,7 +704,7 @@
         
         
                 <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão 1.0.9.6
+                    Versão 1.0.9.7
                 </div>
             
         
@@ -1258,7 +1258,7 @@ function calcularSlotAtual() {
         
         const RELEASE_DATE = "2025-12-14";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.9.6";
+        const CHANNEL_VERSION = "1.0.9.7";
         const CHANNEL_ID = "jaspion";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2136,72 +2136,36 @@ if (ENABLE_DEBUG) {
 if (liveBtn) {
     liveBtn.addEventListener('click', function() {
         console.log('=== BOTÃO AO VIVO CLICADO ===');
-        console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
-        console.log('currentPlayingSlot (atual):', currentPlayingSlot);
         
-        // 1. USAR A MESMA FUNÇÃO QUE É USADA NA INICIALIZAÇÃO
-        let slotRealAgora;
+        // CALCULAR EXATAMENTE COMO O BOTÃO "LIGAR TV" FAZ
+        const percentualSlot = calcularPercentualSlot();
         
-        if (PROGRAMMING_MODE === 'grade') {
-            // MODO GRADE: usar a mesma função que na inicialização
-            slotRealAgora = calcularSlotAtualGrade();
-            console.log('Grade - calcularSlotAtualGrade() retornou:', slotRealAgora);
-        } else {
-            // MODO PLAYLIST: usar a MESMA função que na inicialização
-            slotRealAgora = calcularSlotAtualPlaylist();
-            console.log('Playlist - calcularSlotAtualPlaylist() retornou:', slotRealAgora);
-        }
+        // 1. USAR A MESMA FUNÇÃO QUE O "LIGAR TV" USA
+        const slotAgora = obterSlotParaExibicao();
+        console.log('Slot atual na página:', currentPlayingSlot);
+        console.log('Slot calculado agora:', slotAgora);
         
-        console.log('slotRealAgora (calculado agora):', slotRealAgora);
-        
-        // 2. COMPARAÇÃO CORRIGIDA - considerando normalização
-        let saoIguais = false;
-        
-        if (PROGRAMMING_MODE === 'grade') {
-            // Modo Grade: comparação direta
-            saoIguais = (currentPlayingSlot === slotRealAgora);
-        } else {
-            // Modo Playlist: normalizar ambos os slots para garantir comparação correta
-            const totalVideos = TV_PLAYLIST.length;
-            if (totalVideos > 0) {
-                // Normalizar o slot atual (já deve estar normalizado, mas garantimos)
-                const slotAtualNormalizado = ((currentPlayingSlot - 1) % totalVideos) + 1;
-                // Normalizar o slot calculado
-                const slotRealNormalizado = ((slotRealAgora - 1) % totalVideos) + 1;
-                
-                console.log('Comparação normalizada:');
-                console.log('  Slot atual normalizado:', slotAtualNormalizado);
-                console.log('  Slot real normalizado:', slotRealNormalizado);
-                
-                saoIguais = (slotAtualNormalizado === slotRealNormalizado);
-            } else {
-                saoIguais = false;
-            }
-        }
-        
-        console.log('COMPARAÇÃO: São iguais?', saoIguais);
-        
-        if (!saoIguais) {
-            console.log('❌ DIFERENTE! Recarregando página.');
-            console.log('Diferença:', Math.abs(currentPlayingSlot - slotRealAgora));
+        // 2. SE FOR DIFERENTE, RECARREGAR
+        if (currentPlayingSlot !== slotAgora) {
+            console.log('DIFERENTE - Recarregando');
             sessionStorage.setItem('aoVivoRecarregado', 'true');
             location.reload();
             return;
         }
         
-        // 3. SE IGUAL: AJUSTAR TEMPO DO VÍDEO
-        console.log('✅ IGUAL! Ajustando tempo do vídeo.');
+        // 3. SE FOR IGUAL, FAZER EXATAMENTE O QUE O "LIGAR TV" FAZ
+        console.log('IGUAL - Ajustando vídeo para:', (percentualSlot * 100).toFixed(1) + '%');
         
-        // Calcular percentual do slot atual
-        const percentualSlot = calcularPercentualSlot();
-        console.log('Percentual do slot:', (percentualSlot * 100).toFixed(1) + '%');
+        // REMOVER O OVERLAY SE EXISTIR
+        if (autoplayOverlay && !autoplayOverlay.classList.contains('hidden')) {
+            autoplayOverlay.classList.add('hidden');
+        }
         
-        // Ajustar vídeo atual
-        if (videoElement && videoElement.style.display !== 'none') {
-            if (videoElement.readyState >= 1 && videoElement.duration > 0) {
+        // DAR PLAY NO VÍDEO
+        if (videoElement && videoElement.readyState >= 1) {
+            if (videoElement.duration > 0) {
                 const novoTime = videoElement.duration * percentualSlot;
                 videoElement.currentTime = Math.min(novoTime, videoElement.duration - 1);
-                console.log('Vídeo ajustado para:', novoTime.toFixed(1), 'segundos');
                 
                 if (videoElement.paused) {
                     videoElement.play().catch(e => console.log('Erro ao dar play:', e));
@@ -2209,10 +2173,22 @@ if (liveBtn) {
             }
         }
         
+        // SE FOR YOUTUBE, TAMBÉM AJUSTAR
+        if (youtubeContainer && youtubeContainer.style.display !== 'none') {
+            const iframe = youtubeContainer.querySelector('iframe');
+            if (iframe) {
+                const src = iframe.src;
+                const cleanSrc = src.split('?')[0];
+                const newSrc = cleanSrc + '?autoplay=1&controls=0&modestbranding=1&rel=0&start=' + Math.floor(300 * percentualSlot);
+                iframe.src = newSrc;
+            }
+        }
+        
         showControls();
         resetControlsTimer();
     });
-}  
+}
+
             if (fullscreenBtn && videoWrapper) {
                 fullscreenBtn.addEventListener('click', function() {
                     if (!document.fullscreenElement) {
