@@ -2559,34 +2559,43 @@ function calcularSlotAtualPlaylist() {
     
     // Função para calcular slot atual no modo GRADE
     function calcularSlotAtualGrade() {
-    const agora = new Date();
-    const horas = agora.getHours();
-    
-    // Determinar a última 6h da manhã
-    let horaBase = new Date(agora);
-    if (horas < 6) {
-        horaBase.setDate(horaBase.getDate() - 1);
+        const agora = new Date();
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        
+        let horaBase;
+        
+        // Se for entre 00:00 e 05:59, usar 6h do dia anterior
+        if (horas < 6) {
+            const dataOntem = new Date(agora);
+            dataOntem.setDate(dataOntem.getDate() - 1);
+            horaBase = new Date(dataOntem);
+            horaBase.setHours(6, 0, 0, 0);
+        } else {
+            // Se for 6h ou mais, usar 6h do dia atual
+            horaBase = new Date(agora);
+            horaBase.setHours(6, 0, 0, 0);
+        }
+        
+        // Calcular diferença em minutos desde as 6h
+        const diferencaMs = agora.getTime() - horaBase.getTime();
+        const minutosDesde6h = Math.floor(diferencaMs / (1000 * 60));
+        
+        // Calcular slot (cada slot tem 25 minutos)
+        let slotAtual = Math.floor(minutosDesde6h / SLOT_DURATION) + 1; // +1 porque o slot 1 começa às 6h
+        
+        // Limitar ao máximo de 58 slots
+        if (slotAtual > TOTAL_SLOTS) {
+            slotAtual = TOTAL_SLOTS;
+        }
+        
+        // Se for antes das 6h, o slot é 58 (último slot do dia anterior)
+        if (horas < 6 && slotAtual <= 0) {
+            slotAtual = TOTAL_SLOTS;
+        }
+        
+        return slotAtual;
     }
-    horaBase.setHours(6, 0, 0, 0);
-    
-    // Diferença em minutos
-    const diffMs = agora - horaBase;
-    const diffMinutos = Math.floor(diffMs / (1000 * 60));
-    
-    // Calcular slot (25 minutos cada)
-    let slot = Math.floor(diffMinutos / 25) + 1;
-    
-    // Garantir que está entre 1 e 58
-    if (slot < 1) slot = 1;
-    if (slot > 58) slot = 58;
-    
-    // Caso especial: se for antes das 6h e cálculo deu 1, usar slot 58
-    if (horas < 6 && slot === 1) {
-        slot = 58;
-    }
-    
-    return slot;
-}
     
     // Função para ajustar vídeo dentro de um slot no modo GRADE
     function ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot) {
@@ -3501,31 +3510,6 @@ function calcularSlotAtual() {
         let customControls = null;
         let loadingMessage = null;
         let likeDislikeContainer = null;
-
-// Função para baixar arquivos de log
-function baixarArquivoLog(conteudo, nomeArquivo) {
-    try {
-        const blob = new Blob([conteudo], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = nomeArquivo;
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        
-        // Limpar após 1 segundo
-        setTimeout(() => {
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-        }, 1000);
-        
-        return true;
-    } catch (erro) {
-        console.error('Erro ao baixar log:', erro);
-        return false;
-    }
-}
         
         // ==================== SISTEMA DE AUTENTICAÇÃO ====================
         
@@ -4331,94 +4315,113 @@ if (ENABLE_DEBUG) {
             
 if (liveBtn) {
     liveBtn.addEventListener('click', function() {
-        console.log('=== AO VIVO - VERSÃO CORRIGIDA ===');
+        console.log('=== BOTÃO AO VIVO CLICADO ===');
+        console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
+        console.log('currentPlayingSlot (atual):', currentPlayingSlot);
         
-        try {
-            // 1. Calcular slot no clique
-            let slotNoClique;
-            if (PROGRAMMING_MODE === 'grade') {
-                slotNoClique = calcularSlotAtualGrade();
-            } else {
-                slotNoClique = calcularSlotAtualPlaylist();
-            }
-            
-            // 2. DEBUG no console
-            console.log('currentPlayingSlot:', currentPlayingSlot);
-            console.log('slotNoClique:', slotNoClique);
-            console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
-            console.log('RELEASE_DATE:', RELEASE_DATE);
-            console.log('TV_PLAYLIST length:', TV_PLAYLIST ? TV_PLAYLIST.length : 0);
-            
-            // 3. Comparação SIMPLES
-            if (currentPlayingSlot !== slotNoClique) {
-                console.log('❌ DIFERENTE! Recarregando...');
-                
-                // Criar log SIMPLES sem template strings complexas
-                const logData = {
-                    timestamp: new Date().toISOString(),
-                    modo: PROGRAMMING_MODE,
-                    slotAtual: currentPlayingSlot,
-                    slotCalculado: slotNoClique,
-                    releaseDate: RELEASE_DATE,
-                    playlistLength: TV_PLAYLIST ? TV_PLAYLIST.length : 0,
-                    hora: new Date().toLocaleString('pt-BR'),
-                    userAgent: navigator.userAgent
-                };
-                
-                const logText = 'ERRO AO VIVO\n' +
-                    'Data: ' + logData.timestamp + '\n' +
-                    'Modo: ' + logData.modo + '\n' +
-                    'Slot Atual: ' + logData.slotAtual + '\n' +
-                    'Slot Calculado: ' + logData.slotCalculado + '\n' +
-                    'Data Estreia: ' + logData.releaseDate + '\n' +
-                    'Tamanho Playlist: ' + logData.playlistLength + '\n' +
-                    'Hora Local: ' + logData.hora;
-                
-                console.log('LOG:', logText);
-                
-                // Tentar baixar log
-                try {
-                    const blob = new Blob([logText], { type: 'text/plain' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'erro_ao_vivo_' + Date.now() + '.txt';
-                    document.body.appendChild(a);
-                    a.click();
-                    setTimeout(() => {
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
-                    }, 100);
-                } catch (e) {
-                    console.error('Não foi possível baixar log:', e);
-                }
-                
-                sessionStorage.setItem('aoVivoRecarregado', 'true');
-                setTimeout(() => location.reload(), 300);
-                return;
-            }
-            
-            // 4. Se igual, sincronizar
-            console.log('✅ IGUAL! Sincronizando...');
-            const percentual = calcularPercentualSlot();
-            
-            if (videoElement && videoElement.duration > 0) {
-                videoElement.currentTime = videoElement.duration * percentual;
-                if (videoElement.paused) videoElement.play();
-            }
-            
-            showControls();
-            resetControlsTimer();
-            
-        } catch (error) {
-            console.error('ERRO NO BOTÃO AO VIVO:', error);
-            // Em caso de erro, recarregar a página
+        // 1. CALCULAR SLOT REAL NORMALIZADO NO MOMENTO DO CLIQUE
+        let slotRealAgora;
+        
+        if (PROGRAMMING_MODE === 'grade') {
+            // MODO GRADE: usar calcularSlotAtualGrade() que já retorna base 1
+            slotRealAgora = calcularSlotAtualGrade();
+            console.log('Grade - calcularSlotAtualGrade() retornou:', slotRealAgora);
+        } else {
+                } else {
+            // MODO PLAYLIST: usar a função calcularSlotAtualPlaylist() que já faz o cálculo correto
+            slotRealAgora = calcularSlotAtualPlaylist();
+        }
+        
+        console.log('slotRealAgora (calculado agora):', slotRealAgora);
+        
+        // 2. COMPARAÇÃO DIRETA
+        console.log('COMPARAÇÃO: currentPlayingSlot =', currentPlayingSlot, '=== slotRealAgora =', slotRealAgora);
+        
+        if (currentPlayingSlot !== slotRealAgora) {
+            console.log('❌ DIFERENTE! Recarregando página.');
+            console.log('Diferença:', Math.abs(currentPlayingSlot - slotRealAgora));
             sessionStorage.setItem('aoVivoRecarregado', 'true');
             location.reload();
+            return;
         }
+        
+        // 3. SE IGUAL: AJUSTAR TEMPO DO VÍDEO
+        console.log('✅ IGUAL! Ajustando tempo do vídeo.');
+        
+        // Calcular percentual do slot atual
+        const percentualSlot = calcularPercentualSlot();
+        console.log('Percentual do slot:', (percentualSlot * 100).toFixed(1) + '%');
+        
+        // Ajustar vídeo atual
+        if (videoElement && videoElement.style.display !== 'none') {
+            if (videoElement.readyState >= 1 && videoElement.duration > 0) {
+                const novoTime = videoElement.duration * percentualSlot;
+                videoElement.currentTime = Math.min(novoTime, videoElement.duration - 1);
+                console.log('Vídeo ajustado para:', novoTime.toFixed(1), 'segundos');
+                
+                if (videoElement.paused) {
+                    videoElement.play().catch(e => console.log('Erro ao dar play:', e));
+                }
+            }
+        }
+        
+        showControls();
+        resetControlsTimer();
     });
 }
-
+            
+            if (fullscreenBtn && videoWrapper) {
+                fullscreenBtn.addEventListener('click', function() {
+                    if (!document.fullscreenElement) {
+                        videoWrapper.requestFullscreen().catch(err => {
+                            console.log("Erro ao entrar em tela cheia:", err);
+                        });
+                    } else {
+                        document.exitFullscreen();
+                    }
+                    showControls();
+                    resetControlsTimer();
+                });
+            }
+                        if (autoplayButton) {
+                autoplayButton.addEventListener('click', function() {
+                    userStartedPlayback = true;
+                    
+                    // Calcula o percentual ATUAL do slot (NO MOMENTO DO CLIQUE)
+                    const percentualSlot = calcularPercentualSlot();
+                    console.log('Ligar TV - Percentual ATUAL:', (percentualSlot*100).toFixed(1), '%');
+                    
+                    if (autoplayOverlay) {
+                        autoplayOverlay.classList.add('hidden');
+                    }
+                    
+                    // Se já temos um vídeo carregado, ajusta seu tempo e dá play
+                    if (videoElement && videoElement.src && videoElement.src !== '') {
+                        // Para vídeo HTML5
+                        if (videoElement.duration && percentualSlot > 0 && percentualSlot < 1) {
+                            const startTime = videoElement.duration * percentualSlot;
+                            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
+                            console.log('Ligar TV - Ajustando vídeo para:', startTime.toFixed(1), 'segundos (', (percentualSlot*100).toFixed(1), '%)');
+                        }
+                        
+                        // Remove mute e dá play
+                        videoElement.muted = false;
+                        const playPromise = videoElement.play();
+                        if (playPromise !== undefined) {
+                            playPromise.catch(error => {
+                                console.log('Erro ao dar play:', error);
+                            });
+                        }
+                    }
+                    
+                    // Atualiza para o slot atual com o percentual ATUAL
+                    reproduzirPrograma(currentPlayingSlot, percentualSlot);
+                    
+                    showControls();
+                    resetControlsTimer();
+                });
+            }
+            
             if (videoWrapper) {
                 videoWrapper.addEventListener('mousemove', function() {
                     showControls();
@@ -4477,8 +4480,14 @@ if (liveBtn) {
         }
         
         function inicializarPlayer() {
-            videoElement = document.getElementById('myVideo');
-            youtubeContainer = document.getElementById('youtubeContainer');
+        // INICIALIZAR SLOT CORRETAMENTE PARA MODO PLAYLIST
+        if (PROGRAMMING_MODE === 'playlist') {
+            currentPlayingSlot = calcularSlotAtualPlaylist();
+        }
+        
+        videoElement = document.getElementById('myVideo');
+        youtubeContainer = document.getElementById('youtubeContainer');
+      
             autoplayOverlay = document.getElementById('autoplayOverlay');
             autoplayButton = document.getElementById('autoplayButton');
             volumeBtn = document.getElementById('volumeBtn');
@@ -4533,18 +4542,8 @@ if (liveBtn) {
             if (COMMERCIALS_ORDER === 'random') {
                 availableCommercials = [...TV_COMMERCIALS];
             }
-                                    // INICIALIZAÇÃO CORRETA DO SLOT
-const slotAtual = obterSlotParaExibicao();
-currentPlayingSlot = slotAtual;
-console.log('🔵 INICIALIZAÇÃO: Slot definido como', currentPlayingSlot);
-
-// ATUALIZAR DISPLAY DE DEBUG SE ESTIVER ATIVADO
-if (ENABLE_DEBUG) {
-    const debugElement = document.getElementById('debugProgram');
-    if (debugElement) {
-        debugElement.textContent = currentPlayingSlot;
-    }
-}
+                                    const slotAtual = obterSlotParaExibicao(); // Usar a função de exibição que já normaliza
+            currentPlayingSlot = slotAtual;
             const videoInfo = obterVideoParaSlot(currentPlayingSlot);
             if (videoInfo) {
                 if (PROGRAMMING_MODE === 'grade') {
