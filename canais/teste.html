@@ -2496,20 +2496,45 @@ const diasScript = `
     // Função para calcular slot atual no modo PLAYLIST (CORRIGIDA - BASE 1)
 function calcularSlotAtualPlaylist() {
     const agora = new Date();
+    
+    // Log para debug
+    console.log('=== calcularSlotAtualPlaylist() ===');
+    console.log('RELEASE_DATE:', RELEASE_DATE);
+    console.log('Agora:', agora.toLocaleString());
+    
     const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
     const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
+    
+    console.log('Data de estreia (6h):', dataEstreia.toLocaleString());
+    
     const diferencaMs = agora.getTime() - dataEstreia.getTime();
     const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
     
-    if (minutosDesdeEstreia < 0) return 1;
+    console.log('Diferença em ms:', diferencaMs);
+    console.log('Minutos desde estreia:', minutosDesdeEstreia);
+    
+    if (minutosDesdeEstreia < 0) {
+        console.log('Ainda não começou a estreia, retornando slot 1');
+        return 1;
+    }
     
     const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
     const totalVideos = TV_PLAYLIST.length;
     
-    if (totalVideos <= 0) return 1;
+    console.log('Slot bruto (antes da normalização):', slotAtualBruto);
+    console.log('Total de vídeos na playlist:', totalVideos);
     
-    // Esta é a fórmula CORRETA para normalização
-    return ((slotAtualBruto - 1) % totalVideos) + 1;
+    if (totalVideos <= 0) {
+        console.log('Playlist vazia, retornando slot 1');
+        return 1;
+    }
+    
+    const slotNormalizado = ((slotAtualBruto - 1) % totalVideos) + 1;
+    
+    console.log('Slot normalizado (final):', slotNormalizado);
+    console.log('=============================');
+    
+    return slotNormalizado;
 }
 
     
@@ -4292,40 +4317,39 @@ if (liveBtn) {
     liveBtn.addEventListener('click', function() {
         console.log('=== BOTÃO AO VIVO CLICADO ===');
         console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
+        console.log('currentPlayingSlot (atual):', currentPlayingSlot);
         
-        // CALCULAR SLOT REAL ATUAL USANDO A FUNÇÃO CORRETA
+        // Calcular slot real AGORA usando as funções existentes
         let slotRealAgora;
         
         if (PROGRAMMING_MODE === 'grade') {
-            // Modo Grade: usar calcularSlotAtualGrade() que retorna base 1
             slotRealAgora = calcularSlotAtualGrade();
             console.log('Modo Grade - slotRealAgora:', slotRealAgora);
         } else {
-            // Modo Playlist: usar calcularSlotAtualPlaylist() que já normaliza
+            // Usar a função calcularSlotAtualPlaylist() que já normaliza
             slotRealAgora = calcularSlotAtualPlaylist();
             console.log('Modo Playlist - slotRealAgora:', slotRealAgora);
         }
         
-        console.log('currentPlayingSlot (atual):', currentPlayingSlot);
-        console.log('slotRealAgora (calculado):', slotRealAgora);
+        console.log('COMPARAÇÃO: currentPlayingSlot =', currentPlayingSlot, 'slotRealAgora =', slotRealAgora);
         
-        // COMPARAÇÃO DIRETA
+        // Se for diferente, recarregar página
         if (currentPlayingSlot !== slotRealAgora) {
-            console.log('⚠️ DIFERENTE! Recarregando página.');
-            console.log('currentPlayingSlot:', currentPlayingSlot, '!== slotRealAgora:', slotRealAgora);
+            console.log('❌ DIFERENTE! Recarregando página.');
+            console.log('Diferença:', currentPlayingSlot - slotRealAgora);
             sessionStorage.setItem('aoVivoRecarregado', 'true');
             location.reload();
             return;
         }
         
-        // SE FOR IGUAL: ajustar tempo do vídeo
+        // Se for igual: ajustar tempo do vídeo
         console.log('✅ IGUAL! Ajustando tempo do vídeo.');
         
-        // Calcular percentual do slot
+        // Calcular percentual do slot atual
         const percentualSlot = calcularPercentualSlot();
-        console.log('Percentual do slot:', (percentualSlot*100).toFixed(1) + '%');
+        console.log('Percentual do slot:', (percentualSlot * 100).toFixed(1) + '%');
         
-        // Ajustar vídeo atual
+        // Ajustar vídeo HTML5
         if (videoElement && videoElement.style.display !== 'none') {
             if (videoElement.readyState >= 1 && videoElement.duration > 0) {
                 const novoTime = videoElement.duration * percentualSlot;
