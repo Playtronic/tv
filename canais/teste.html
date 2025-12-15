@@ -4331,111 +4331,91 @@ if (ENABLE_DEBUG) {
             
 if (liveBtn) {
     liveBtn.addEventListener('click', function() {
-        console.log('=== AO VIVO - VERSÃO COM LOG DOWNLOAD ===');
+        console.log('=== AO VIVO - VERSÃO CORRIGIDA ===');
         
-        // Função para baixar log
-        function baixarLog(conteudo, nomeArquivo) {
-            try {
-                const blob = new Blob([conteudo], { type: 'text/plain;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = nomeArquivo;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }, 100);
-            } catch (err) {
-                console.error('Erro ao baixar log:', err);
+        try {
+            // 1. Calcular slot no clique
+            let slotNoClique;
+            if (PROGRAMMING_MODE === 'grade') {
+                slotNoClique = calcularSlotAtualGrade();
+            } else {
+                slotNoClique = calcularSlotAtualPlaylist();
             }
-        }
-        
-        // 1. Coletar informações
-        const info = {
-            timestamp: new Date().toISOString(),
-            modo: PROGRAMMING_MODE,
-            slotAtual: currentPlayingSlot,
-            slotExibicao: obterSlotParaExibicao(),
-            releaseDate: RELEASE_DATE,
-            playlistLength: TV_PLAYLIST ? TV_PLAYLIST.length : 0,
-            currentState: currentState,
-            isLoadingVideo: isLoadingVideo,
-            videoDuration: videoElement ? videoElement.duration : 0,
-            videoCurrentTime: videoElement ? videoElement.currentTime : 0,
-            horaAtual: new Date().toLocaleString('pt-BR')
-        };
-        
-        // 2. Calcular slot no clique
-        let slotNoClique;
-        if (PROGRAMMING_MODE === 'grade') {
-            slotNoClique = calcularSlotAtualGrade();
-        } else {
-            slotNoClique = calcularSlotAtualPlaylist();
-        }
-        
-        // 3. Comparação
-        const saoIguais = currentPlayingSlot === slotNoClique;
-        
-        // 4. Gerar conteúdo do log de forma mais segura (evitando template string muito complexa)
-        let logContent = '=== LOG DO ERRO AO VIVO ===\n';
-        logContent += 'Data/Hora: ' + info.timestamp + '\n';
-        logContent += 'Hora Local: ' + info.horaAtual + '\n\n';
-        logContent += '=== CONFIGURAÇÕES ===\n';
-        logContent += 'Modo: ' + info.modo + '\n';
-        logContent += 'Data de Estreia: ' + info.releaseDate + '\n';
-        logContent += 'Tamanho da Playlist: ' + info.playlistLength + '\n\n';
-        logContent += '=== VALORES ===\n';
-        logContent += 'Slot Atual (currentPlayingSlot): ' + info.slotAtual + '\n';
-        logContent += 'Slot Exibição (obterSlotParaExibicao): ' + info.slotExibicao + '\n';
-        logContent += 'Slot Calculado no Clique: ' + slotNoClique + '\n\n';
-        logContent += '=== COMPARAÇÃO ===\n';
-        logContent += 'currentPlayingSlot (' + info.slotAtual + ') === Slot Clique (' + slotNoClique + ')?\n';
-        logContent += 'RESULTADO: ' + (saoIguais ? 'IGUAIS' : 'DIFERENTES') + '\n\n';
-        logContent += '=== ESTADO DO PLAYER ===\n';
-        logContent += 'Estado Atual: ' + info.currentState + '\n';
-        logContent += 'Carregando Vídeo: ' + info.isLoadingVideo + '\n';
-        logContent += 'Duração do Vídeo: ' + info.videoDuration + '\n';
-        logContent += 'Tempo Atual do Vídeo: ' + info.videoCurrentTime + '\n\n';
-        logContent += '=== SISTEMA ===\n';
-        logContent += 'User Agent: ' + navigator.userAgent + '\n';
-        logContent += 'Timezone Offset: ' + new Date().getTimezoneOffset() + '\n';
-        logContent += 'Horário do Navegador: ' + new Date().toString() + '\n';
-        logContent += '=== FIM DO LOG ===';
-        
-        // 5. Mostrar no console
-        console.log('INFORMAÇÕES COLETADAS:', info);
-        console.log('Slot calculado no clique:', slotNoClique);
-        console.log('São iguais?', saoIguais);
-        
-        // 6. Se for diferente, baixar log E DEPOIS recarregar
-        if (!saoIguais) {
-            console.log('❌ DIFERENTE - Baixando log e recarregando...');
             
-            // Baixar primeiro
-            baixarLog(logContent, 'erro_ao_vivo_' + Date.now() + '.txt');
+            // 2. DEBUG no console
+            console.log('currentPlayingSlot:', currentPlayingSlot);
+            console.log('slotNoClique:', slotNoClique);
+            console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
+            console.log('RELEASE_DATE:', RELEASE_DATE);
+            console.log('TV_PLAYLIST length:', TV_PLAYLIST ? TV_PLAYLIST.length : 0);
             
-            // Esperar 500ms para garantir o download
-            setTimeout(() => {
+            // 3. Comparação SIMPLES
+            if (currentPlayingSlot !== slotNoClique) {
+                console.log('❌ DIFERENTE! Recarregando...');
+                
+                // Criar log SIMPLES sem template strings complexas
+                const logData = {
+                    timestamp: new Date().toISOString(),
+                    modo: PROGRAMMING_MODE,
+                    slotAtual: currentPlayingSlot,
+                    slotCalculado: slotNoClique,
+                    releaseDate: RELEASE_DATE,
+                    playlistLength: TV_PLAYLIST ? TV_PLAYLIST.length : 0,
+                    hora: new Date().toLocaleString('pt-BR'),
+                    userAgent: navigator.userAgent
+                };
+                
+                const logText = 'ERRO AO VIVO\n' +
+                    'Data: ' + logData.timestamp + '\n' +
+                    'Modo: ' + logData.modo + '\n' +
+                    'Slot Atual: ' + logData.slotAtual + '\n' +
+                    'Slot Calculado: ' + logData.slotCalculado + '\n' +
+                    'Data Estreia: ' + logData.releaseDate + '\n' +
+                    'Tamanho Playlist: ' + logData.playlistLength + '\n' +
+                    'Hora Local: ' + logData.hora;
+                
+                console.log('LOG:', logText);
+                
+                // Tentar baixar log
+                try {
+                    const blob = new Blob([logText], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'erro_ao_vivo_' + Date.now() + '.txt';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    }, 100);
+                } catch (e) {
+                    console.error('Não foi possível baixar log:', e);
+                }
+                
                 sessionStorage.setItem('aoVivoRecarregado', 'true');
-                location.reload();
-            }, 500);
+                setTimeout(() => location.reload(), 300);
+                return;
+            }
             
-            return;
+            // 4. Se igual, sincronizar
+            console.log('✅ IGUAL! Sincronizando...');
+            const percentual = calcularPercentualSlot();
+            
+            if (videoElement && videoElement.duration > 0) {
+                videoElement.currentTime = videoElement.duration * percentual;
+                if (videoElement.paused) videoElement.play();
+            }
+            
+            showControls();
+            resetControlsTimer();
+            
+        } catch (error) {
+            console.error('ERRO NO BOTÃO AO VIVO:', error);
+            // Em caso de erro, recarregar a página
+            sessionStorage.setItem('aoVivoRecarregado', 'true');
+            location.reload();
         }
-        
-        // 7. Se for igual, sincronizar
-        console.log('✅ IGUAL - Sincronizando...');
-        const percentual = calcularPercentualSlot();
-        
-        if (videoElement && videoElement.duration > 0) {
-            videoElement.currentTime = videoElement.duration * percentual;
-            if (videoElement.paused) videoElement.play();
-        }
-        
-        showControls();
-        resetControlsTimer();
     });
 }
 
