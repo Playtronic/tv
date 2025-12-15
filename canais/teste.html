@@ -4125,25 +4125,27 @@ if (ENABLE_DEBUG) {
         currentState = 'commercial';
         
         // Handler de fim do comercial
-        const handleCommercialEnd = function() {
-            console.log('Comercial terminado. CommercialBreakCount:', commercialBreakCount + 1, 'de', COMMERCIALS_PER_BREAK);
-            
-            // Incrementar contador
-            commercialBreakCount++;
-            
-            if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
-                // Ainda há comerciais para exibir neste intervalo
-                console.log('Próximo comercial...');
-                reproduzirComercial();
-            } else {
-                // Todos os comerciais do intervalo foram exibidos
-                console.log('Intervalo comercial COMPLETO. Indo para próximo programa...');
-                commercialBreakCount = 0;
-                if (commercialIndicator) commercialIndicator.style.display = 'none';
-                const proximoSlot = getNextSlot(); // Agora SIM avança o slot
-                reproduzirPrograma(proximoSlot, 0);
-            }
-        };
+const handleCommercialEnd = function() {
+    console.log('Comercial terminado. CommercialBreakCount:', commercialBreakCount + 1, 'de', COMMERCIALS_PER_BREAK);
+    
+    // Incrementar contador
+    commercialBreakCount++;
+    
+    if (commercialBreakCount < COMMERCIALS_PER_BREAK) {
+        // Ainda há comerciais para exibir neste intervalo
+        console.log('Próximo comercial...');
+        reproduzirComercial();
+    } else {
+        // Todos os comerciais do intervalo foram exibidos
+        console.log('Intervalo comercial COMPLETO. Indo para próximo programa...');
+        commercialBreakCount = 0;
+        if (commercialIndicator) commercialIndicator.style.display = 'none';
+        const proximoSlot = getNextSlot(); // Agora SIM avança o slot
+        console.log('Comercial terminado - Slot atual (antes):', currentPlayingSlot, 'Próximo slot:', proximoSlot);
+        currentPlayingSlot = proximoSlot; // ATUALIZAR SLOT ATUAL
+        reproduzirPrograma(proximoSlot, 0);
+    }
+};
         
         // Handler de erro (SIMPLES - sem fallback automático)
         const handleCommercialError = function() {
@@ -4216,29 +4218,26 @@ if (ENABLE_DEBUG) {
     }
     
     // Função para obter próximo slot corretamente
-    function getNextSlot() {
-        // SE ESTIVER EM COMERCIAL, NÃO AVANÇA O SLOT
-        if (currentState === 'commercial') {
-            console.log('AVISO: Tentando avançar slot durante comercial! Mantendo atual:', currentPlayingSlot);
-            return currentPlayingSlot;
-        }
+function getNextSlot() {
+    // REMOVER A VERIFICAÇÃO QUE IMPEDE O AVANÇO DURANTE COMERCIAIS
+    // A função deve sempre retornar o próximo slot, independente do estado
+    
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade: circular entre 1 e 58
+        const nextSlot = (currentPlayingSlot % TOTAL_SLOTS) + 1;
+        console.log('Modo Grade - próximo slot:', nextSlot, '(atual:', currentPlayingSlot, ')');
+        return nextSlot;
+    } else {
+        // Modo Playlist: circular na playlist
+        const totalVideos = TV_PLAYLIST.length;
+        if (totalVideos === 0) return 1;
         
-        if (PROGRAMMING_MODE === 'grade') {
-            // Modo Grade: circular entre 1 e 58
-            const nextSlot = (currentPlayingSlot % TOTAL_SLOTS) + 1;
-            console.log('Modo Grade - próximo slot:', nextSlot, '(atual:', currentPlayingSlot, ')');
-            return nextSlot;
-        } else {
-            // Modo Playlist: circular na playlist
-            const totalVideos = TV_PLAYLIST.length;
-            if (totalVideos === 0) return 1;
-            
-            const nextSlot = (currentPlayingSlot % totalVideos) + 1;
-            console.log('Modo Playlist - próximo slot:', nextSlot, 
-                       '(atual:', currentPlayingSlot, 'total:', totalVideos, ')');
-            return nextSlot;
-        }
+        const nextSlot = (currentPlayingSlot % totalVideos) + 1;
+        console.log('Modo Playlist - próximo slot:', nextSlot, 
+                   '(atual:', currentPlayingSlot, 'total:', totalVideos, ')');
+        return nextSlot;
     }
+}
     
     function showControls() {
             if (customControls) {
@@ -4451,26 +4450,29 @@ if (liveBtn) {
                 const minutos = agora.getMinutes().toString().padStart(2, '0');
                 timeDisplay.textContent = \`\${horas}:\${minutos}\`;
             }
-        }    function verificarFimDoVideo() {
-        console.log('=== FIM DO VÍDEO DETECTADO ===');
-        console.log('Estado atual:', currentState);
-        console.log('Slot atual:', currentPlayingSlot);
-        
-        // SÓ TRATA PROGRAMAS - COMERCIAIS TEM HANDLER PRÓPRIO
-        if (currentState === 'program') {
-            console.log('Programa terminou. Verificando comerciais...');
-            if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
-                commercialBreakCount = 0; // Resetar contador ANTES de começar
-                console.log('Iniciando intervalo comercial...');
-                reproduzirComercial();
-            } else {
-                console.log('Sem comerciais. Indo para próximo programa...');
-                const proximoSlot = getNextSlot();
-                reproduzirPrograma(proximoSlot, 0);
-            }
+        }    function verificarFimDoVideo() {function verificarFimDoVideo() {
+    console.log('=== FIM DO VÍDEO DETECTADO ===');
+    console.log('Estado atual:', currentState);
+    console.log('Slot atual:', currentPlayingSlot);
+    
+    // SÓ TRATA PROGRAMAS - COMERCIAIS TEM HANDLER PRÓPRIO
+    if (currentState === 'program') {
+        console.log('Programa terminou. Verificando comerciais...');
+        if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
+            commercialBreakCount = 0; // Resetar contador ANTES de começar
+            console.log('Iniciando intervalo comercial...');
+            reproduzirComercial();
+        } else {
+            console.log('Sem comerciais. Indo para próximo programa...');
+            const proximoSlot = getNextSlot();
+            console.log('Slot atual (antes):', currentPlayingSlot, 'Próximo slot:', proximoSlot);
+            currentPlayingSlot = proximoSlot; // ATUALIZAR SLOT ATUAL
+            reproduzirPrograma(proximoSlot, 0);
         }
-        // NÃO FAZ NADA PARA COMERCIAIS - eles têm seu próprio handler
     }
+    // NÃO FAZ NADA PARA COMERCIAIS - eles têm seu próprio handler
+}
+
                       function verificarMudancaDeDia() {
             if (PROGRAMMING_MODE === 'grade') {
                 const agora = new Date();
