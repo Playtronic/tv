@@ -4315,121 +4315,39 @@ if (ENABLE_DEBUG) {
             
 if (liveBtn) {
     liveBtn.addEventListener('click', function() {
-        console.log('=== BOTÃO AO VIVO CLICADO - CÁLCULO CORRETO ===');
+        console.log('=== AO VIVO - CÁLCULO IDÊNTICO AO INICIAL ===');
         
-        // 1. CALCULAR SLOT REAL NO MOMENTO DO CLIQUE
-        let slotRealAgora;
+        // 1. CALCULAR SLOT EXATAMENTE COMO NA INICIALIZAÇÃO
+        let slotCalculado;
         
         if (PROGRAMMING_MODE === 'grade') {
-            // MODO GRADE: cálculo baseado no horário atual desde às 6h
-            const agora = new Date();
-            const horas = agora.getHours();
-            const minutos = agora.getMinutes();
-            
-            let horaBase;
-            if (horas < 6) {
-                // Se for antes das 6h, usar 6h do dia anterior
-                const dataOntem = new Date(agora);
-                dataOntem.setDate(dataOntem.getDate() - 1);
-                horaBase = new Date(dataOntem);
-                horaBase.setHours(6, 0, 0, 0);
-            } else {
-                // Se for 6h ou mais, usar 6h do dia atual
-                horaBase = new Date(agora);
-                horaBase.setHours(6, 0, 0, 0);
-            }
-            
-            // Calcular diferença em minutos desde as 6h
-            const diferencaMs = agora.getTime() - horaBase.getTime();
-            const minutosDesde6h = Math.floor(diferencaMs / (1000 * 60));
-            
-            // Calcular slot (cada slot tem 25 minutos)
-            slotRealAgora = Math.floor(minutosDesde6h / 25) + 1;
-            
-            // Limitar ao máximo de 58 slots
-            if (slotRealAgora > 58) {
-                slotRealAgora = 58;
-            }
-            
-            // Se for antes das 6h, o slot é 58 (último slot do dia anterior)
-            if (horas < 6 && slotRealAgora <= 0) {
-                slotRealAgora = 58;
-            }
-            
-            console.log('Grade - slotRealAgora:', slotRealAgora);
-            
+            slotCalculado = calcularSlotAtualGrade();
         } else {
-            // MODO PLAYLIST: cálculo baseado na data de estreia
-            const agora = new Date();
-            
-            // Converter RELEASE_DATE para objeto Date (às 06:00)
-            const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
-            const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
-            
-            console.log('Playlist - Data atual:', agora.toLocaleString());
-            console.log('Playlist - Data estreia (06:00):', dataEstreia.toLocaleString());
-            
-            // Calcular diferença em minutos
-            const diferencaMs = agora.getTime() - dataEstreia.getTime();
-            const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
-            
-            console.log('Playlist - Minutos desde estreia:', minutosDesdeEstreia);
-            
-            if (minutosDesdeEstreia < 0) {
-                slotRealAgora = 1;
-                console.log('Playlist - Ainda não começou, usando slot 1');
-            } else {
-                // Slot bruto (25 minutos por slot)
-                const slotBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
-                console.log('Playlist - Slot bruto (sem normalizar):', slotBruto);
-                
-                // Total de vídeos na playlist
-                const totalVideos = TV_PLAYLIST.length;
-                console.log('Playlist - Total de vídeos:', totalVideos);
-                
-                if (totalVideos <= 0) {
-                    slotRealAgora = 1;
-                } else {
-                    // NORMALIZAÇÃO: (slotBruto - 1) % totalVideos + 1
-                    slotRealAgora = ((slotBruto - 1) % totalVideos) + 1;
-                    console.log('Playlist - Slot normalizado (final):', slotRealAgora);
-                }
-            }
+            slotCalculado = calcularSlotAtualPlaylist();
         }
         
-        console.log('Slot calculado agora (slotRealAgora):', slotRealAgora);
-        console.log('Slot atual na página (currentPlayingSlot):', currentPlayingSlot);
+        console.log('DEBUG:', {
+            modo: PROGRAMMING_MODE,
+            slotAtual: currentPlayingSlot,
+            slotCalculado: slotCalculado,
+            igual: currentPlayingSlot === slotCalculado
+        });
         
-        // 2. COMPARAÇÃO - VERDADEIRA E DIRETA
-        console.log('COMPARAÇÃO: currentPlayingSlot === slotRealAgora ?', currentPlayingSlot === slotRealAgora);
-        
-        // 3. DECISÃO: ajustar vídeo ou recarregar
-        if (currentPlayingSlot !== slotRealAgora) {
-            console.log('❌ SLOTS DIFERENTES - Recarregando página');
-            console.log('Diferença:', Math.abs(currentPlayingSlot - slotRealAgora));
+        // 2. SE FOR DIFERENTE, RECARREGAR
+        if (currentPlayingSlot !== slotCalculado) {
+            console.log('DIFERENTE -> RECARREGAR');
             sessionStorage.setItem('aoVivoRecarregado', 'true');
             location.reload();
             return;
         }
         
-        // 4. SE FOR IGUAL: CALCULAR PERCENTUAL E AJUSTAR VÍDEO
-        console.log('✅ SLOTS IGUAIS - Ajustando tempo do vídeo');
+        // 3. SE FOR IGUAL, SINCRONIZAR O VÍDEO
+        console.log('IGUAL -> SINCRONIZAR');
+        const percentual = calcularPercentualSlot();
         
-        // Calcular percentual decorrido do slot atual
-        const percentualSlot = calcularPercentualSlot();
-        console.log('Percentual do slot:', (percentualSlot * 100).toFixed(1) + '%');
-        
-        // Aplicar ao vídeo atual
-        if (videoElement && videoElement.style.display !== 'none') {
-            if (videoElement.readyState >= 1 && videoElement.duration > 0) {
-                const novoTime = videoElement.duration * percentualSlot;
-                videoElement.currentTime = Math.min(novoTime, videoElement.duration - 1);
-                console.log('Vídeo ajustado para:', novoTime.toFixed(1), 'segundos');
-                
-                if (videoElement.paused) {
-                    videoElement.play().catch(e => console.log('Erro ao dar play:', e));
-                }
-            }
+        if (videoElement && videoElement.duration > 0) {
+            videoElement.currentTime = videoElement.duration * percentual;
+            if (videoElement.paused) videoElement.play();
         }
         
         showControls();
