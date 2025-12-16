@@ -451,6 +451,199 @@
             return new URLSearchParams(window.location.search).get(name);
         }
 
+        // Função de abordagem alternativa usando iframe
+        function tryAlternativeApproach(adCode, container, statusElement) {
+            try {
+                container.innerHTML = '';
+                
+                // Criar iframe para isolar o código
+                const iframe = document.createElement('iframe');
+                iframe.style.width = '100%';
+                iframe.style.height = '250px';
+                iframe.style.border = 'none';
+                iframe.style.overflow = 'hidden';
+                
+                // Preparar o conteúdo do iframe
+                const iframeDoc = iframe.contentWindow.document;
+                
+                // Remover qualquer document.write do código
+                const cleanCode = adCode.replace(/document\.write\(/g, '');
+                
+                iframeDoc.open();
+                iframeDoc.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <style>body { margin: 0; padding: 0; }</style>
+                    </head>
+                    <body>
+                        <div id="ad-container"></div>
+                        <script>
+                            ${cleanCode}
+                        <\/script>
+                    </body>
+                    </html>
+                `);
+                iframeDoc.close();
+                
+                container.appendChild(iframe);
+                
+                // Verificar se carregou
+                setTimeout(() => {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    const hasContent = iframeDoc.body && 
+                        (iframeDoc.body.querySelector('iframe, a, img, div') !== null || 
+                         iframeDoc.body.innerHTML.trim().length > 100);
+                    
+                    if (hasContent) {
+                        statusElement.className = 'preview-status status-success';
+                        statusElement.textContent = 'Banner carregado via abordagem alternativa!';
+                    } else {
+                        statusElement.className = 'preview-status status-error';
+                        statusElement.textContent = 'Não foi possível renderizar o banner. Verifique: 1) O código está correto 2) O domínio está aprovado no AdsTerra 3) Não há bloqueadores';
+                    }
+                }, 2000);
+                
+            } catch (error) {
+                statusElement.className = 'preview-status status-error';
+                statusElement.textContent = `Erro na abordagem alternativa: ${error.message}`;
+                console.error("Erro na abordagem alternativa:", error);
+            }
+        }
+
+        // FUNÇÃO PRINCIPAL CORRIGIDA
+        function showBannerPreview(adCode) {
+            const bannerPreviewContainer = document.getElementById('bannerPreviewContainer');
+            const bannerPreviewPlaceholder = document.getElementById('bannerPreviewPlaceholder');
+            const bannerLivePreview = document.getElementById('bannerLivePreview');
+            const bannerStatus = document.getElementById('bannerStatus');
+            
+            if (!adCode || adCode.trim() === '') {
+                bannerPreviewContainer.style.display = 'none';
+                return;
+            }
+
+            bannerPreviewContainer.style.display = 'block';
+            bannerPreviewPlaceholder.style.display = 'block';
+            bannerLivePreview.innerHTML = '';
+            bannerStatus.className = 'preview-status status-loading';
+            bannerStatus.textContent = 'Carregando banner...';
+            bannerStatus.style.display = 'block';
+
+            // Limpar scripts anteriores do AdsTerra
+            document.querySelectorAll('script').forEach(script => {
+                if (script.src && script.src.includes('highperformanceformat.com')) {
+                    script.remove();
+                }
+            });
+
+            // CORREÇÃO: Usar uma abordagem mais robusta para extrair o código
+            try {
+                // 1. Encontrar a configuração atOptions de forma mais abrangente
+                const atOptionsMatch = adCode.match(/atOptions\s*=\s*(\{[\s\S]*?\});/);
+                
+                // 2. Encontrar o script invoke.js
+                const invokeMatch = adCode.match(/src=['"]([^'"]*invoke\.js[^'"]*)['"]/);
+                
+                if (!invokeMatch) {
+                    throw new Error("Não foi possível encontrar o script invoke.js no código");
+                }
+
+                // Criar um container div para o banner
+                const bannerDiv = document.createElement('div');
+                bannerDiv.id = 'adsterra-banner-preview';
+                bannerDiv.style.minHeight = '100px';
+                bannerDiv.style.width = '100%';
+                bannerDiv.style.display = 'flex';
+                bannerDiv.style.justifyContent = 'center';
+                bannerDiv.style.alignItems = 'center';
+                
+                bannerLivePreview.appendChild(bannerDiv);
+                bannerPreviewPlaceholder.style.display = 'none';
+
+                // Se encontrou a configuração, executar
+                if (atOptionsMatch) {
+                    try {
+                        const configScript = document.createElement('script');
+                        configScript.textContent = `window.atOptions = ${atOptionsMatch[1]}`;
+                        document.head.appendChild(configScript);
+                    } catch (e) {
+                        console.warn("Erro ao configurar atOptions:", e);
+                    }
+                }
+
+                // Criar e carregar o script invoke.js
+                const invokeScript = document.createElement('script');
+                let invokeSrc = invokeMatch[1];
+                
+                // Garantir que a URL comece com https://
+                if (invokeSrc.startsWith('//')) {
+                    invokeSrc = 'https:' + invokeSrc;
+                } else if (!invokeSrc.startsWith('http')) {
+                    invokeSrc = 'https://' + invokeSrc;
+                }
+                
+                invokeScript.src = invokeSrc;
+                invokeScript.async = true;
+                invokeScript.defer = true;
+                
+                // Timeout para verificar se o banner carregou
+                const loadTimeout = setTimeout(() => {
+                    const hasContent = bannerDiv.querySelector('iframe, a, img, div') !== null;
+                    if (!hasContent) {
+                        bannerStatus.className = 'preview-status status-error';
+                        bannerStatus.textContent = 'Banner não carregado. Tentando abordagem alternativa...';
+                        
+                        // Tentar abordagem alternativa: usar iframe
+                        tryAlternativeApproach(adCode, bannerDiv, bannerStatus);
+                    }
+                }, 3000);
+                
+                invokeScript.onload = () => {
+                    clearTimeout(loadTimeout);
+                    
+                    // Verificar se o banner foi renderizado
+                    setTimeout(() => {
+                        const hasContent = bannerDiv.querySelector('iframe, a, img, div') !== null;
+                        if (hasContent) {
+                            bannerStatus.className = 'preview-status status-success';
+                            bannerStatus.textContent = 'Banner carregado com sucesso!';
+                        } else {
+                            bannerStatus.className = 'preview-status status-error';
+                            bannerStatus.textContent = 'Código carregado mas banner não visível. Tentando abordagem alternativa...';
+                            tryAlternativeApproach(adCode, bannerDiv, bannerStatus);
+                        }
+                    }, 1000);
+                };
+                
+                invokeScript.onerror = () => {
+                    clearTimeout(loadTimeout);
+                    bannerStatus.className = 'preview-status status-error';
+                    bannerStatus.textContent = 'Erro ao carregar script. Tentando abordagem alternativa...';
+                    tryAlternativeApproach(adCode, bannerDiv, bannerStatus);
+                };
+                
+                document.head.appendChild(invokeScript);
+
+            } catch (error) {
+                bannerStatus.className = 'preview-status status-error';
+                bannerStatus.textContent = `Erro: ${error.message}`;
+                console.error("Erro ao processar banner:", error);
+                
+                // Tentar abordagem alternativa
+                tryAlternativeApproach(adCode, bannerLivePreview, bannerStatus);
+            }
+        }
+
+        function validateApoiaLink(url) {
+            const errorElement = document.getElementById('donationLinkError');
+            const isValid = !url || url.includes('apoia.se/');
+            errorElement.style.display = isValid ? 'none' : 'block';
+            return isValid;
+        }
+
         async function loadChannelData() {
             try {
                 if (!currentUser) throw new Error("Usuário não autenticado");
@@ -489,96 +682,6 @@
                 document.getElementById('errorMessage').textContent = `Erro: ${error.message}`;
                 document.getElementById('errorMessage').style.display = 'block';
             }
-        }
-
-        // FUNÇÃO PRINCIPAL CORRIGIDA - AGORA FUNCIONA
-        function showBannerPreview(adCode) {
-            const bannerPreviewContainer = document.getElementById('bannerPreviewContainer');
-            const bannerPreviewPlaceholder = document.getElementById('bannerPreviewPlaceholder');
-            const bannerLivePreview = document.getElementById('bannerLivePreview');
-            const bannerStatus = document.getElementById('bannerStatus');
-            
-            if (!adCode || adCode.trim() === '') {
-                bannerPreviewContainer.style.display = 'none';
-                return;
-            }
-
-            bannerPreviewContainer.style.display = 'block';
-            bannerPreviewPlaceholder.style.display = 'block';
-            bannerLivePreview.innerHTML = '';
-            bannerStatus.className = 'preview-status status-loading';
-            bannerStatus.textContent = 'Carregando banner...';
-            bannerStatus.style.display = 'block';
-
-            // Limpar scripts anteriores do AdsTerra
-            document.querySelectorAll('script').forEach(script => {
-                if (script.src && script.src.includes('highperformanceformat.com')) {
-                    script.remove();
-                }
-            });
-
-            // Limpar variável global se existir
-            if (window.atOptions) {
-                delete window.atOptions;
-            }
-
-            // EXTRAIR E EXECUTAR OS SCRIPTS CORRETAMENTE
-            setTimeout(() => {
-                try {
-                    // 1. Extrair o script de configuração (atOptions)
-                    const configMatch = adCode.match(/atOptions\s*=\s*({[^}]+})/);
-                    if (configMatch) {
-                        const configScript = document.createElement('script');
-                        configScript.textContent = `window.atOptions = ${configMatch[1]}`;
-                        document.head.appendChild(configScript);
-                    }
-
-                    // 2. Extrair o script de invocação (invoke.js)
-                    const invokeMatch = adCode.match(/src=['"]([^'"]+invoke\.js[^'"]*)['"]/);
-                    if (invokeMatch) {
-                        const invokeScript = document.createElement('script');
-                        invokeScript.src = invokeMatch[1].startsWith('//') ? 'https:' + invokeMatch[1] : invokeMatch[1];
-                        invokeScript.async = true;
-                        
-                        // Quando o script carregar
-                        invokeScript.onload = () => {
-                            bannerPreviewPlaceholder.style.display = 'none';
-                            bannerStatus.className = 'preview-status status-success';
-                            bannerStatus.textContent = 'Banner carregado com sucesso';
-                            
-                            // Verificar se o banner foi realmente renderizado
-                            setTimeout(() => {
-                                const hasBanner = bannerLivePreview.querySelector('iframe, div') !== null;
-                                if (!hasBanner) {
-                                    bannerStatus.className = 'preview-status status-error';
-                                    bannerStatus.textContent = 'Banner não renderizado. Verifique o código ou desative bloqueadores.';
-                                }
-                            }, 1000);
-                        };
-                        
-                        invokeScript.onerror = () => {
-                            bannerStatus.className = 'preview-status status-error';
-                            bannerStatus.textContent = 'Erro ao carregar o script do AdsTerra';
-                        };
-                        
-                        document.head.appendChild(invokeScript);
-                    } else {
-                        throw new Error("Script do AdsTerra não encontrado");
-                    }
-
-                } catch (error) {
-                    bannerStatus.className = 'preview-status status-error';
-                    bannerStatus.textContent = `Erro: ${error.message}`;
-                    console.error("Erro ao processar banner:", error);
-                }
-            }, 100);
-        }
-
-        function validateApoiaLink(url) {
-            const errorElement = document.getElementById('donationLinkError');
-            const isValid = !url || url.includes('apoia.se/');
-            errorElement.style.display = isValid ? 'none' : 'block';
-            return isValid;
         }
 
         function updateUI() {
