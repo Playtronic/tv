@@ -71,6 +71,17 @@
             box-shadow: 0 0 0 2px #fdbb2d;
         }
 
+        input[type="url"],
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            font-size: 16px;
+            color: #333;
+        }
+
         button {
             background: #fdbb2d;
             color: #000;
@@ -266,6 +277,25 @@
             font-style: italic;
         }
 
+        .error-message {
+            color: #ff6b6b;
+            font-size: 0.9rem;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .ad-code-example {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            border-left: 3px solid #fdbb2d;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
@@ -318,6 +348,13 @@
                     <div class="form-group">
                         <label for="adsTerraBannerCode">Código do Banner AdsTerra:</label>
                         <textarea id="adsTerraBannerCode" placeholder="Cole o código fornecido pelo AdsTerra"></textarea>
+                        <div class="error-message" id="bannerCodeError"></div>
+                    </div>
+
+                    <div class="ad-code-example">
+                        <strong>Exemplo do código correto:</strong><br>
+                        &lt;script&gt;atOptions = {key:'seu_key',format:'banner',container:'container_id'};&lt;/script&gt;<br>
+                        &lt;script src="//www.highperformanceformat.com/seu_id/invoke.js"&gt;&lt;/script&gt;
                     </div>
 
                     <div id="bannerPreviewContainer" class="banner-preview-container" style="display: none;">
@@ -330,13 +367,16 @@
                     </div>
 
                     <div class="adsterra-guide">
-                        <p><strong>Como obter o código do AdsTerra:</strong></p>
+                        <p><strong>⚠️ IMPORTANTE: Como obter e colar o código CORRETAMENTE:</strong></p>
                         <ol>
                             <li>Crie uma conta em <a href="https://beta.publishers.adsterra.com/referral/9p8Xg77BYU" target="_blank" style="color: #fdbb2d; font-weight: bold;">AdsTerra</a></li>
-                            <li>Vá em "Ad Units" → "Banner"</li>
-                            <li>Crie um novo banner e copie o código fornecido</li>
-                            <li>Cole o código no campo acima</li>
+                            <li>Vá em "Ad Units" → "Banner" → Crie um novo banner</li>
+                            <li><strong>Copie TODO o código fornecido</strong> (deve ter 2 linhas: uma com "atOptions" e outra com "src=")</li>
+                            <li>Cole <strong>exatamente como aparece</strong> no campo acima</li>
                         </ol>
+                        <p style="margin-top: 10px; color: #ffcc44;">
+                            ❗ Se o preview não aparecer, desative bloqueadores de anúncios (AdBlock, uBlock) nesta página.
+                        </p>
                     </div>
                 </div>
             </div>
@@ -373,7 +413,7 @@
                     <div class="form-group">
                         <label for="donationLink">Link para doações:</label>
                         <input type="url" id="donationLink" placeholder="https://apoia.se/seucanal">
-                        <div class="error-message" id="donationLinkError" style="color: #ff6b6b; display: none; margin-top: 5px;">O link deve ser do Apoia.se</div>
+                        <div class="error-message" id="donationLinkError">O link deve ser do Apoia.se</div>
                     </div>
 
                     <div class="apoia-explanation">
@@ -491,18 +531,31 @@
             }
         }
 
-        // FUNÇÃO PRINCIPAL CORRIGIDA - AGORA FUNCIONA
+        // FUNÇÃO CORRIGIDA PARA EXIBIR PREVIEW DO BANNER ADSTERRA
         function showBannerPreview(adCode) {
             const bannerPreviewContainer = document.getElementById('bannerPreviewContainer');
             const bannerPreviewPlaceholder = document.getElementById('bannerPreviewPlaceholder');
             const bannerLivePreview = document.getElementById('bannerLivePreview');
             const bannerStatus = document.getElementById('bannerStatus');
+            const bannerCodeError = document.getElementById('bannerCodeError');
             
             if (!adCode || adCode.trim() === '') {
+                bannerPreviewContainer.style.display = 'none';
+                bannerCodeError.textContent = '';
+                bannerCodeError.style.display = 'none';
+                return;
+            }
+
+            // VALIDAR CÓDIGO DO ADSTERRA
+            if (!validateAdsterraCode(adCode)) {
+                bannerCodeError.textContent = 'Código não parece ser do AdsTerra. Verifique se copiou corretamente as 2 linhas do código.';
+                bannerCodeError.style.display = 'block';
                 bannerPreviewContainer.style.display = 'none';
                 return;
             }
 
+            bannerCodeError.textContent = '';
+            bannerCodeError.style.display = 'none';
             bannerPreviewContainer.style.display = 'block';
             bannerPreviewPlaceholder.style.display = 'block';
             bannerLivePreview.innerHTML = '';
@@ -510,110 +563,240 @@
             bannerStatus.textContent = 'Carregando banner...';
             bannerStatus.style.display = 'block';
 
-            // Limpar scripts anteriores do AdsTerra
+            // LIMPAR QUALQUER BANNER ANTERIOR
             document.querySelectorAll('script').forEach(script => {
-                if (script.src && script.src.includes('highperformanceformat.com')) {
+                if (script.src && (script.src.includes('highperformanceformat.com') || 
+                    script.src.includes('adsterra.com') || 
+                    script.src.includes('adsterra'))) {
                     script.remove();
                 }
             });
 
-            // Limpar variável global se existir
-            if (window.atOptions) {
-                delete window.atOptions;
-            }
+            // REMOVER ELEMENTOS DE ANÚNCIO ANTIGOS
+            document.querySelectorAll('[id^="container"]').forEach(el => el.remove());
+            document.querySelectorAll('[style*="position: absolute"]').forEach(el => {
+                if (el.innerHTML.includes('adsterra') || el.id.includes('AD')) el.remove();
+            });
 
-            // EXTRAIR E EXECUTAR OS SCRIPTS CORRETAMENTE
-            setTimeout(() => {
-                try {
-                    // 1. Extrair o script de configuração (atOptions)
-                    const configMatch = adCode.match(/atOptions\s*=\s*({[^}]+})/);
-                    if (configMatch) {
-                        const configScript = document.createElement('script');
-                        configScript.textContent = `window.atOptions = ${configMatch[1]}`;
-                        document.head.appendChild(configScript);
+            // RESETAR VARIÁVEIS GLOBAIS DO ADSTERRA
+            delete window.atOptions;
+            delete window.Adsterra;
+
+            try {
+                // CRIAR UM CONTAINER ISOLADO PARA O BANNER
+                const bannerContainer = document.createElement('div');
+                bannerContainer.style.width = '100%';
+                bannerContainer.style.minHeight = '100px';
+                bannerContainer.style.position = 'relative';
+                bannerContainer.style.overflow = 'hidden';
+                bannerLivePreview.appendChild(bannerContainer);
+
+                // EXTRAIR AS PARTES DO CÓDIGO DO ADSTERRA
+                const codeLines = adCode.split('\n');
+                let inlineScript = '';
+                let externalScript = '';
+                
+                // PROCURAR PELO SCRIPT INLINE (atOptions)
+                for (let line of codeLines) {
+                    const trimmedLine = line.trim();
+                    if (trimmedLine.includes('atOptions') || trimmedLine.includes('window.atOptions')) {
+                        inlineScript = trimmedLine;
+                        break;
                     }
-
-                    // 2. Extrair o script de invocação (invoke.js)
-                    const invokeMatch = adCode.match(/src=['"]([^'"]+invoke\.js[^'"]*)['"]/);
-                    if (invokeMatch) {
-                        const invokeScript = document.createElement('script');
-                        invokeScript.src = invokeMatch[1].startsWith('//') ? 'https:' + invokeMatch[1] : invokeMatch[1];
-                        invokeScript.async = true;
-                        
-                        // Quando o script carregar
-                        invokeScript.onload = () => {
-                            bannerPreviewPlaceholder.style.display = 'none';
-                            bannerStatus.className = 'preview-status status-success';
-                            bannerStatus.textContent = 'Banner carregado com sucesso';
-                            
-                            // Verificar se o banner foi realmente renderizado
-                            setTimeout(() => {
-                                const hasBanner = bannerLivePreview.querySelector('iframe, div') !== null;
-                                if (!hasBanner) {
-                                    bannerStatus.className = 'preview-status status-error';
-                                    bannerStatus.textContent = 'Banner não renderizado. Verifique o código ou desative bloqueadores.';
-                                }
-                            }, 1000);
-                        };
-                        
-                        invokeScript.onerror = () => {
-                            bannerStatus.className = 'preview-status status-error';
-                            bannerStatus.textContent = 'Erro ao carregar o script do AdsTerra';
-                        };
-                        
-                        document.head.appendChild(invokeScript);
-                    } else {
-                        throw new Error("Script do AdsTerra não encontrado");
-                    }
-
-                } catch (error) {
-                    bannerStatus.className = 'preview-status status-error';
-                    bannerStatus.textContent = `Erro: ${error.message}`;
-                    console.error("Erro ao processar banner:", error);
                 }
-            }, 100);
+
+                // PROCURAR PELO SCRIPT EXTERNO
+                const externalScriptMatch = adCode.match(/src="([^"]*highperformanceformat[^"]*)"/);
+                if (externalScriptMatch) {
+                    externalScript = externalScriptMatch[1];
+                }
+
+                // SE NÃO ENCONTROU, TENTAR OUTRAS VARIANTES
+                if (!externalScript) {
+                    const fallbackMatch = adCode.match(/src="([^"]*invoke\.js[^"]*)"/);
+                    if (fallbackMatch) {
+                        externalScript = fallbackMatch[1];
+                    }
+                }
+
+                // VERIFICAR SE ENCONTROU AMBOS
+                if (!inlineScript || !externalScript) {
+                    throw new Error('Não foi possível identificar as partes do código do AdsTerra');
+                }
+
+                // GARANTIR QUE O SCRIPT EXTERNO TEM PROTOCOLO
+                if (externalScript.startsWith('//')) {
+                    externalScript = 'https:' + externalScript;
+                }
+
+                // CRIAR O CÓDIGO COMPLETO
+                const fullCode = `
+                    <div id="adsterra-preview-container" style="width:100%;text-align:center;min-height:100px;">
+                        <script type="text/javascript">
+                            ${inlineScript}
+                        <\/script>
+                        <script type="text/javascript" src="${externalScript}" async><\/script>
+                    </div>
+                `;
+
+                // INSERIR O CÓDIGO
+                bannerContainer.innerHTML = fullCode;
+
+                // EXECUTAR SCRIPTS MANUALMENTE SE NECESSÁRIO
+                setTimeout(() => {
+                    const scripts = bannerContainer.querySelectorAll('script');
+                    scripts.forEach(script => {
+                        if (script.src) {
+                            const newScript = document.createElement('script');
+                            newScript.src = script.src;
+                            newScript.async = true;
+                            newScript.onload = () => {
+                                console.log('Script externo carregado:', script.src);
+                            };
+                            newScript.onerror = () => {
+                                console.error('Erro ao carregar script:', script.src);
+                            };
+                            document.head.appendChild(newScript);
+                        } else if (script.textContent) {
+                            try {
+                                const newScript = document.createElement('script');
+                                newScript.textContent = script.textContent;
+                                document.head.appendChild(newScript);
+                            } catch (e) {
+                                console.error('Erro ao executar script inline:', e);
+                            }
+                        }
+                    });
+                }, 100);
+
+                // VERIFICAR SE O BANNER FOI CARREGADO
+                const checkBannerLoaded = () => {
+                    const hasContent = bannerContainer.querySelector('iframe, img, div[id*="ad"], div[class*="ad"], a[href*="adsterra"]') !== null;
+                    
+                    if (hasContent) {
+                        bannerPreviewPlaceholder.style.display = 'none';
+                        bannerStatus.className = 'preview-status status-success';
+                        bannerStatus.textContent = '✅ Banner carregado com sucesso!';
+                        
+                        // ADICIONAR ESTILOS PARA DESTAQUE
+                        bannerContainer.style.border = '2px dashed #4CAF50';
+                        bannerContainer.style.padding = '10px';
+                        bannerContainer.style.borderRadius = '5px';
+                        bannerContainer.style.backgroundColor = 'rgba(76, 175, 80, 0.1)';
+                    } else {
+                        bannerStatus.className = 'preview-status status-error';
+                        bannerStatus.textContent = '⏳ Aguardando banner carregar...';
+                        
+                        // TENTAR NOVAMENTE APÓS 2 SEGUNDOS
+                        setTimeout(() => {
+                            const stillNoContent = bannerContainer.querySelector('iframe, img, div[id*="ad"], div[class*="ad"], a[href*="adsterra"]') === null;
+                            if (stillNoContent) {
+                                bannerStatus.className = 'preview-status status-error';
+                                bannerStatus.textContent = '❌ Banner não carregado. Verifique: 1) Código correto 2) Bloqueadores de anúncio 3) Conexão com internet';
+                            }
+                        }, 2000);
+                    }
+                };
+
+                // AGENDAR VERIFICAÇÃO
+                setTimeout(checkBannerLoaded, 1500);
+
+            } catch (error) {
+                console.error('Erro ao processar banner AdsTerra:', error);
+                bannerStatus.className = 'preview-status status-error';
+                bannerStatus.textContent = `❌ Erro: ${error.message}`;
+                
+                // MOSTRAR DETALHES DO ERRO
+                const errorDetails = document.createElement('div');
+                errorDetails.style.marginTop = '10px';
+                errorDetails.style.padding = '10px';
+                errorDetails.style.background = 'rgba(255, 0, 0, 0.1)';
+                errorDetails.style.borderRadius = '5px';
+                errorDetails.style.fontSize = '12px';
+                errorDetails.innerHTML = `
+                    <strong>Detalhes do erro:</strong><br>
+                    ${error.message}<br><br>
+                    <strong>Código inserido (primeiros 200 caracteres):</strong><br>
+                    <code>${adCode.substring(0, 200)}...</code>
+                `;
+                bannerLivePreview.appendChild(errorDetails);
+            }
         }
 
+        // VALIDAR CÓDIGO DO ADSTERRA
+        function validateAdsterraCode(code) {
+            if (!code || code.trim() === '') return false;
+            
+            // VERIFICAR ELEMENTOS ESSENCIAIS DO ADSTERRA
+            const hasAtOptions = code.includes('atOptions') || code.includes('window.atOptions');
+            const hasHighPerformance = code.includes('highperformanceformat.com');
+            const hasInvokeJS = code.includes('invoke.js');
+            const hasScriptTags = code.includes('<script>') || code.includes('</script>');
+            
+            return (hasAtOptions && (hasHighPerformance || hasInvokeJS) && hasScriptTags);
+        }
+
+        // VALIDAR LINK DO APOIA.SE
         function validateApoiaLink(url) {
             const errorElement = document.getElementById('donationLinkError');
-            const isValid = !url || url.includes('apoia.se/');
+            if (!url || url.trim() === '') {
+                errorElement.style.display = 'none';
+                return true;
+            }
+            
+            const isValid = url.includes('apoia.se/');
             errorElement.style.display = isValid ? 'none' : 'block';
             return isValid;
         }
 
+        // ATUALIZAR INTERFACE COM OS DADOS
         function updateUI() {
+            // BANNER ADSTERRA
             document.getElementById('adsTerraBanner').checked = monetizationData.adsTerraBanner?.enabled || false;
             document.getElementById('adsTerraBannerCode').value = monetizationData.adsTerraBanner?.code || '';
             document.getElementById('bannerSettings').style.display = monetizationData.adsTerraBanner?.enabled ? 'block' : 'none';
 
+            // INTERSTICIAL ADSTERRA
             document.getElementById('adsTerraInterstitial').checked = monetizationData.adsTerraInterstitial?.enabled || false;
             document.getElementById('adsTerraInterstitialCode').value = monetizationData.adsTerraInterstitial?.code || '';
             document.getElementById('interstitialSettings').style.display = monetizationData.adsTerraInterstitial?.enabled ? 'block' : 'none';
 
+            // DOAÇÕES
             document.getElementById('donations').checked = monetizationData.donations?.enabled || false;
             document.getElementById('donationLink').value = monetizationData.donations?.url || '';
             document.getElementById('donationSettings').style.display = monetizationData.donations?.enabled ? 'block' : 'none';
 
+            // COMERCIAIS PAGOS
             document.getElementById('paidCommercials').checked = monetizationData.paidCommercials?.enabled || false;
             document.getElementById('pricePerSecond').value = monetizationData.paidCommercials?.pricePerSecond || 0.05;
             document.getElementById('maxCommercialDuration').value = monetizationData.paidCommercials?.maxDuration || 90;
             document.getElementById('paidCommercialsSettings').style.display = monetizationData.paidCommercials?.enabled ? 'block' : 'none';
 
-            if (monetizationData.adsTerraBanner?.code && monetizationData.adsTerraBanner.enabled) {
-                setTimeout(() => showBannerPreview(monetizationData.adsTerraBanner.code), 500);
+            // MOSTRAR PREVIEW DO BANNER SE HABILITADO
+            if (monetizationData.adsTerraBanner?.enabled && monetizationData.adsTerraBanner.code) {
+                setTimeout(() => {
+                    if (validateAdsterraCode(monetizationData.adsTerraBanner.code)) {
+                        showBannerPreview(monetizationData.adsTerraBanner.code);
+                    }
+                }, 500);
             }
+
+            // VALIDAR LINK DO APOIA.SE
             if (monetizationData.donations?.url) {
                 validateApoiaLink(monetizationData.donations.url);
             }
         }
 
+        // SALVAR CONFIGURAÇÕES
         async function saveMonetization() {
             try {
+                // VALIDAR LINK DO APOIA.SE
                 const donationLink = document.getElementById('donationLink').value.trim();
                 if (document.getElementById('donations').checked && donationLink && !validateApoiaLink(donationLink)) {
-                    throw new Error("Link do Apoia.se inválido");
+                    throw new Error("Link do Apoia.se inválido. Use um link válido do apoia.se");
                 }
 
+                // ATUALIZAR DADOS
                 monetizationData.adsTerraBanner.enabled = document.getElementById('adsTerraBanner').checked;
                 monetizationData.adsTerraBanner.code = document.getElementById('adsTerraBannerCode').value.trim();
 
@@ -627,21 +810,27 @@
                 monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
                 monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
 
+                // SALVAR NO FIREBASE
                 await db.collection('users').doc(currentUser.uid)
                     .collection('channels').doc(channelId)
                     .collection('monetization').doc('settings')
                     .set(monetizationData, { merge: true });
 
-                document.getElementById('successMessage').textContent = 'Configurações salvas! Redirecionando...';
+                // MOSTRAR MENSAGEM DE SUCESSO
+                document.getElementById('successMessage').textContent = '✅ Configurações salvas com sucesso! Redirecionando...';
                 document.getElementById('successMessage').style.display = 'block';
 
+                // REDIRECIONAR APÓS 1.5 SEGUNDOS
                 setTimeout(() => {
                     window.location.href = `index.html?channelId=${channelId}&action=publish&monetization=true`;
                 }, 1500);
 
             } catch (error) {
-                document.getElementById('errorMessage').textContent = `Erro: ${error.message}`;
+                document.getElementById('errorMessage').textContent = `❌ Erro: ${error.message}`;
                 document.getElementById('errorMessage').style.display = 'block';
+                
+                // ROLAR ATÉ O ERRO
+                document.getElementById('errorMessage').scrollIntoView({ behavior: 'smooth' });
             }
         }
 
@@ -649,16 +838,26 @@
         document.getElementById('adsTerraBanner').addEventListener('change', function() {
             const bannerSettings = document.getElementById('bannerSettings');
             bannerSettings.style.display = this.checked ? 'block' : 'none';
+            
             if (this.checked) {
                 const bannerCode = document.getElementById('adsTerraBannerCode').value.trim();
-                if (bannerCode) setTimeout(() => showBannerPreview(bannerCode), 100);
+                if (bannerCode && validateAdsterraCode(bannerCode)) {
+                    setTimeout(() => showBannerPreview(bannerCode), 100);
+                }
+            } else {
+                document.getElementById('bannerPreviewContainer').style.display = 'none';
             }
         });
 
         document.getElementById('adsTerraBannerCode').addEventListener('input', function() {
+            clearTimeout(this.previewTimeout);
+            
             if (document.getElementById('adsTerraBanner').checked) {
-                clearTimeout(this.previewTimeout);
-                this.previewTimeout = setTimeout(() => showBannerPreview(this.value.trim()), 500);
+                this.previewTimeout = setTimeout(() => {
+                    if (this.value.trim()) {
+                        showBannerPreview(this.value.trim());
+                    }
+                }, 800);
             }
         });
 
@@ -678,17 +877,44 @@
             document.getElementById('paidCommercialsSettings').style.display = this.checked ? 'block' : 'none';
         });
 
+        // BOTÃO DE TESTE
         document.getElementById('testBtn').addEventListener('click', function() {
             const results = [];
-            if (monetizationData.adsTerraBanner.enabled && monetizationData.adsTerraBanner.code) results.push("✅ Banner AdsTerra configurado");
-            if (monetizationData.adsTerraInterstitial.enabled && monetizationData.adsTerraInterstitial.code) results.push("✅ Intersticial AdsTerra configurado");
-            if (monetizationData.donations.enabled && monetizationData.donations.url) results.push("✅ Doações configuradas");
-            if (monetizationData.paidCommercials.enabled) results.push("✅ Comerciais pagos configurados");
-            alert(results.length ? results.join("\n") : "Nenhuma configuração ativa");
+            
+            if (monetizationData.adsTerraBanner.enabled && monetizationData.adsTerraBanner.code) {
+                if (validateAdsterraCode(monetizationData.adsTerraBanner.code)) {
+                    results.push("✅ Banner AdsTerra configurado corretamente");
+                } else {
+                    results.push("❌ Código do Banner AdsTerra parece inválido");
+                }
+            }
+            
+            if (monetizationData.adsTerraInterstitial.enabled && monetizationData.adsTerraInterstitial.code) {
+                results.push("✅ Intersticial AdsTerra configurado");
+            }
+            
+            if (monetizationData.donations.enabled && monetizationData.donations.url) {
+                if (validateApoiaLink(monetizationData.donations.url)) {
+                    results.push("✅ Doações configuradas corretamente");
+                } else {
+                    results.push("❌ Link de doações inválido");
+                }
+            }
+            
+            if (monetizationData.paidCommercials.enabled) {
+                results.push("✅ Comerciais pagos configurados");
+            }
+            
+            alert(results.length ? results.join("\n") : "⚠️ Nenhuma configuração de monetização ativa");
         });
 
+        // BOTÃO SALVAR
         document.getElementById('saveBtn').addEventListener('click', saveMonetization);
-        document.getElementById('cancelBtn').addEventListener('click', () => window.location.href = 'index.html');
+
+        // BOTÃO CANCELAR
+        document.getElementById('cancelBtn').addEventListener('click', () => {
+            window.location.href = 'index.html';
+        });
 
         // INICIALIZAÇÃO
         auth.onAuthStateChanged(async (user) => {
@@ -697,13 +923,15 @@
                 setTimeout(() => window.location.href = 'index.html', 2000);
                 return;
             }
+            
             channelId = getUrlParameter('channelId');
             if (!channelId) {
                 document.getElementById('loading').style.display = 'none';
-                document.getElementById('errorMessage').textContent = 'ID do canal não especificado';
+                document.getElementById('errorMessage').textContent = '❌ ID do canal não especificado na URL';
                 document.getElementById('errorMessage').style.display = 'block';
                 return;
             }
+            
             await loadChannelData();
         });
     </script>
