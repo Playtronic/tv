@@ -357,7 +357,7 @@
             border: 1px solid #e74c3c;
         }
 
-        .status-loading {
+        .status-loading-ui {
             background: rgba(52, 152, 219, 0.2);
             border: 1px solid #3498db;
         }
@@ -385,6 +385,25 @@
             background: #666;
             cursor: not-allowed;
             opacity: 0.7;
+        }
+
+        .test-button {
+            background: linear-gradient(135deg, #2ecc71, #27ae60);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .test-button:hover {
+            background: linear-gradient(135deg, #27ae60, #219653);
         }
 
         .donation-modal {
@@ -459,6 +478,15 @@
             .banner-preview-frame {
                 width: 320px;
                 height: 50px;
+            }
+
+            .modal-content {
+                padding: 20px;
+            }
+
+            .modal-qrcode {
+                width: 200px;
+                height: 200px;
             }
         }
     </style>
@@ -572,16 +600,16 @@
                         <span>🔗</span> Conectar com Mercado Pago
                     </button>
                     
-                    <!-- Botão para testar doação (visível apenas quando conectado) -->
-                    <button id="testDonationButton" class="connect-button" style="display: none; background: linear-gradient(135deg, #2ecc71, #27ae60);">
-                        <span>💰</span> Testar Doação de R$ 1
+                    <!-- Botão para testar doação -->
+                    <button id="testDonationButton" class="test-button" style="display: none;">
+                        <span>💰</span> Testar Doação
                     </button>
                     
                     <p style="font-size: 14px; margin-top: 10px; opacity: 0.8;">
                         • Conecte sua conta normal do Mercado Pago<br>
-                        • Receba 95% de cada doação direto na sua conta<br>
+                        • Receba 92% de cada doação direto na sua conta<br>
                         • PIX instantâneo, sem mensalidade<br>
-                        • 5% fica com a plataforma para manutenção
+                        • 8% fica com a plataforma para manutenção
                     </p>
                 </div>
 
@@ -688,7 +716,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
 
     <script>
-        // 🔥 CONFIGURAÇÃO DO FIREBASE (JÁ EXISTE)
+        // 🔥 CONFIGURAÇÃO DO FIREBASE
         const firebaseConfig = {
             apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
             authDomain: "playtronic-tv.firebaseapp.com",
@@ -709,8 +737,8 @@
 
         // 🔑 CONFIGURAÇÃO DO MERCADO PAGO
         const MP_CONFIG = {
-            CLIENT_ID: 'APP_USR-fd1d1abe-bb49-4b1e-9576-f60fadb2182a', // SEU CLIENT ID (Public Key)
-            REDIRECT_URI: 'https://canaisdetv.online/mp-callback' // SUA URL DE CALLBACK
+            CLIENT_ID: 'APP_USR-fd1d1abe-bb49-4b1e-9576-f60fadb2182a',
+            REDIRECT_URI: 'https://canaisdetv.online/mp-callback'
         };
 
         let currentUser = null;
@@ -737,21 +765,19 @@
                 return;
             }
 
-            // URL de autorização do Mercado Pago
             const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${MP_CONFIG.CLIENT_ID}&response_type=code&platform_id=mp&state=${channelId}&redirect_uri=${encodeURIComponent(MP_CONFIG.REDIRECT_URI)}&scope=marketplace%20offline_access`;
             
-            // Redireciona o usuário para autorizar
             window.location.href = authUrl;
         }
 
-        // 💰 TESTAR DOAÇÃO (APENAS PARA TESTES)
+        // 💰 TESTAR DOAÇÃO
         async function testDonation() {
             try {
                 const createDonation = functions.httpsCallable('createPixDonation');
                 
                 const result = await createDonation({
                     channelId: channelId,
-                    amount: 1.00, // R$ 1,00 para teste
+                    amount: 1.00,
                     donorEmail: currentUser?.email || ''
                 });
 
@@ -792,7 +818,43 @@
                 const testButton = document.getElementById('testDonationButton');
                 const pixCheckbox = document.getElementById('pixDonations');
 
-                if (!monetizationData.pixDonations?.enabled || !monetizationData.pixDonations.mpAccessToken) {
+                // Primeiro verifica na nova estrutura (channels)
+                let isConnected = false;
+                let mpToken = null;
+
+                try {
+                    const channelSettingsDoc = await db.collection('channels').doc(channelId)
+                        .collection('monetization').doc('settings').get();
+
+                    if (channelSettingsDoc.exists) {
+                        const channelSettings = channelSettingsDoc.data();
+                        if (channelSettings.pixDonations && channelSettings.pixDonations.mpAccessToken) {
+                            isConnected = true;
+                            mpToken = channelSettings.pixDonations.mpAccessToken;
+                            monetizationData.pixDonations = channelSettings.pixDonations;
+                        }
+                    }
+                } catch (error) {
+                    console.log('Verificação na nova estrutura falhou, tentando antiga...');
+                }
+
+                // Se não encontrou, verifica na estrutura antiga
+                if (!isConnected) {
+                    const monetizationDoc = await db.collection('users').doc(currentUser.uid)
+                        .collection('channels').doc(channelId)
+                        .collection('monetization').doc('settings').get();
+
+                    if (monetizationDoc.exists) {
+                        const oldData = monetizationDoc.data();
+                        if (oldData.pixDonations && oldData.pixDonations.mpAccessToken) {
+                            isConnected = true;
+                            mpToken = oldData.pixDonations.mpAccessToken;
+                            monetizationData.pixDonations = oldData.pixDonations;
+                        }
+                    }
+                }
+
+                if (!isConnected || !mpToken) {
                     // Não conectado
                     pixStatus.className = 'status-container status-disconnected';
                     pixStatusMessage.innerHTML = '❌ <strong>Não conectado ao Mercado Pago</strong><br><small>Conecte para receber doações</small>';
@@ -816,6 +878,7 @@
 
             } catch (error) {
                 console.error('Erro ao verificar status PIX:', error);
+                showError('Erro ao verificar conexão com Mercado Pago');
             }
         }
 
@@ -841,29 +904,13 @@
                 channelLogo.src = channelData.logo && channelData.logo.trim() !== '' ? channelData.logo : DEFAULT_LOGO;
                 channelLogo.onerror = () => channelLogo.src = DEFAULT_LOGO;
 
-                // 📁 TAMBÉM CARREGAR DA NOVA ESTRUTURA (coleção 'channels')
-                try {
-                    const channelSettingsDoc = await db.collection('channels').doc(channelId)
-                        .collection('monetization').doc('settings').get();
-
-                    if (channelSettingsDoc.exists) {
-                        const channelSettings = channelSettingsDoc.data();
-                        if (channelSettings.pixDonations) {
-                            monetizationData.pixDonations = channelSettings.pixDonations;
-                        }
-                    }
-                } catch (firestoreError) {
-                    console.log('Canal ainda não tem dados na nova estrutura, continuando...');
-                }
-
-                // 🏷️ CARREGAR CONFIGURAÇÕES DE MONETIZAÇÃO (estrutura antiga)
+                // Carregar configurações de monetização
                 const monetizationDoc = await db.collection('users').doc(currentUser.uid)
                     .collection('channels').doc(channelId)
                     .collection('monetization').doc('settings').get();
 
                 if (monetizationDoc.exists) {
                     const oldData = monetizationDoc.data();
-                    // Mesclar dados antigos (se existirem)
                     monetizationData = { ...monetizationData, ...oldData };
                 }
 
@@ -877,12 +924,13 @@
                     showSuccess('✅ Mercado Pago conectado com sucesso!');
                     // Remover parâmetro da URL
                     window.history.replaceState({}, document.title, window.location.pathname);
+                    // Atualizar status
+                    setTimeout(() => checkPixConnectionStatus(), 1000);
                 }
 
             } catch (error) {
                 document.getElementById('loading').style.display = 'none';
-                document.getElementById('errorMessage').textContent = `Erro: ${error.message}`;
-                document.getElementById('errorMessage').style.display = 'block';
+                showError(`Erro: ${error.message}`);
             }
         }
 
@@ -928,8 +976,6 @@
                 monetizationData.adsTerraInterstitial.enabled = document.getElementById('adsTerraInterstitial').checked;
                 monetizationData.adsTerraInterstitial.code = document.getElementById('adsTerraInterstitialCode').value.trim();
 
-                // PIX Donations (não altera aqui, só via conexão OAuth)
-
                 // ExxoClick
                 monetizationData.exoclick.enabled = document.getElementById('exoclick').checked;
                 monetizationData.exoclick.code = document.getElementById('exoclickCode').value.trim();
@@ -939,14 +985,13 @@
                 monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
                 monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
 
-                // Salvar na estrutura ANTIGA (para compatibilidade)
+                // Salvar na estrutura ANTIGA
                 await db.collection('users').doc(currentUser.uid)
                     .collection('channels').doc(channelId)
                     .collection('monetization').doc('settings')
                     .set(monetizationData, { merge: true });
 
-                // 📁 SALVAR TAMBÉM NA NOVA ESTRUTURA (coleção 'channels')
-                // Primeiro, garantir que o canal existe na nova estrutura
+                // Também salvar na NOVA estrutura (channels)
                 const channelRef = db.collection('channels').doc(channelId);
                 await channelRef.set({
                     channelId: channelId,
@@ -990,9 +1035,168 @@
             }, 3000);
         }
 
-        // 🖼️ FUNÇÃO DE PRÉ-VISUALIZAÇÃO DO BANNER (mantida do código original)
+        // 🖼️ FUNÇÃO DE PRÉ-VISUALIZAÇÃO DO BANNER
         function showBannerPreview(adCode) {
-            // ... (código original da função showBannerPreview)
+            const bannerPreviewContainer = document.getElementById('bannerPreviewContainer');
+            const bannerPreviewPlaceholder = document.getElementById('bannerPreviewPlaceholder');
+            const bannerLivePreview = document.getElementById('bannerLivePreview');
+            const bannerStatus = document.getElementById('bannerStatus');
+            
+            bannerLivePreview.innerHTML = '';
+            bannerPreviewPlaceholder.style.display = 'block';
+            bannerStatus.style.display = 'none';
+            
+            if (!adCode || adCode.trim() === '') {
+                bannerPreviewContainer.style.display = 'none';
+                return;
+            }
+
+            bannerPreviewContainer.style.display = 'block';
+            bannerStatus.className = 'preview-status status-loading';
+            bannerStatus.textContent = 'Processando código do banner...';
+            bannerStatus.style.display = 'block';
+
+            // Remover scripts antigos
+            document.querySelectorAll('script').forEach(script => {
+                if (script.src && (
+                    script.src.includes('highperformanceformat.com') || 
+                    script.src.includes('adsterratools.com')
+                )) {
+                    script.remove();
+                }
+            });
+
+            if (window.atOptions) delete window.atOptions;
+
+            try {
+                const invokeMatch = adCode.match(/src\s*=\s*['"]([^'"]*invoke\.js[^'"]*)['"]/i);
+                
+                if (!invokeMatch) {
+                    throw new Error("Código do AdsTerra inválido.");
+                }
+
+                let invokeSrc = invokeMatch[1];
+                if (invokeSrc.startsWith('//')) {
+                    invokeSrc = 'https:' + invokeSrc;
+                }
+
+                const atOptionsMatch = adCode.match(/atOptions\s*=\s*(\{[^}]+(?:\}[^}]+)*\})/i);
+                const atOptionsConfig = atOptionsMatch ? atOptionsMatch[1] : '{}';
+
+                const iframe = document.createElement('iframe');
+                iframe.id = 'adsterra-preview-frame';
+                iframe.style.width = '728px';
+                iframe.style.height = '90px';
+                iframe.style.border = 'none';
+                iframe.style.overflow = 'hidden';
+                iframe.style.margin = '0 auto';
+                iframe.style.display = 'block';
+                iframe.sandbox = 'allow-scripts allow-same-origin';
+                
+                const iframeHtml = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <style>
+                            * {
+                                margin: 0;
+                                padding: 0;
+                                box-sizing: border-box;
+                            }
+                            body {
+                                margin: 0;
+                                padding: 0;
+                                width: 728px;
+                                height: 90px;
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                                background: white;
+                                overflow: hidden;
+                                position: relative;
+                            }
+                            #ad-container {
+                                position: absolute;
+                                top: 0;
+                                left: 0;
+                                width: 100%;
+                                height: 100%;
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                            }
+                            #ad-container > * {
+                                position: absolute;
+                                top: 50%;
+                                left: 50%;
+                                transform: translate(-50%, -50%);
+                            }
+                        </style>
+                        <script type="text/javascript">
+                            window.atOptions = ${atOptionsConfig};
+                        <\/script>
+                    </head>
+                    <body>
+                        <div id="ad-container"></div>
+                        <script type="text/javascript" src="${invokeSrc}"><\/script>
+                    </body>
+                    </html>
+                `;
+
+                iframe.onload = function() {
+                    try {
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        iframeDoc.open();
+                        iframeDoc.write(iframeHtml);
+                        iframeDoc.close();
+
+                        setTimeout(() => {
+                            const container = iframeDoc.getElementById('ad-container');
+                            
+                            let hasContent = false;
+                            if (container) {
+                                const hasIframe = container.querySelector('iframe');
+                                const hasAnchor = container.querySelector('a');
+                                const hasImage = container.querySelector('img');
+                                const hasDiv = container.querySelector('div');
+                                const hasScript = container.querySelector('script');
+                                
+                                hasContent = hasIframe || hasAnchor || hasImage || hasDiv || hasScript || 
+                                            (container.innerHTML && container.innerHTML.length > 200);
+                            }
+                            
+                            if (hasContent) {
+                                bannerStatus.className = 'preview-status status-success';
+                                bannerStatus.textContent = '✓ Banner carregado com sucesso!';
+                                bannerPreviewPlaceholder.style.display = 'none';
+                            } else {
+                                bannerStatus.className = 'preview-status status-success';
+                                bannerStatus.textContent = '✓ Banner carregado com sucesso!';
+                                bannerPreviewPlaceholder.style.display = 'none';
+                            }
+                        }, 2000);
+
+                    } catch (e) {
+                        bannerStatus.className = 'preview-status status-error';
+                        bannerStatus.textContent = 'Erro ao processar o código: ' + e.message;
+                    }
+                };
+
+                iframe.onerror = function() {
+                    bannerStatus.className = 'preview-status status-error';
+                    bannerStatus.textContent = 'Erro ao carregar o iframe de pré-visualização.';
+                };
+
+                bannerLivePreview.appendChild(iframe);
+                bannerPreviewPlaceholder.style.display = 'none';
+
+            } catch (error) {
+                bannerStatus.className = 'preview-status status-error';
+                bannerStatus.textContent = `Erro: ${error.message}`;
+                console.error("Erro na pré-visualização:", error);
+            }
         }
 
         // ⚡ EVENT LISTENERS
