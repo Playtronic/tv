@@ -275,16 +275,19 @@
             border-left: 3px solid #2ecc71;
         }
 
-        /* CORRIGIDO: Mensagem de erro do link Apoia.se */
+        /* CORRIGIDO: Mensagem de erro do link Apoia.se - agora abaixo do campo */
         .error-message {
             background: #ffffff !important;
             border: 1px solid #e74c3c !important;
             padding: 8px 12px !important;
             border-radius: 4px !important;
-            margin-top: 5px !important;
+            margin-top: 8px !important;
+            margin-bottom: 8px !important;
             color: #e74c3c !important;
             font-weight: bold !important;
             display: none !important;
+            width: 100% !important;
+            text-align: left !important;
         }
 
         .channel-header {
@@ -465,8 +468,8 @@
                     <div class="form-group">
                         <label for="donationLink">Link para doações:</label>
                         <input type="url" id="donationLink" placeholder="https://apoia.se/seucanal">
-                        <!-- CORREÇÃO: Adicionado o estilo inline de volta para display: none inicial -->
-                        <div class="error-message" id="donationLinkError" style="display: none;">O link deve ser do Apoia.se</div>
+                        <!-- CORREÇÃO: Mensagem de erro agora exibida IMEDIATAMENTE abaixo do campo -->
+                        <div class="error-message" id="donationLinkError">O link deve ser do Apoia.se</div>
                     </div>
 
                     <div class="apoia-explanation">
@@ -735,19 +738,20 @@
             }
         }
 
-        // CORREÇÃO: Função de validação do Apoia.se corrigida
+        // CORREÇÃO: Função de validação instantânea do Apoia.se
         function validateApoiaLink(url) {
             const errorElement = document.getElementById('donationLinkError');
             const urlTrimmed = url.trim();
             
-            // Se o campo estiver vazio e não estiver marcado, não mostrar erro
-            if (!document.getElementById('donations').checked || urlTrimmed === '') {
+            // Se o campo estiver vazio, não mostrar erro (a menos que esteja marcado)
+            if (urlTrimmed === '') {
                 errorElement.style.display = 'none';
                 return true;
             }
             
-            // Validar se contém "apoia.se/"
-            const isValid = urlTrimmed.includes('apoia.se/');
+            // Validar se contém "apoia.se/" - CORREÇÃO: verificação mais precisa
+            const urlLower = urlTrimmed.toLowerCase();
+            const isValid = urlLower.includes('apoia.se/');
             
             if (!isValid) {
                 errorElement.style.display = 'block';
@@ -756,6 +760,24 @@
                 errorElement.style.display = 'none';
                 return true;
             }
+        }
+
+        // CORREÇÃO: Nova função para validar ao salvar (mais rigorosa)
+        function validateApoiaLinkForSave(url) {
+            const urlTrimmed = url.trim();
+            
+            if (urlTrimmed === '') {
+                return { valid: false, message: "Por favor, insira o link do Apoia.se" };
+            }
+            
+            const urlLower = urlTrimmed.toLowerCase();
+            const isValid = urlLower.includes('apoia.se/');
+            
+            if (!isValid) {
+                return { valid: false, message: "Link do Apoia.se inválido. O link deve conter 'apoia.se/'" };
+            }
+            
+            return { valid: true, message: "" };
         }
 
         async function loadChannelData() {
@@ -833,14 +855,11 @@
             try {
                 const donationLink = document.getElementById('donationLink').value.trim();
                 
-                // CORREÇÃO: Validação correta do Apoia.se
+                // CORREÇÃO: Validação correta do Apoia.se ao salvar
                 if (document.getElementById('donations').checked) {
-                    if (!donationLink) {
-                        throw new Error("Por favor, insira o link do Apoia.se");
-                    }
-                    
-                    if (!validateApoiaLink(donationLink)) {
-                        throw new Error("Link do Apoia.se inválido. O link deve conter 'apoia.se/'");
+                    const validation = validateApoiaLinkForSave(donationLink);
+                    if (!validation.valid) {
+                        throw new Error(validation.message);
                     }
                 }
 
@@ -905,9 +924,11 @@
         document.getElementById('donations').addEventListener('change', function() {
             document.getElementById('donationSettings').style.display = this.checked ? 'block' : 'none';
             // Validar o link quando o checkbox for alterado
-            validateApoiaLink(document.getElementById('donationLink').value);
+            const currentLink = document.getElementById('donationLink').value;
+            validateApoiaLink(currentLink);
         });
 
+        // CORREÇÃO: Validação instantânea enquanto digita (sem debounce)
         document.getElementById('donationLink').addEventListener('input', function() {
             validateApoiaLink(this.value);
         });
