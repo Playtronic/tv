@@ -115,6 +115,16 @@
             background: #ffcc44;
         }
 
+        button:disabled {
+            background: #6b7280;
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        button:disabled:hover {
+            background: #6b7280;
+        }
+
         button.secondary {
             background: #4a5568;
             color: white;
@@ -479,42 +489,9 @@
                 </div>
             </div>
 
-            <!-- 4. ExxoClick - Anúncios de Vídeo -->
+            <!-- 4. Sistema de Comerciais Pagos (Mercado Pago) -->
             <div class="monetization-option">
-                <h3>4. ExxoClick - Anúncios de Vídeo</h3>
-                <div class="control-option">
-                    <input type="checkbox" id="exoclick">
-                    <label for="exoclick">Habilitar anúncios de vídeo</label>
-                </div>
-                
-                <div class="info-box">
-                    <p><strong>Como funciona:</strong> Anúncios de vídeo (pré-roll) exibidos antes do conteúdo. Usuário pode pular após alguns segundos.</p>
-                </div>
-                
-                <div id="exoclickSettings" style="display: none; margin-top: 15px;">
-                    <div class="form-group">
-                        <label for="exoclickCode">Código VAST Tag do ExxoClick:</label>
-                        <textarea id="exoclickCode" placeholder="Cole a VAST tag completa (código XML) para anúncios de vídeo"></textarea>
-                        <div class="field-info">Você precisa obter a VAST tag para anúncios de vídeo no painel do ExxoClick</div>
-                    </div>
-
-                    <div class="guide-box">
-                        <p><strong>📋 Como habilitar:</strong></p>
-                        <ol>
-                            <li>Crie uma conta em <a href="https://www.exoclick.com/signup/" target="_blank" style="color: #fdbb2d; font-weight: bold;">ExxoClick</a>.</li>
-                            <li>No painel, vá em <strong>"Monetize" → "Video Ads"</strong>.</li>
-                            <li>Clique em <strong>"Create Video Ad Unit"</strong> e configure para anúncios de vídeo.</li>
-                            <li>Gere a <strong>VAST tag</strong> (código XML) para integração.</li>
-                            <li>Copie a VAST tag completa e cole no campo acima.</li>
-                            <li>Clique em <strong>"Salvar e Publicar"</strong>.</li>
-                        </ol>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 5. Sistema de Comerciais Pagos (Mercado Pago) -->
-            <div class="monetization-option">
-                <h3>5. Sistema de Comerciais Pagos</h3>
+                <h3>4. Sistema de Comerciais Pagos</h3>
                 
                 <div class="info-box">
                     <p><strong>Como funciona:</strong> Qualquer pessoa pode inserir um comercial no seu canal, tudo automatizado e o pagamento cai direto na sua conta.</p>
@@ -571,7 +548,7 @@
 
             <div class="navigation">
                 <button id="cancelBtn" class="secondary">Voltar para Gerador</button>
-                <button id="saveBtn">Salvar e Publicar</button>
+                <button id="saveBtn" disabled>Salvar e Publicar</button>
             </div>
         </div>
 
@@ -621,7 +598,6 @@
             adsTerraBanner: { enabled: false, code: '' },
             adsTerraInterstitial: { enabled: false, code: '' },
             pixDonations: { enabled: false, mpAccessToken: '' },
-            exoclick: { enabled: false, code: '' },
             paidCommercials: { 
                 enabled: false, 
                 pricePerSecond: 0.05, 
@@ -629,6 +605,9 @@
                 mpAccessToken: ''
             }
         };
+        
+        let originalMonetizationData = null;
+        let hasChanges = false;
 
         const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
 
@@ -855,6 +834,8 @@
                 if (monetizationDoc.exists) {
                     const oldData = monetizationDoc.data();
                     monetizationData = { ...monetizationData, ...oldData };
+                    // Salvar uma cópia dos dados originais para comparação
+                    originalMonetizationData = JSON.parse(JSON.stringify(monetizationData));
                 }
 
                 updateUI();
@@ -906,11 +887,6 @@
                 checkPixConnectionStatus();
             }
 
-            // ExxoClick
-            document.getElementById('exoclick').checked = monetizationData.exoclick?.enabled || false;
-            document.getElementById('exoclickCode').value = monetizationData.exoclick?.code || '';
-            document.getElementById('exoclickSettings').style.display = monetizationData.exoclick?.enabled ? 'block' : 'none';
-
             // Paid Commercials
             document.getElementById('paidCommercials').checked = monetizationData.paidCommercials?.enabled || false;
             document.getElementById('pricePerSecond').value = monetizationData.paidCommercials?.pricePerSecond || 0.05;
@@ -920,6 +896,9 @@
             if (monetizationData.paidCommercials?.enabled) {
                 checkCommercialsMpStatus();
             }
+            
+            // Desabilitar botão salvar inicialmente
+            document.getElementById('saveBtn').disabled = true;
         }
 
         // 🔒 VALIDAR CONFIGURAÇÕES
@@ -949,22 +928,49 @@
                 }
             }
 
-            // Validar opção 5: Comerciais pagos
+            // Validar opção 4: Comerciais pagos
             if (document.getElementById('paidCommercials').checked) {
                 if (!monetizationData.paidCommercials || !monetizationData.paidCommercials.mpAccessToken || monetizationData.paidCommercials.mpAccessToken.trim() === '') {
-                    errors.push('Opção 5 (Sistema de Comerciais Pagos) está habilitada mas não há conta do Mercado Pago conectada.');
-                }
-            }
-
-            // Validar opção 4: ExxoClick (se quiser adicionar validação)
-            if (document.getElementById('exoclick').checked) {
-                const exoclickCode = document.getElementById('exoclickCode').value.trim();
-                if (!exoclickCode || exoclickCode === '') {
-                    errors.push('Opção 4 (ExxoClick) está habilitada mas não há VAST tag inserida.');
+                    errors.push('Opção 4 (Sistema de Comerciais Pagos) está habilitada mas não há conta do Mercado Pago conectada.');
                 }
             }
 
             return errors;
+        }
+
+        // 🔄 VERIFICAR SE HOUVE ALTERAÇÕES
+        function checkForChanges() {
+            if (!originalMonetizationData) return false;
+            
+            // Coletar dados atuais do formulário
+            const currentData = {
+                adsTerraBanner: {
+                    enabled: document.getElementById('adsTerraBanner').checked,
+                    code: document.getElementById('adsTerraBannerCode').value.trim()
+                },
+                adsTerraInterstitial: {
+                    enabled: document.getElementById('adsTerraInterstitial').checked,
+                    code: document.getElementById('adsTerraInterstitialCode').value.trim()
+                },
+                pixDonations: {
+                    enabled: document.getElementById('pixDonations').checked,
+                    mpAccessToken: monetizationData.pixDonations?.mpAccessToken || ''
+                },
+                paidCommercials: {
+                    enabled: document.getElementById('paidCommercials').checked,
+                    pricePerSecond: parseFloat(document.getElementById('pricePerSecond').value) || 0.05,
+                    maxDuration: parseInt(document.getElementById('maxCommercialDuration').value) || 90,
+                    mpAccessToken: monetizationData.paidCommercials?.mpAccessToken || ''
+                }
+            };
+            
+            // Comparar com os dados originais
+            const hasChanged = JSON.stringify(currentData) !== JSON.stringify(originalMonetizationData);
+            
+            // Atualizar estado do botão salvar
+            document.getElementById('saveBtn').disabled = !hasChanged;
+            
+            return hasChanged;
         }
 
         // 💾 SALVAR CONFIGURAÇÕES E COMUNICAR COM GERADOR
@@ -995,9 +1001,6 @@
 
                 monetizationData.pixDonations.enabled = document.getElementById('pixDonations').checked;
 
-                monetizationData.exoclick.enabled = document.getElementById('exoclick').checked;
-                monetizationData.exoclick.code = document.getElementById('exoclickCode').value.trim();
-
                 monetizationData.paidCommercials.enabled = document.getElementById('paidCommercials').checked;
                 monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
                 monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
@@ -1023,7 +1026,6 @@
                     paidCommercials: monetizationData.paidCommercials,
                     adsTerraBanner: monetizationData.adsTerraBanner,
                     adsTerraInterstitial: monetizationData.adsTerraInterstitial,
-                    exoclick: monetizationData.exoclick,
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                 }, { merge: true });
 
@@ -1034,6 +1036,12 @@
                     userId: currentUser.uid
                 }, { merge: true });
 
+                // Atualizar dados originais para nova comparação
+                originalMonetizationData = JSON.parse(JSON.stringify(monetizationData));
+                
+                // Desabilitar botão salvar novamente
+                document.getElementById('saveBtn').disabled = true;
+                
                 showSuccess('✅ Configurações salvas! Redirecionando para o Gerador...');
 
                 // 📤 COMUNICAÇÃO COM GERADOR: Redirecionar com parâmetro específico
@@ -1098,31 +1106,59 @@
             });
 
             // Checkboxes para mostrar/ocultar configurações
-            document.getElementById('adsTerraBanner').addEventListener('change', function() {
-                document.getElementById('bannerSettings').style.display = this.checked ? 'block' : 'none';
+            const checkboxes = [
+                'adsTerraBanner',
+                'adsTerraInterstitial',
+                'pixDonations',
+                'paidCommercials'
+            ];
+            
+            const inputs = [
+                'adsTerraBannerCode',
+                'adsTerraInterstitialCode',
+                'pricePerSecond',
+                'maxCommercialDuration'
+            ];
+            
+            // Adicionar event listeners para todos os campos
+            checkboxes.forEach(id => {
+                document.getElementById(id).addEventListener('change', function() {
+                    // Mostrar/ocultar configurações
+                    if (id === 'adsTerraBanner') {
+                        document.getElementById('bannerSettings').style.display = this.checked ? 'block' : 'none';
+                        if (this.checked) {
+                            setTimeout(() => checkForChanges(), 100);
+                        }
+                    } else if (id === 'adsTerraInterstitial') {
+                        document.getElementById('interstitialSettings').style.display = this.checked ? 'block' : 'none';
+                        if (this.checked) {
+                            setTimeout(() => checkForChanges(), 100);
+                        }
+                    } else if (id === 'pixDonations') {
+                        document.getElementById('pixSettings').style.display = this.checked ? 'block' : 'none';
+                        if (this.checked) {
+                            setTimeout(() => checkPixConnectionStatus(), 500);
+                            setTimeout(() => checkForChanges(), 100);
+                        }
+                    } else if (id === 'paidCommercials') {
+                        document.getElementById('paidCommercialsSettings').style.display = this.checked ? 'block' : 'none';
+                        if (this.checked) {
+                            setTimeout(() => checkCommercialsMpStatus(), 500);
+                            setTimeout(() => checkForChanges(), 100);
+                        }
+                    }
+                    
+                    // Verificar alterações
+                    checkForChanges();
+                });
             });
-
-            document.getElementById('adsTerraInterstitial').addEventListener('change', function() {
-                document.getElementById('interstitialSettings').style.display = this.checked ? 'block' : 'none';
-            });
-
-            document.getElementById('pixDonations').addEventListener('change', function() {
-                document.getElementById('pixSettings').style.display = this.checked ? 'block' : 'none';
-                
-                if (this.checked) {
-                    setTimeout(() => checkPixConnectionStatus(), 500);
-                }
-            });
-
-            document.getElementById('exoclick').addEventListener('change', function() {
-                document.getElementById('exoclickSettings').style.display = this.checked ? 'block' : 'none';
-            });
-
-            document.getElementById('paidCommercials').addEventListener('change', function() {
-                document.getElementById('paidCommercialsSettings').style.display = this.checked ? 'block' : 'none';
-                
-                if (this.checked) {
-                    setTimeout(() => checkCommercialsMpStatus(), 500);
+            
+            // Adicionar event listeners para inputs de texto
+            inputs.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.addEventListener('input', checkForChanges);
+                    element.addEventListener('change', checkForChanges);
                 }
             });
 
