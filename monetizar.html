@@ -119,7 +119,6 @@
             background: #6b7280;
             color: #9ca3af;
             cursor: not-allowed;
-            opacity: 0.6;
         }
 
         button:disabled:hover {
@@ -474,7 +473,7 @@
                     
                     <div class="mp-note">
                         <strong>💡 Importante:</strong> Os pagamentos são processados exclusivamente pelo Mercado Pago. 
-                        Se você ainda não tem uma conta, <a href="https://mpago.li/1vRW8z3" target="_blank">abra uma conta gratuita aqui</a>.
+                        Si você ainda não tem uma conta, <a href="https://mpago.li/1vRW8z3" target="_blank">abra uma conta gratuita aqui</a>.
                     </div>
 
                     <div class="guide-box">
@@ -524,7 +523,7 @@
 
                     <div class="mp-note">
                         <strong>💡 Importante:</strong> Os pagamentos são processados exclusivamente pelo Mercado Pago. 
-                        Se você ainda não tem uma conta, <a href="https://mpago.li/1vRW8z3" target="_blank">abra uma conta gratuita aqui</a>.
+                        Si você ainda não tem uma conta, <a href="https://mpago.li/1vRW8z3" target="_blank">abra uma conta gratuita aqui</a>.
                     </div>
 
                     <!-- Botão para gerenciar conexão Mercado Pago -->
@@ -549,7 +548,7 @@
 
             <div class="navigation">
                 <button id="cancelBtn" class="secondary">Voltar para Gerador</button>
-                <button id="saveBtn" disabled>Salvar e Publicar</button>
+                <button id="saveBtn">Salvar e Publicar</button>
             </div>
         </div>
 
@@ -585,11 +584,11 @@
         const db = firebase.firestore();
         const functions = firebase.functions();
 
-        // 🔑 CONFIGURAÇÃO DO MERCADO PAGO
+        // 🔑 CONFIGURAÇÃO DO MERCADO PAGO - CORRIGIDA
         const MP_CONFIG = {
-            CLIENT_ID: '4240568631810752',
-            REDIRECT_URI: 'https://canaisdetv.online/mp-callback',
-            COMMERCIALS_REDIRECT_URI: 'https://canaisdetv.online/mp-commercials-callback'
+            CLIENT_ID: '4240568631810752', // SEU CLIENT_ID CORRETO
+            REDIRECT_URI: 'https://us-central1-playtronic-tv.cloudfunctions.net/mercadoPagoCallback', // APONTANDO PARA A CLOUD FUNCTION
+            COMMERCIALS_REDIRECT_URI: 'https://us-central1-playtronic-tv.cloudfunctions.net/mercadoPagoCallback' // MESMA FUNÇÃO PARA AMBOS OS FLUXOS
         };
 
         let currentUser = null;
@@ -606,9 +605,6 @@
                 mpAccessToken: ''
             }
         };
-        
-        let originalMonetizationData = null;
-        let isMonitoringChanges = false;
 
         const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
 
@@ -835,19 +831,11 @@
                 if (monetizationDoc.exists) {
                     const oldData = monetizationDoc.data();
                     monetizationData = { ...monetizationData, ...oldData };
-                    // Salvar uma cópia profunda dos dados originais para comparação
-                    originalMonetizationData = JSON.parse(JSON.stringify(monetizationData));
-                } else {
-                    // Se não existir dados, salvar o estado inicial
-                    originalMonetizationData = JSON.parse(JSON.stringify(monetizationData));
                 }
 
                 updateUI();
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
-
-                // Iniciar monitoramento de alterações
-                startMonitoringChanges();
 
                 // Verificar se veio de callback bem-sucedido
                 const mpConnected = getUrlParameter('mpConnected');
@@ -903,9 +891,6 @@
             if (monetizationData.paidCommercials?.enabled) {
                 checkCommercialsMpStatus();
             }
-            
-            // Botão salvar inicia DESABILITADO
-            document.getElementById('saveBtn').disabled = true;
         }
 
         // 🔒 VALIDAR CONFIGURAÇÕES
@@ -943,76 +928,6 @@
             }
 
             return errors;
-        }
-
-        // 🔄 VERIFICAR SE HOUVE ALTERAÇÕES
-        function checkForChanges() {
-            if (!originalMonetizationData || !isMonitoringChanges) return false;
-            
-            // Coletar dados atuais do formulário
-            const currentData = {
-                adsTerraBanner: {
-                    enabled: document.getElementById('adsTerraBanner').checked,
-                    code: document.getElementById('adsTerraBannerCode').value.trim()
-                },
-                adsTerraInterstitial: {
-                    enabled: document.getElementById('adsTerraInterstitial').checked,
-                    code: document.getElementById('adsTerraInterstitialCode').value.trim()
-                },
-                pixDonations: {
-                    enabled: document.getElementById('pixDonations').checked,
-                    mpAccessToken: monetizationData.pixDonations?.mpAccessToken || ''
-                },
-                paidCommercials: {
-                    enabled: document.getElementById('paidCommercials').checked,
-                    pricePerSecond: parseFloat(document.getElementById('pricePerSecond').value) || 0.05,
-                    maxDuration: parseInt(document.getElementById('maxCommercialDuration').value) || 90,
-                    mpAccessToken: monetizationData.paidCommercials?.mpAccessToken || ''
-                }
-            };
-            
-            // Comparar com os dados originais
-            const hasChanged = JSON.stringify(currentData) !== JSON.stringify(originalMonetizationData);
-            
-            // Atualizar estado do botão salvar
-            document.getElementById('saveBtn').disabled = !hasChanged;
-            
-            return hasChanged;
-        }
-
-        // 🎯 INICIAR MONITORAMENTO DE ALTERAÇÕES
-        function startMonitoringChanges() {
-            if (isMonitoringChanges) return;
-            
-            isMonitoringChanges = true;
-            
-            // Lista de todos os campos que devem ser monitorados
-            const fieldsToMonitor = [
-                'adsTerraBanner',
-                'adsTerraBannerCode',
-                'adsTerraInterstitial',
-                'adsTerraInterstitialCode',
-                'pixDonations',
-                'pricePerSecond',
-                'maxCommercialDuration',
-                'paidCommercials'
-            ];
-            
-            // Adicionar event listeners para todos os campos
-            fieldsToMonitor.forEach(fieldId => {
-                const element = document.getElementById(fieldId);
-                if (element) {
-                    if (element.type === 'checkbox') {
-                        element.addEventListener('change', checkForChanges);
-                    } else {
-                        element.addEventListener('input', checkForChanges);
-                        element.addEventListener('change', checkForChanges);
-                    }
-                }
-            });
-            
-            // Verificar alterações inicialmente
-            setTimeout(() => checkForChanges(), 100);
         }
 
         // 💾 SALVAR CONFIGURAÇÕES E COMUNICAR COM GERADOR
@@ -1078,12 +993,6 @@
                     userId: currentUser.uid
                 }, { merge: true });
 
-                // Atualizar dados originais para nova comparação
-                originalMonetizationData = JSON.parse(JSON.stringify(monetizationData));
-                
-                // Desabilitar botão salvar após salvar
-                document.getElementById('saveBtn').disabled = true;
-                
                 showSuccess('✅ Configurações salvas! Redirecionando para o Gerador...');
 
                 // 📤 COMUNICAÇÃO COM GERADOR: Redirecionar com parâmetro específico
@@ -1150,12 +1059,10 @@
             // Checkboxes para mostrar/ocultar configurações
             document.getElementById('adsTerraBanner').addEventListener('change', function() {
                 document.getElementById('bannerSettings').style.display = this.checked ? 'block' : 'none';
-                checkForChanges();
             });
 
             document.getElementById('adsTerraInterstitial').addEventListener('change', function() {
                 document.getElementById('interstitialSettings').style.display = this.checked ? 'block' : 'none';
-                checkForChanges();
             });
 
             document.getElementById('pixDonations').addEventListener('change', function() {
@@ -1164,7 +1071,6 @@
                 if (this.checked) {
                     setTimeout(() => checkPixConnectionStatus(), 500);
                 }
-                checkForChanges();
             });
 
             document.getElementById('paidCommercials').addEventListener('change', function() {
@@ -1173,7 +1079,6 @@
                 if (this.checked) {
                     setTimeout(() => checkCommercialsMpStatus(), 500);
                 }
-                checkForChanges();
             });
 
             // 🛡️ Monitorar autenticação
