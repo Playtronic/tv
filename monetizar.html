@@ -169,6 +169,24 @@
             text-align: center !important;
             color: #e74c3c !important;
             font-weight: bold !important;
+            position: relative;
+        }
+
+        .error .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: #e74c3c;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .success {
@@ -488,7 +506,6 @@
                             <li>Clique em <strong>"Create Video Ad Unit"</strong> e configure para anúncios de vídeo.</li>
                             <li>Gere a <strong>VAST tag</strong> (código XML) para integração.</li>
                             <li>Copie a VAST tag completa e cole no campo acima.</li>
-                            <li>Marque a caixa "Habilitar anúncios de vídeo".</li>
                             <li>Clique em <strong>"Salvar e Publicar"</strong>.</li>
                         </ol>
                     </div>
@@ -558,7 +575,10 @@
             </div>
         </div>
 
-        <div id="errorMessage" class="error" style="display: none;"></div>
+        <div id="errorMessage" class="error" style="display: none;">
+            <button class="close-btn">&times;</button>
+            <div id="errorContent"></div>
+        </div>
         <div id="successMessage" class="success" style="display: none;"></div>
     </div>
 
@@ -675,7 +695,6 @@
                 const pixStatus = document.getElementById('pixStatus');
                 const pixStatusMessage = document.getElementById('pixStatusMessage');
                 const connectButton = document.getElementById('connectMpButton');
-                const pixCheckbox = document.getElementById('pixDonations');
 
                 let isConnected = false;
                 let mpToken = null;
@@ -903,18 +922,15 @@
             }
         }
 
-        // 🔒 VALIDAR CONFIGURAÇÕES ANTES DE SALVAR
+        // 🔒 VALIDAR CONFIGURAÇÕES
         function validateMonetizationSettings() {
-            const saveBtn = document.getElementById('saveBtn');
-            let isValid = true;
-            let errorMessage = '';
+            const errors = [];
 
             // Validar opção 1: AdsTerra Banner
             if (document.getElementById('adsTerraBanner').checked) {
                 const bannerCode = document.getElementById('adsTerraBannerCode').value.trim();
                 if (!bannerCode || bannerCode === '') {
-                    isValid = false;
-                    errorMessage = 'Opção 1 (AdsTerra Banner) está habilitada mas não há código JavaScript inserido.';
+                    errors.push('Opção 1 (AdsTerra Banner) está habilitada mas não há código JavaScript inserido.');
                 }
             }
 
@@ -922,38 +938,33 @@
             if (document.getElementById('adsTerraInterstitial').checked) {
                 const interstitialCode = document.getElementById('adsTerraInterstitialCode').value.trim();
                 if (!interstitialCode || interstitialCode === '') {
-                    isValid = false;
-                    errorMessage = 'Opção 2 (AdsTerra Interstitial) está habilitada mas não há código JavaScript inserido.';
+                    errors.push('Opção 2 (AdsTerra Interstitial) está habilitada mas não há código JavaScript inserido.');
                 }
             }
 
             // Validar opção 3: Doações diretas
             if (document.getElementById('pixDonations').checked) {
                 if (!monetizationData.pixDonations || !monetizationData.pixDonations.mpAccessToken || monetizationData.pixDonations.mpAccessToken.trim() === '') {
-                    isValid = false;
-                    errorMessage = 'Opção 3 (Doação direta) está habilitada mas não há conta do Mercado Pago conectada.';
+                    errors.push('Opção 3 (Doação direta) está habilitada mas não há conta do Mercado Pago conectada.');
                 }
             }
 
             // Validar opção 5: Comerciais pagos
             if (document.getElementById('paidCommercials').checked) {
                 if (!monetizationData.paidCommercials || !monetizationData.paidCommercials.mpAccessToken || monetizationData.paidCommercials.mpAccessToken.trim() === '') {
-                    isValid = false;
-                    errorMessage = 'Opção 5 (Sistema de Comerciais Pagos) está habilitada mas não há conta do Mercado Pago conectada.';
+                    errors.push('Opção 5 (Sistema de Comerciais Pagos) está habilitada mas não há conta do Mercado Pago conectada.');
                 }
             }
 
-            // Habilitar/desabilitar botão salvar
-            saveBtn.disabled = !isValid;
-            
-            // Mostrar mensagem de erro se houver
-            if (!isValid && errorMessage) {
-                showError(`❌ ${errorMessage} Conecte a conta ou desabilite a opção.`);
-            } else {
-                document.getElementById('errorMessage').style.display = 'none';
+            // Validar opção 4: ExxoClick (se quiser adicionar validação)
+            if (document.getElementById('exoclick').checked) {
+                const exoclickCode = document.getElementById('exoclickCode').value.trim();
+                if (!exoclickCode || exoclickCode === '') {
+                    errors.push('Opção 4 (ExxoClick) está habilitada mas não há VAST tag inserida.');
+                }
             }
 
-            return isValid;
+            return errors;
         }
 
         // 💾 SALVAR CONFIGURAÇÕES E COMUNICAR COM GERADOR
@@ -967,7 +978,11 @@
                 await verifyChannelAccess(channelId);
 
                 // Validar configurações antes de salvar
-                if (!validateMonetizationSettings()) {
+                const errors = validateMonetizationSettings();
+                if (errors.length > 0) {
+                    // Mostrar TODAS as mensagens de erro juntas
+                    const errorMessage = errors.join('<br>• ');
+                    showError(`❌ Erro de validação:<br>• ${errorMessage}<br><br>Por favor, corrija as configurações ou desabilite as opções.`);
                     return;
                 }
 
@@ -986,15 +1001,6 @@
                 monetizationData.paidCommercials.enabled = document.getElementById('paidCommercials').checked;
                 monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
                 monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
-
-                // 🔒 VALIDAÇÃO FINAL: Verificar se opções 3 e/ou 5 estão habilitadas sem conexão com Mercado Pago
-                if (monetizationData.pixDonations.enabled && (!monetizationData.pixDonations.mpAccessToken || monetizationData.pixDonations.mpAccessToken.trim() === '')) {
-                    throw new Error("A opção 'Doação direta' está habilitada mas não há conta do Mercado Pago conectada. Por favor, conecte uma conta ou desabilite a opção.");
-                }
-
-                if (monetizationData.paidCommercials.enabled && (!monetizationData.paidCommercials.mpAccessToken || monetizationData.paidCommercials.mpAccessToken.trim() === '')) {
-                    throw new Error("A opção 'Sistema de Comerciais Pagos' está habilitada mas não há conta do Mercado Pago conectada. Por favor, conecte uma conta ou desabilite a opção.");
-                }
 
                 // Salvar na estrutura ANTIGA (para compatibilidade)
                 await db.collection('users').doc(currentUser.uid)
@@ -1050,17 +1056,17 @@
         // 🎭 FUNÇÕES AUXILIARES
         function showError(message) {
             const errorDiv = document.getElementById('errorMessage');
-            errorDiv.textContent = message;
+            const errorContent = document.getElementById('errorContent');
+            errorContent.innerHTML = message;
             errorDiv.style.display = 'block';
-            setTimeout(() => {
-                errorDiv.style.display = 'none';
-            }, 5000);
+            // NÃO REMOVER AUTOMATICAMENTE - o usuário fecha quando quiser
         }
 
         function showSuccess(message) {
             const successDiv = document.getElementById('successMessage');
             successDiv.textContent = message;
             successDiv.style.display = 'block';
+            // Remover após 3 segundos (apenas para sucesso)
             setTimeout(() => {
                 successDiv.style.display = 'none';
             }, 3000);
@@ -1068,6 +1074,11 @@
 
         // ⚡ EVENT LISTENERS
         document.addEventListener('DOMContentLoaded', function() {
+            // Botão para fechar mensagem de erro
+            document.querySelector('.error .close-btn').addEventListener('click', function() {
+                document.getElementById('errorMessage').style.display = 'none';
+            });
+            
             // Botão conectar MP para doações
             document.getElementById('connectMpButton').addEventListener('click', connectToMercadoPago);
             
@@ -1089,12 +1100,10 @@
             // Checkboxes para mostrar/ocultar configurações
             document.getElementById('adsTerraBanner').addEventListener('change', function() {
                 document.getElementById('bannerSettings').style.display = this.checked ? 'block' : 'none';
-                validateMonetizationSettings();
             });
 
             document.getElementById('adsTerraInterstitial').addEventListener('change', function() {
                 document.getElementById('interstitialSettings').style.display = this.checked ? 'block' : 'none';
-                validateMonetizationSettings();
             });
 
             document.getElementById('pixDonations').addEventListener('change', function() {
@@ -1103,7 +1112,6 @@
                 if (this.checked) {
                     setTimeout(() => checkPixConnectionStatus(), 500);
                 }
-                validateMonetizationSettings();
             });
 
             document.getElementById('exoclick').addEventListener('change', function() {
@@ -1116,13 +1124,7 @@
                 if (this.checked) {
                     setTimeout(() => checkCommercialsMpStatus(), 500);
                 }
-                validateMonetizationSettings();
             });
-
-            // Campos de texto para validação em tempo real
-            document.getElementById('adsTerraBannerCode').addEventListener('input', validateMonetizationSettings);
-            document.getElementById('adsTerraInterstitialCode').addEventListener('input', validateMonetizationSettings);
-            document.getElementById('exoclickCode').addEventListener('input', validateMonetizationSettings);
 
             // 🛡️ Monitorar autenticação
             auth.onAuthStateChanged(async (user) => {
