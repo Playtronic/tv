@@ -706,7 +706,7 @@
             window.location.href = authUrl;
         }
 
-        // 🔴 DESCONECTAR DO MERCADO PAGO PARA DOAÇÕES - CORRIGIDA PARA HABILITAR O BOTÃO DE CONECTAR IMEDIATAMENTE
+        // 🔴 DESCONECTAR DO MERCADO PAGO PARA DOAÇÕES
         async function disconnectFromMercadoPago() {
             if (!confirm('Tem certeza que deseja desconectar a conta do Mercado Pago para doações?')) {
                 return;
@@ -758,7 +758,7 @@
                 disconnectButton.style.display = 'none';
                 
                 // Manter o checkbox marcado se o usuário quiser reconectar
-                // O usuário não precisa desmarcar e marcar novamente
+                document.getElementById('pixDonations').checked = false;
                 
                 showSuccess('✅ Conta do Mercado Pago desconectada com sucesso para doações.');
                 checkForChanges();
@@ -769,7 +769,7 @@
             }
         }
 
-        // 🔴 DESCONECTAR DO MERCADO PAGO PARA COMERCIAIS - CORRIGIDA PARA HABILITAR O BOTÃO DE CONECTAR IMEDIATAMENTE
+        // 🔴 DESCONECTAR DO MERCADO PAGO PARA COMERCIAIS
         async function disconnectFromMercadoPagoCommercials() {
             if (!confirm('Tem certeza que deseja desconectar a conta do Mercado Pago para comerciais?')) {
                 return;
@@ -821,7 +821,7 @@
                 disconnectButton.style.display = 'none';
                 
                 // Manter o checkbox marcado se o usuário quiser reconectar
-                // O usuário não precisa desmarcar e marcar novamente
+                document.getElementById('paidCommercials').checked = false;
                 
                 showSuccess('✅ Conta do Mercado Pago desconectada com sucesso para comerciais.');
                 checkForChanges();
@@ -832,75 +832,79 @@
             }
         }
 
-        // 📊 VERIFICAR STATUS DA CONEXÃO PIX (DOAÇÕES) - MODIFICADA PARA NÃO DESABILITAR O CHECKBOX
-        async function checkPixConnectionStatus() {
+        // 🔄 ATUALIZAR TODOS OS ESTADOS DA INTERFACE
+        async function refreshAllConnectionStatuses() {
             try {
-                const pixStatus = document.getElementById('pixStatus');
-                const pixStatusMessage = document.getElementById('pixStatusMessage');
-                const connectButton = document.getElementById('connectMpButton');
-                const disconnectButton = document.getElementById('disconnectMpButton');
+                // Buscar dados atualizados do Firestore
+                const channelSettingsDoc = await db.collection('channels').doc(channelId)
+                    .collection('monetization').doc('settings').get();
 
-                let isConnected = false;
-                let mpToken = null;
-
-                try {
-                    const channelSettingsDoc = await db.collection('channels').doc(channelId)
-                        .collection('monetization').doc('settings').get();
-
-                    if (channelSettingsDoc.exists) {
-                        const channelSettings = channelSettingsDoc.data();
-                        if (channelSettings.pixDonations && channelSettings.pixDonations.mpAccessToken && channelSettings.pixDonations.mpAccessToken.trim() !== '') {
-                            isConnected = true;
-                            mpToken = channelSettings.pixDonations.mpAccessToken;
-                            monetizationData.pixDonations = channelSettings.pixDonations;
-                            
-                            // IMPORTANTE: Mantém o checkbox habilitado/marcado se tiver token
-                            if (channelSettings.pixDonations.enabled !== undefined) {
-                                document.getElementById('pixDonations').checked = channelSettings.pixDonations.enabled;
-                            } else {
-                                // Se não tem a propriedade enabled, assume true quando tem token
-                                document.getElementById('pixDonations').checked = true;
-                            }
-                        }
+                if (channelSettingsDoc.exists) {
+                    const channelSettings = channelSettingsDoc.data();
+                    
+                    // Atualizar dados locais para ambas as opções
+                    if (channelSettings.pixDonations) {
+                        monetizationData.pixDonations = channelSettings.pixDonations;
+                        updatePixInterface(channelSettings.pixDonations);
                     }
-                } catch (error) {
-                    console.log('Verificação na nova estrutura falhou, tentando antiga...');
+                    
+                    if (channelSettings.paidCommercials) {
+                        monetizationData.paidCommercials = channelSettings.paidCommercials;
+                        updateCommercialsInterface(channelSettings.paidCommercials);
+                    }
+                    
+                    // Atualizar checkboxes com base nos dados reais
+                    document.getElementById('pixDonations').checked = channelSettings.pixDonations?.enabled || false;
+                    document.getElementById('paidCommercials').checked = channelSettings.paidCommercials?.enabled || false;
+                    
+                    // Mostrar/ocultar configurações baseado no checkbox
+                    document.getElementById('pixSettings').style.display = channelSettings.pixDonations?.enabled ? 'block' : 'none';
+                    document.getElementById('paidCommercialsSettings').style.display = channelSettings.paidCommercials?.enabled ? 'block' : 'none';
                 }
-
-                if (!isConnected) {
-                    const monetizationDoc = await db.collection('users').doc(currentUser.uid)
+                
+                // Verificar também na estrutura antiga para compatibilidade
+                if (currentUser) {
+                    const oldMonetizationDoc = await db.collection('users').doc(currentUser.uid)
                         .collection('channels').doc(channelId)
                         .collection('monetization').doc('settings').get();
 
-                    if (monetizationDoc.exists) {
-                        const oldData = monetizationDoc.data();
-                        if (oldData.pixDonations && oldData.pixDonations.mpAccessToken && oldData.pixDonations.mpAccessToken.trim() !== '') {
-                            isConnected = true;
-                            mpToken = oldData.pixDonations.mpAccessToken;
+                    if (oldMonetizationDoc.exists && !channelSettingsDoc.exists) {
+                        const oldData = oldMonetizationDoc.data();
+                        
+                        if (oldData.pixDonations) {
                             monetizationData.pixDonations = oldData.pixDonations;
-                            
-                            // IMPORTANTE: Mantém o checkbox habilitado/marcado se tiver token
-                            if (oldData.pixDonations.enabled !== undefined) {
-                                document.getElementById('pixDonations').checked = oldData.pixDonations.enabled;
-                            } else {
-                                // Se não tem a propriedade enabled, assume true quando tem token
-                                document.getElementById('pixDonations').checked = true;
-                            }
+                            updatePixInterface(oldData.pixDonations);
                         }
+                        
+                        if (oldData.paidCommercials) {
+                            monetizationData.paidCommercials = oldData.paidCommercials;
+                            updateCommercialsInterface(oldData.paidCommercials);
+                        }
+                        
+                        document.getElementById('pixDonations').checked = oldData.pixDonations?.enabled || false;
+                        document.getElementById('paidCommercials').checked = oldData.paidCommercials?.enabled || false;
+                        
+                        document.getElementById('pixSettings').style.display = oldData.pixDonations?.enabled ? 'block' : 'none';
+                        document.getElementById('paidCommercialsSettings').style.display = oldData.paidCommercials?.enabled ? 'block' : 'none';
                     }
                 }
+                
+                checkForChanges();
+                
+            } catch (error) {
+                console.error('Erro ao atualizar estados da interface:', error);
+            }
+        }
 
-                if (!isConnected || !mpToken) {
-                    pixStatus.className = 'status-container status-disconnected';
-                    pixStatusMessage.innerHTML = '❌ <strong>Não conectado ao Mercado Pago</strong><br><small>Conecte para receber doações</small>';
-                    pixStatus.style.display = 'block';
-                    
-                    connectButton.innerHTML = '<img src="https://i.ibb.co/sv6xmVMG/mp.png" alt="Mercado Pago" class="mp-logo"> Conectar com Mercado Pago';
-                    connectButton.disabled = false;
-                    disconnectButton.style.display = 'none';
-                    return;
-                }
+        // 🎨 ATUALIZAR INTERFACE DA OPÇÃO 3 (DOAÇÕES)
+        function updatePixInterface(pixData) {
+            const pixStatus = document.getElementById('pixStatus');
+            const pixStatusMessage = document.getElementById('pixStatusMessage');
+            const connectButton = document.getElementById('connectMpButton');
+            const disconnectButton = document.getElementById('disconnectMpButton');
 
+            if (pixData && pixData.mpAccessToken && pixData.mpAccessToken.trim() !== '') {
+                // CONECTADO
                 pixStatus.className = 'status-container status-connected';
                 pixStatusMessage.innerHTML = '✅ <strong>Conectado ao Mercado Pago</strong><br><small>Seu canal pode receber doações diretas</small>';
                 pixStatus.style.display = 'block';
@@ -908,98 +912,27 @@
                 connectButton.innerHTML = '<img src="https://i.ibb.co/sv6xmVMG/mp.png" alt="Mercado Pago" class="mp-logo"> Conta Conectada';
                 connectButton.disabled = true;
                 disconnectButton.style.display = 'inline-block';
-
-            } catch (error) {
-                console.error('Erro ao verificar status PIX:', error);
-                showError('Erro ao verificar conexão com Mercado Pago');
+            } else {
+                // DESCONECTADO
+                pixStatus.className = 'status-container status-disconnected';
+                pixStatusMessage.innerHTML = '❌ <strong>Não conectado ao Mercado Pago</strong><br><small>Conecte para receber doações</small>';
+                pixStatus.style.display = 'block';
+                
+                connectButton.innerHTML = '<img src="https://i.ibb.co/sv6xmVMG/mp.png" alt="Mercado Pago" class="mp-logo"> Conectar com Mercado Pago';
+                connectButton.disabled = false;
+                disconnectButton.style.display = 'none';
             }
         }
 
-        // 📊 VERIFICAR STATUS DA CONEXÃO MERCADO PAGO PARA COMERCIAIS - MODIFICADA PARA NÃO DESABILITAR O CHECKBOX
-        async function checkCommercialsMpStatus() {
-            try {
-                const commercialsMpStatus = document.getElementById('commercialsMpStatus');
-                const commercialsMpStatusMessage = document.getElementById('commercialsMpStatusMessage');
-                const connectButton = document.getElementById('connectMpCommercialsButton');
-                const disconnectButton = document.getElementById('disconnectMpCommercialsButton');
+        // 🎨 ATUALIZAR INTERFACE DA OPÇÃO 4 (COMERCIAIS)
+        function updateCommercialsInterface(commercialsData) {
+            const commercialsMpStatus = document.getElementById('commercialsMpStatus');
+            const commercialsMpStatusMessage = document.getElementById('commercialsMpStatusMessage');
+            const connectButton = document.getElementById('connectMpCommercialsButton');
+            const disconnectButton = document.getElementById('disconnectMpCommercialsButton');
 
-                let isConnected = false;
-                let mpToken = null;
-
-                try {
-                    const channelSettingsDoc = await db.collection('channels').doc(channelId)
-                        .collection('monetization').doc('settings').get();
-
-                    if (channelSettingsDoc.exists) {
-                        const channelSettings = channelSettingsDoc.data();
-                        if (channelSettings.paidCommercials && channelSettings.paidCommercials.mpAccessToken && channelSettings.paidCommercials.mpAccessToken.trim() !== '') {
-                            isConnected = true;
-                            mpToken = channelSettings.paidCommercials.mpAccessToken;
-                            monetizationData.paidCommercials = channelSettings.paidCommercials;
-                            
-                            // IMPORTANTE: Mantém o checkbox habilitado/marcado se tiver token
-                            if (channelSettings.paidCommercials.enabled !== undefined) {
-                                document.getElementById('paidCommercials').checked = channelSettings.paidCommercials.enabled;
-                            } else {
-                                // Se não tem a propriedade enabled, assume true quando tem token
-                                document.getElementById('paidCommercials').checked = true;
-                            }
-                            
-                            // Carrega também as configurações de preço
-                            if (channelSettings.paidCommercials.pricePerSecond) {
-                                document.getElementById('pricePerSecond').value = channelSettings.paidCommercials.pricePerSecond;
-                            }
-                            if (channelSettings.paidCommercials.maxDuration) {
-                                document.getElementById('maxCommercialDuration').value = channelSettings.paidCommercials.maxDuration;
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.log('Verificação na nova estrutura falhou, tentando antiga...');
-                }
-
-                if (!isConnected) {
-                    const monetizationDoc = await db.collection('users').doc(currentUser.uid)
-                        .collection('channels').doc(channelId)
-                        .collection('monetization').doc('settings').get();
-
-                    if (monetizationDoc.exists) {
-                        const oldData = monetizationDoc.data();
-                        if (oldData.paidCommercials && oldData.paidCommercials.mpAccessToken && oldData.paidCommercials.mpAccessToken.trim() !== '') {
-                            isConnected = true;
-                            mpToken = oldData.paidCommercials.mpAccessToken;
-                            monetizationData.paidCommercials = oldData.paidCommercials;
-                            
-                            // IMPORTANTE: Mantém o checkbox habilitado/marcado se tiver token
-                            if (oldData.paidCommercials.enabled !== undefined) {
-                                document.getElementById('paidCommercials').checked = oldData.paidCommercials.enabled;
-                            } else {
-                                // Se não tem a propriedade enabled, assume true quando tem token
-                                document.getElementById('paidCommercials').checked = true;
-                            }
-                            
-                            // Carrega também as configurações de preço
-                            if (oldData.paidCommercials.pricePerSecond) {
-                                document.getElementById('pricePerSecond').value = oldData.paidCommercials.pricePerSecond;
-                            }
-                            if (oldData.paidCommercials.maxDuration) {
-                                document.getElementById('maxCommercialDuration').value = oldData.paidCommercials.maxDuration;
-                            }
-                        }
-                    }
-                }
-
-                if (!isConnected || !mpToken) {
-                    commercialsMpStatus.className = 'status-container status-disconnected';
-                    commercialsMpStatusMessage.innerHTML = '❌ <strong>Não conectado ao Mercado Pago</strong><br><small>Conecte para vender comerciais</small>';
-                    commercialsMpStatus.style.display = 'block';
-                    
-                    connectButton.innerHTML = '<img src="https://i.ibb.co/sv6xmVMG/mp.png" alt="Mercado Pago" class="mp-logo"> Conectar Mercado Pago para Comerciais';
-                    connectButton.disabled = false;
-                    disconnectButton.style.display = 'none';
-                    return;
-                }
-
+            if (commercialsData && commercialsData.mpAccessToken && commercialsData.mpAccessToken.trim() !== '') {
+                // CONECTADO
                 commercialsMpStatus.className = 'status-container status-connected';
                 commercialsMpStatusMessage.innerHTML = '✅ <strong>Conectado ao Mercado Pago</strong><br><small>Seu canal pode vender comerciais</small>';
                 commercialsMpStatus.style.display = 'block';
@@ -1007,10 +940,23 @@
                 connectButton.innerHTML = '<img src="https://i.ibb.co/sv6xmVMG/mp.png" alt="Mercado Pago" class="mp-logo"> Conta Conectada';
                 connectButton.disabled = true;
                 disconnectButton.style.display = 'inline-block';
-
-            } catch (error) {
-                console.error('Erro ao verificar status Mercado Pago para comerciais:', error);
-                showError('Erro ao verificar conexão com Mercado Pago para comerciais');
+                
+                // Carregar configurações de preço
+                if (commercialsData.pricePerSecond) {
+                    document.getElementById('pricePerSecond').value = commercialsData.pricePerSecond;
+                }
+                if (commercialsData.maxDuration) {
+                    document.getElementById('maxCommercialDuration').value = commercialsData.maxDuration;
+                }
+            } else {
+                // DESCONECTADO
+                commercialsMpStatus.className = 'status-container status-disconnected';
+                commercialsMpStatusMessage.innerHTML = '❌ <strong>Não conectado ao Mercado Pago</strong><br><small>Conecte para vender comerciais</small>';
+                commercialsMpStatus.style.display = 'block';
+                
+                connectButton.innerHTML = '<img src="https://i.ibb.co/sv6xmVMG/mp.png" alt="Mercado Pago" class="mp-logo"> Conectar Mercado Pago para Comerciais';
+                connectButton.disabled = false;
+                disconnectButton.style.display = 'none';
             }
         }
 
@@ -1073,16 +1019,18 @@
                 const mpConnected = getUrlParameter('mpConnected');
                 const mpCommercialsConnected = getUrlParameter('mpCommercialsConnected');
                 
-                if (mpConnected === 'success') {
-                    showSuccess('✅ Mercado Pago conectado com sucesso para doações!');
+                if (mpConnected === 'success' || mpCommercialsConnected === 'success') {
+                    if (mpConnected === 'success') {
+                        showSuccess('✅ Mercado Pago conectado com sucesso para doações!');
+                    }
+                    if (mpCommercialsConnected === 'success') {
+                        showSuccess('✅ Mercado Pago conectado com sucesso para comerciais!');
+                    }
+                    
                     window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
-                    setTimeout(() => checkPixConnectionStatus(), 1000);
-                }
-                
-                if (mpCommercialsConnected === 'success') {
-                    showSuccess('✅ Mercado Pago conectado com sucesso para comerciais!');
-                    window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
-                    setTimeout(() => checkCommercialsMpStatus(), 1000);
+                    
+                    // ATUALIZAÇÃO CRÍTICA: Recarregar todos os estados após autenticação
+                    setTimeout(() => refreshAllConnectionStatuses(), 1500);
                 }
 
             } catch (error) {
@@ -1095,7 +1043,7 @@
             }
         }
 
-        // 🎨 ATUALIZAR INTERFACE - MODIFICADA PARA NÃO DESABILITAR CHECKBOXES AUTOMATICAMENTE
+        // 🎨 ATUALIZAR INTERFACE
         function updateUI() {
             // AdsTerra Banner
             document.getElementById('adsTerraBanner').checked = monetizationData.adsTerraBanner?.enabled || false;
@@ -1107,22 +1055,17 @@
             document.getElementById('adsTerraInterstitialCode').value = monetizationData.adsTerraInterstitial?.code || '';
             document.getElementById('interstitialSettings').style.display = monetizationData.adsTerraInterstitial?.enabled ? 'block' : 'none';
 
-            // Doações diretas - NÃO DESABILITA O CHECKBOX AUTOMATICAMENTE
+            // Doações diretas
             document.getElementById('pixDonations').checked = monetizationData.pixDonations?.enabled || false;
             document.getElementById('pixSettings').style.display = monetizationData.pixDonations?.enabled ? 'block' : 'none';
-            if (monetizationData.pixDonations?.enabled) {
-                checkPixConnectionStatus();
-            }
+            updatePixInterface(monetizationData.pixDonations);
 
-            // Paid Commercials - NÃO DESABILITA O CHECKBOX AUTOMATICAMENTE
+            // Paid Commercials
             document.getElementById('paidCommercials').checked = monetizationData.paidCommercials?.enabled || false;
             document.getElementById('pricePerSecond').value = monetizationData.paidCommercials?.pricePerSecond || 0.05;
             document.getElementById('maxCommercialDuration').value = monetizationData.paidCommercials?.maxDuration || 90;
             document.getElementById('paidCommercialsSettings').style.display = monetizationData.paidCommercials?.enabled ? 'block' : 'none';
-            
-            if (monetizationData.paidCommercials?.enabled) {
-                checkCommercialsMpStatus();
-            }
+            updateCommercialsInterface(monetizationData.paidCommercials);
             
             // Botão salvar inicia DESABILITADO
             document.getElementById('saveBtn').disabled = true;
@@ -1384,31 +1327,11 @@
 
             document.getElementById('pixDonations').addEventListener('change', function() {
                 document.getElementById('pixSettings').style.display = this.checked ? 'block' : 'none';
-                
-                if (this.checked) {
-                    setTimeout(() => checkPixConnectionStatus(), 500);
-                } else {
-                    // Se desmarcou o checkbox, esconde o status
-                    document.getElementById('pixStatus').style.display = 'none';
-                    document.getElementById('disconnectMpButton').style.display = 'none';
-                    document.getElementById('connectMpButton').innerHTML = '<img src="https://i.ibb.co/sv6xmVMG/mp.png" alt="Mercado Pago" class="mp-logo"> Conectar com Mercado Pago';
-                    document.getElementById('connectMpButton').disabled = false;
-                }
                 checkForChanges();
             });
 
             document.getElementById('paidCommercials').addEventListener('change', function() {
                 document.getElementById('paidCommercialsSettings').style.display = this.checked ? 'block' : 'none';
-                
-                if (this.checked) {
-                    setTimeout(() => checkCommercialsMpStatus(), 500);
-                } else {
-                    // Se desmarcou o checkbox, esconde o status
-                    document.getElementById('commercialsMpStatus').style.display = 'none';
-                    document.getElementById('disconnectMpCommercialsButton').style.display = 'none';
-                    document.getElementById('connectMpCommercialsButton').innerHTML = '<img src="https://i.ibb.co/sv6xmVMG/mp.png" alt="Mercado Pago" class="mp-logo"> Conectar Mercado Pago para Comerciais';
-                    document.getElementById('connectMpCommercialsButton').disabled = false;
-                }
                 checkForChanges();
             });
 
