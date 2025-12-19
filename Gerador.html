@@ -2072,35 +2072,36 @@ function determinarDataEstreia(dadosGerador) {
             const isAdultContent = dados.isAdultContent || false;
             const programmingMode = dados.programmingMode || 'grade';
             const commercialsOrder = dados.commercialsOrder || 'sequential';
-            
-            // Gerar grade de programação (apenas para modo grade)
-            let GRADE = [];
-            let totalPrograms = 0;
-            
-            if (programmingMode === 'grade') {
-                totalPrograms = dados.programas.length;
-                
-                if (totalPrograms === 0) {
-                    for (let i = 0; i < totalSlots; i++) {
-                        GRADE.push(0);
-                    }
-                } else {
-                    for (let i = 0; i < totalSlots; i++) {
-                        GRADE.push(i % totalPrograms);
-                    }
-                }
+
+    // Gerar channelId
+    const channelId = dados.name.toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-');
+    
+    // Variáveis de monetização
+    const monetization = dados.monetization || {};
+    const hasAdsTerraBanner = !isOffline && monetization.adsTerraBanner?.enabled && monetization.adsTerraBanner.code;
+    const hasAdsTerraInterstitial = !isOffline && monetization.adsTerraInterstitial?.enabled && monetization.adsTerraInterstitial.code;
+    const hasPixDonations = !isOffline && monetization.pixDonations?.enabled && monetization.pixDonations.mpAccessToken;
+    const hasPaidCommercials = !isOffline && monetization.paidCommercials?.enabled;
+    
+    // Gerar grade de programação (apenas para modo grade)
+    let GRADE = [];
+    let totalPrograms = 0;
+    
+    if (programmingMode === 'grade') {
+        totalPrograms = dados.programas.length;
+        
+        if (totalPrograms === 0) {
+            for (let i = 0; i < totalSlots; i++) {
+                GRADE.push(0);
             }
-            
-            // Determinar data de estreia usando a nova função
-            const releaseDate = dados.release || determinarDataEstreia({
-    customReleaseDate: dados.customReleaseDate || false,
-    releaseDate: dados.release || ''
-});
-            
-            // Gerar channelId
-            const channelId = dados.name.toLowerCase()
-                .replace(/[^a-z0-9]/g, '-')
-                .replace(/-+/g, '-');
+        } else {
+            for (let i = 0; i < totalSlots; i++) {
+                GRADE.push(i % totalPrograms);
+            }
+        }
+    }
             
             const debugSection = (!isOffline && dados.enableDebug) ? `
             <div class="debug-info">
@@ -3333,7 +3334,17 @@ if (slotIndex === currentPlayingSlot) {
         .user-card-channel.active {
             display: flex !important;
         }
-    </style>
+    ${hasAdsTerraInterstitial ? `
+    /* AdsTerra Interstitial será injetado via JavaScript */
+    ` : ''}
+
+</style>
+
+${hasAdsTerraInterstitial ? `
+<!-- AdsTerra Interstitial Script -->
+${monetization.adsTerraInterstitial.code}
+` : ''}
+
 </head>
 <body>
     ${authHTML}
@@ -3395,6 +3406,25 @@ if (slotIndex === currentPlayingSlot) {
         
         ${customButtonHTML}
         
+        <!-- Botões de Monetização -->
+        ${!isOffline && (hasPixDonations || hasPaidCommercials || customButtonHTML) ? `
+        <div style="text-align: center; margin: 20px 0;">
+            <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+                ${hasPixDonations ? `
+                <button id="donationButton" style="background: #27ae60; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
+                    ❤️ Apoiar
+                </button>
+                ` : ''}
+                
+                ${hasPaidCommercials ? `
+                <button id="commercialsButton" style="background: #9b59b6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
+                    Inserir comercial
+                </button>
+                ` : ''}
+            </div>
+        </div>
+        ` : ''}
+        
         <div class="program-info" id="program-info">
             <div class="program-item">
                 <div class="program-label">Você está assistindo:</div>
@@ -3412,6 +3442,13 @@ if (slotIndex === currentPlayingSlot) {
         
         ${debugSection}
         
+        ${hasAdsTerraBanner ? `
+        <!-- AdsTerra Banner -->
+        <div id="adsterra-banner" style="width: 100%; text-align: center; margin: 20px 0; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 8px;">
+            ${monetization.adsTerraBanner.code}
+        </div>
+        ` : ''}
+        
         ${socialMediaHTML}
         
         ${versionHTML}
@@ -3419,13 +3456,165 @@ if (slotIndex === currentPlayingSlot) {
         <div class="contact-info">Contato: ${dados.email}</div>
     </div>
 
-    ${countryCheckScript}
+        ${countryCheckScript}
+    
+    ${hasAdsTerraInterstitial ? `
+    <!-- AdsTerra Interstitial -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                ${monetization.adsTerraInterstitial.code}
+            }, 1000);
+        });
+    </script>
+    ` : ''}
+    
+    <!-- Lightbox de Doação -->
+    ${hasPixDonations ? `
+    <div id="donationLightbox" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 30px; border-radius: 10px; max-width: 400px; width: 90%; color: black; text-align: center; box-shadow: 0 5px 30px rgba(0,0,0,0.5);">
+            <button id="closeDonationLightbox" style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">×</button>
+            
+            <h3 style="color: #333; margin-bottom: 15px;">Apoie este canal</h3>
+            <p style="color: #666; margin-bottom: 20px;">Faça uma doação de QUALQUER valor para incentivar o criador.</p>
+            
+            <div style="margin: 20px 0;">
+                <label for="donationAmount" style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Valor (R$):</label>
+                <input type="number" id="donationAmount" min="1" step="0.01" placeholder="Ex: 10.00" 
+                       style="width: 100%; padding: 12px; border: 2px solid #3498db; border-radius: 5px; font-size: 16px; text-align: center;">
+                <small style="color: #666; display: block; margin-top: 8px;">Você será redirecionado para o Mercado Pago para finalizar o pagamento via PIX.</small>
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; gap: 10px;">
+                <button id="cancelDonation" style="background: #e74c3c; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; flex: 1;">Cancelar</button>
+                <button id="confirmDonation" style="background: #27ae60; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; flex: 1;">Pagar via PIX</button>
+            </div>
+            
+            <div id="donationResult" style="margin-top: 20px; display: none;"></div>
+        </div>
+    </div>
+    ` : ''}
     
     <!-- SISTEMA DE CURTIDAS/DESCURTIDAS -->
     ${likeSystemScript}
     
     <!-- SISTEMA DE CÁLCULO DE DIAS -->
     ${diasScript}
+    
+    <!-- Script para botões de monetização -->
+    ${hasPixDonations || hasPaidCommercials ? `
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            ${hasPixDonations ? `
+            // Sistema de Doações PIX
+            const donationButton = document.getElementById('donationButton');
+            const donationLightbox = document.getElementById('donationLightbox');
+            const closeDonationLightbox = document.getElementById('closeDonationLightbox');
+            const cancelDonation = document.getElementById('cancelDonation');
+            const confirmDonation = document.getElementById('confirmDonation');
+            const donationAmount = document.getElementById('donationAmount');
+            const donationResult = document.getElementById('donationResult');
+            
+            if (donationButton && donationLightbox) {
+                donationButton.addEventListener('click', function() {
+                    donationLightbox.style.display = 'flex';
+                    donationAmount.focus();
+                });
+            }
+            
+            function closeLightbox() {
+                if (donationLightbox) donationLightbox.style.display = 'none';
+                if (donationAmount) donationAmount.value = '';
+                if (donationResult) {
+                    donationResult.style.display = 'none';
+                    donationResult.innerHTML = '';
+                }
+            }
+            
+            if (closeDonationLightbox) {
+                closeDonationLightbox.addEventListener('click', closeLightbox);
+            }
+            
+            if (cancelDonation) {
+                cancelDonation.addEventListener('click', closeLightbox);
+            }
+            
+            if (confirmDonation) {
+                confirmDonation.addEventListener('click', async function() {
+                    const amount = parseFloat(donationAmount.value);
+                    
+                    if (!amount || amount < 1 || amount > 10000) {
+                        alert('Por favor, insira um valor válido entre R$ 1,00 e R$ 10.000,00');
+                        return;
+                    }
+                    
+                    // Desabilitar botão durante processamento
+                    confirmDonation.disabled = true;
+                    confirmDonation.textContent = 'Processando...';
+                    
+                    try {
+                        donationResult.style.display = 'block';
+                        donationResult.innerHTML = '<p style="color: #3498db;">⏳ Criando pagamento...</p>';
+                        
+                        // Chamar Cloud Function para criar pagamento PIX
+                        const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/createPixPayment', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                channelId: '${channelId}',
+                                amount: amount,
+                                paymentType: 'donation'
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            donationResult.innerHTML = \`
+                                <p style="color: #27ae60;">✅ Pagamento criado com sucesso!</p>
+                                <div style="margin: 15px 0;">
+                                    \${result.qrCodeBase64 ? \`<img src="\${result.qrCodeBase64}" style="max-width: 200px; margin: 10px auto;" alt="QR Code PIX">\` : ''}
+                                </div>
+                                <p>Escaneie o QR Code ou <a href="\${result.ticketUrl}" target="_blank" style="color: #3498db;">clique aqui</a> para pagar.</p>
+                                <small style="color: #666;">Após o pagamento, 92% do valor vai para o criador e 8% para a plataforma.</small>
+                            \`;
+                        } else {
+                            donationResult.innerHTML = \`<p style="color: #e74c3c;">❌ Erro: \${result.error || 'Falha ao criar pagamento'}</p>\`;
+                        }
+                    } catch (error) {
+                        console.error('Erro na doação:', error);
+                        donationResult.innerHTML = \`<p style="color: #e74c3c;">❌ Erro de conexão. Tente novamente.</p>\`;
+                    } finally {
+                        confirmDonation.disabled = false;
+                        confirmDonation.textContent = 'Pagar via PIX';
+                    }
+                });
+            }
+            
+            // Fechar lightbox ao clicar fora
+            if (donationLightbox) {
+                donationLightbox.addEventListener('click', function(e) {
+                    if (e.target === donationLightbox) {
+                        closeLightbox();
+                    }
+                });
+            }
+            ` : ''}
+            
+            ${hasPaidCommercials ? `
+            // Sistema de Comerciais Pagos (Placeholder)
+            const commercialsButton = document.getElementById('commercialsButton');
+            if (commercialsButton) {
+                commercialsButton.addEventListener('click', function() {
+                    alert('🚀 Em breve você poderá inserir comerciais pagos neste canal!');
+                });
+            }
+            ` : ''}
+        });
+    <\/script>
+    ` : ''}
     
     <script>
         // CONFIGURAÇÕES DO CANAL
@@ -5103,7 +5292,45 @@ function verificarFimDoVideo() {
                 return false;
             }
         }
-
+// Função para buscar configurações de monetização do Firestore
+async function buscarConfiguracoesMonetizacao(channelId) {
+    try {
+        if (!currentUser || !channelId) {
+            console.warn('Usuário ou channelId não disponível para buscar monetização');
+            return null;
+        }
+        
+        // Buscar na estrutura nova (channels collection)
+        const monetizationRef = db.collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const monetizationDoc = await monetizationRef.get();
+        
+        if (monetizationDoc.exists) {
+            const data = monetizationDoc.data();
+            console.log('Configurações de monetização encontradas (nova estrutura):', data);
+            return data;
+        }
+        
+        // Buscar na estrutura antiga para compatibilidade
+        const oldMonetizationRef = db.collection('users').doc(currentUser.uid)
+            .collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const oldMonetizationDoc = await oldMonetizationRef.get();
+        
+        if (oldMonetizationDoc.exists) {
+            const data = oldMonetizationDoc.data();
+            console.log('Configurações de monetização encontradas (estrutura antiga):', data);
+            return data;
+        }
+        
+        console.log('Nenhuma configuração de monetização encontrada');
+        return null;
+        
+    } catch (error) {
+        console.error('Erro ao buscar configurações de monetização:', error);
+        return null;
+    }
+}
         // ==================== FUNÇÕES DO BANCO DE DADOS ====================
 
         // Função para buscar canal por nome no banco de dados
@@ -5328,16 +5555,33 @@ function verificarFimDoVideo() {
         }
 
         // Função principal de publicação (ATUALIZADA COM NOVA LÓGICA DE DATA)
-        async function iniciarPublicacao() {
-            console.log("Iniciando publicação...");
-            
-            if (!currentUser) {
-                console.log("Usuário não autenticado, mostrando mensagem de autenticação");
-                mostrarMensagemAutenticacao();
-                return;
-            }
-            
-            publicationStarted = true;
+async function iniciarPublicacao() {
+    console.log("Iniciando publicação...");
+    
+    // Verificar se veio da página de monetização
+    const urlParams = new URLSearchParams(window.location.search);
+    const monetizationUpdated = urlParams.get('monetizationUpdated');
+    const source = urlParams.get('source');
+    
+    if (monetizationUpdated === 'true' && source === 'monetizar' && currentChannelId) {
+        console.log('📈 Atualização de monetização detectada! Buscando configurações...');
+        
+        // Buscar configurações de monetização
+        const monetizationData = await buscarConfiguracoesMonetizacao(currentChannelId);
+        if (monetizationData) {
+            // Incorporar dados de monetização no tvData
+            tvData.monetization = monetizationData;
+            console.log('Dados de monetização incorporados:', monetizationData);
+        }
+    }
+    
+    if (!currentUser) {
+        console.log("Usuário não autenticado, mostrando mensagem de autenticação");
+        mostrarMensagemAutenticacao();
+        return;
+    }
+    
+    publicationStarted = true;
             
             if (editingChannel) {
                 tvData.version = incrementarVersao(tvData.version);
@@ -7602,6 +7846,39 @@ toScreen3Btn.addEventListener('click', () => {
             
             // Inicializar autenticação
             updateAuthUI();
+            
+            
+            // Verificar se veio da monetização
+            const urlParams = new URLSearchParams(window.location.search);
+            const monetizationUpdated = urlParams.get('monetizationUpdated');
+            const source = urlParams.get('source');
+            const channelIdFromUrl = urlParams.get('channelId');
+            
+            if (monetizationUpdated === 'true' && source === 'monetizar' && channelIdFromUrl) {
+                console.log('🔥 Atualização de monetização detectada!');
+                
+                // Aguardar autenticação
+                const checkAuthInterval = setInterval(() => {
+                    if (currentUser) {
+                        clearInterval(checkAuthInterval);
+                        console.log('Usuário autenticado, editando canal:', channelIdFromUrl);
+                        
+                        // Editar o canal para carregar os dados
+                        editChannel(channelIdFromUrl);
+                        
+                        // Ir direto para tela 6 após um breve delay
+                        setTimeout(() => {
+                            console.log('Indo para tela 6 para publicar...');
+                            showScreen('screen6');
+                        }, 1000);
+                    }
+                }, 500);
+                
+                // Timeout de segurança
+                setTimeout(() => {
+                    clearInterval(checkAuthInterval);
+                }, 10000);
+            }
             
             // Inicializar a tela 0
             showScreen('screen0');
