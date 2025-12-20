@@ -5104,30 +5104,92 @@ function verificarFimDoVideo() {
             }
         }
 
-        // ==================== FUNÇÕES DO BANCO DE DADOS ====================
+        // ==================== // ==================== FUNÇÕES DO BANCO DE DADOS ====================
 
-        // Função para buscar canal por nome no banco de dados
-        async function buscarCanalPorNome(nomeCanal, userId) {
-            try {
-                const querySnapshot = await db.collection('users').doc(userId)
-                    .collection('channels')
-                    .where('name', '==', nomeCanal)
-                    .limit(1)
-                    .get();
+// ✅ NOVA FUNÇÃO: Verificar atualizações de monetização
+async function verificarAtualizacoesMonetizacao() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const monetizationUpdated = urlParams.get('monetizationUpdated');
+    const source = urlParams.get('source');
+    
+    if (monetizationUpdated === 'true' && source === 'monetizar' && currentUser) {
+        const channelId = urlParams.get('channelId');
+        
+        if (!channelId) return;
+        
+        try {
+            console.log('🔄 Buscando atualizações de monetização para:', channelId);
+            
+            // 1. Buscar dados de monetização NOVOS (estrutura channels/monetization)
+            const monetizationDoc = await db.collection('channels').doc(channelId)
+                .collection('monetization').doc('settings').get();
+            
+            if (monetizationDoc.exists) {
+                const monetizationData = monetizationDoc.data();
+                console.log('📊 Dados de monetização encontrados:', monetizationData);
                 
-                if (!querySnapshot.empty) {
-                    const doc = querySnapshot.docs[0];
-                    return {
-                        id: doc.id,
-                        ...doc.data()
+                // 2. Buscar canal ANTIGO para pegar outros dados
+                const oldChannelDoc = await db.collection('users').doc(currentUser.uid)
+                    .collection('channels').doc(channelId).get();
+                
+                if (oldChannelDoc.exists) {
+                    const channelData = oldChannelDoc.data();
+                    
+                    // 3. Atualizar tvData com dados do canal + monetização
+                    tvData = {
+                        ...normalizarDadosCanal(channelData),
+                        monetization: monetizationData
                     };
+                    
+                    // 4. Preencher formulário
+                    document.getElementById('tvEmail').value = tvData.email || '';
+                    document.getElementById('tvName').value = tvData.name || '';
+                    document.getElementById('tvSlogan').value = tvData.slogan || '';
+                    document.getElementById('tvLogo').value = tvData.logo || '';
+                    updateLogoPreview();
+                    
+                    // 5. Configurar para edição
+                    currentChannelId = channelId;
+                    editingChannel = true;
+                    originalChannelName = tvData.name;
+                    
+                    // 6. Ir direto para tela 6
+                    showScreen('screen6');
+                    
+                    // 7. Limpar URL
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    
+                    console.log('✅ Monetização carregada. Indo publicar...');
                 }
-                return null;
-            } catch (error) {
-                console.error("Erro ao buscar canal por nome:", error);
-                return null;
             }
+        } catch (error) {
+            console.error('❌ Erro ao carregar monetização:', error);
         }
+    }
+}
+
+// Função para buscar canal por nome no banco de dados
+async function buscarCanalPorNome(nomeCanal, userId) {
+    try {
+        const querySnapshot = await db.collection('users').doc(userId)
+            .collection('channels')
+            .where('name', '==', nomeCanal)
+            .limit(1)
+            .get();
+        
+        if (!querySnapshot.empty) {
+            const doc = querySnapshot.docs[0];
+            return {
+                id: doc.id,
+                ...doc.data()
+            };
+        }
+        return null;
+    } catch (error) {
+        console.error("Erro ao buscar canal por nome:", error);
+        return null;
+    }
+}
 
         // Função para normalizar dados do canal
         function normalizarDadosCanal(channelData) {
