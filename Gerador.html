@@ -2200,20 +2200,35 @@ if (dados.monetization && dados.monetization.adsTerraBanner &&
                     </div>
                 </div>`;
             }
-            
             // Botão personalizado
-            let customButtonHTML = '';
-            const customButton = dados.customButton || {};
-            const hasCustomButton = customButton.text && customButton.url;
-            
-            if (hasCustomButton && !isOffline) {
-                customButtonHTML = `
-                <div style="text-align: center; margin: 20px 0;">
-                    <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
-                        ${customButton.text}
-                    </a>
-                </div>`;
-            }
+let customButtonHTML = '';
+const customButton = dados.customButton || {};
+const hasCustomButton = customButton.text && customButton.url;
+
+// 🔥 NOVO: Botão de Apoiar (se tiver monetização ativa para doações)
+let supportButtonHTML = '';
+const hasPixDonations = dados.monetization && dados.monetization.pixDonations && 
+    dados.monetization.pixDonations.enabled && 
+    dados.monetization.pixDonations.mpAccessToken;
+
+if (hasPixDonations && !isOffline) {
+    // Se tem doações PIX ativas
+    supportButtonHTML = `
+    <div style="text-align: center; margin: 20px 0;">
+        <button id="supportButton" style="background: #2ecc71; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 1.1rem; cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); display: inline-flex; align-items: center; gap: 8px; margin: 5px;">
+            ❤️ Apoiar
+        </button>
+        ${hasCustomButton ? `<a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); margin: 5px;">${customButton.text}</a>` : ''}
+    </div>`;
+} else if (hasCustomButton && !isOffline) {
+    // Se não tem doações PIX, mas tem botão personalizado
+    customButtonHTML = `
+    <div style="text-align: center; margin: 20px 0;">
+        <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
+            ${customButton.text}
+        </a>
+    </div>`;
+}
             
             // Versão do canal
             const version = dados.version || '1.0.0.0';
@@ -2223,6 +2238,276 @@ if (dados.monetization && dados.monetization.adsTerraBanner &&
                 </div>
             `;
             
+// ==================== SISTEMA DE DOAÇÃO PIX ====================
+let donationSystem = {
+    currentPaymentId: null,
+    paymentCheckInterval: null,
+    canCloseLightbox: true,
+    
+    init: function() {
+        console.log('Inicializando sistema de doação PIX...');
+        
+        // Botão de apoio
+        const supportButton = document.getElementById('supportButton');
+        if (supportButton) {
+            supportButton.addEventListener('click', () => this.showDonationLightbox());
+            console.log('Botão "Apoiar" encontrado e configurado');
+        } else {
+            console.log('Botão "Apoiar" não encontrado (pode ser normal)');
+        }
+        
+        // Configurar event listeners da lightbox
+        this.setupLightboxListeners();
+    },
+    
+    setupLightboxListeners: function() {
+        const closeButton = document.getElementById('closeDonationLightbox');
+        if (closeButton) {
+            closeButton.addEventListener('click', () => this.closeDonationLightbox());
+        }
+        
+        const lightbox = document.getElementById('donationLightbox');
+        if (lightbox) {
+            lightbox.addEventListener('click', (e) => {
+                if (e.target === lightbox && this.canCloseLightbox) {
+                    this.closeDonationLightbox();
+                }
+            });
+        }
+        
+        const generatePixButton = document.getElementById('generatePixButton');
+        if (generatePixButton) {
+            generatePixButton.addEventListener('click', () => this.generatePixPayment());
+        }
+        
+        const copyPixCodeButton = document.getElementById('copyPixCode');
+        if (copyPixCodeButton) {
+            copyPixCodeButton.addEventListener('click', () => this.copyPixCode());
+        }
+        
+        const donationAmount = document.getElementById('donationAmount');
+        if (donationAmount) {
+            donationAmount.addEventListener('input', function() {
+                const value = parseFloat(this.value);
+                if (value < 1.00) {
+                    this.value = '1.00';
+                }
+            });
+        }
+    },
+    
+    showDonationLightbox: function() {
+        const lightbox = document.getElementById('donationLightbox');
+        if (lightbox) {
+            lightbox.style.display = 'flex';
+            this.canCloseLightbox = true;
+            this.resetDonationLightbox();
+            console.log('Lightbox de doação aberta');
+        }
+    },
+    
+    closeDonationLightbox: function() {
+        if (!this.canCloseLightbox) {
+            alert('Por favor, aguarde a confirmação do pagamento antes de fechar.');
+            return;
+        }
+        
+        const lightbox = document.getElementById('donationLightbox');
+        if (lightbox) {
+            lightbox.style.display = 'none';
+            
+            if (this.paymentCheckInterval) {
+                clearInterval(this.paymentCheckInterval);
+                this.paymentCheckInterval = null;
+            }
+            
+            this.currentPaymentId = null;
+            console.log('Lightbox de doação fechada');
+        }
+    },
+    
+    resetDonationLightbox: function() {
+        const pixArea = document.getElementById('pixArea');
+        const paymentStatus = document.getElementById('paymentStatus');
+        const generatePixButton = document.getElementById('generatePixButton');
+        
+        if (pixArea) pixArea.style.display = 'none';
+        if (paymentStatus) {
+            paymentStatus.style.display = 'none';
+            paymentStatus.className = '';
+        }
+        
+        if (generatePixButton) {
+            generatePixButton.disabled = false;
+            generatePixButton.textContent = 'Gerar QR Code PIX';
+        }
+    },
+    
+    generatePixPayment: async function() {
+        const amountInput = document.getElementById('donationAmount');
+        const generatePixButton = document.getElementById('generatePixButton');
+        const pixArea = document.getElementById('pixArea');
+        const qrcodeContainer = document.getElementById('qrcodeContainer');
+        const pixCode = document.getElementById('pixCode');
+        
+        if (!amountInput || !generatePixButton) return;
+        
+        const amount = parseFloat(amountInput.value);
+        
+        if (!amount || amount < 1.00) {
+            alert('Por favor, insira um valor válido (mínimo R$ 1,00).');
+            return;
+        }
+        
+        // Desabilitar botão durante a geração
+        generatePixButton.disabled = true;
+        generatePixButton.textContent = 'Gerando PIX...';
+        this.canCloseLightbox = false;
+        
+        try {
+            const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/createPixPayment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    channelId: CHANNEL_ID,
+                    amount: amount,
+                    paymentType: 'donation',
+                    payerEmail: currentUserChannel ? currentUserChannel.email : ''
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                this.currentPaymentId = result.paymentId;
+                pixArea.style.display = 'block';
+                
+                if (result.qrCodeBase64) {
+                    qrcodeContainer.innerHTML = `<img src="data:image/png;base64,${result.qrCodeBase64}" alt="QR Code PIX" style="max-width: 250px; border-radius: 8px;">`;
+                } else if (result.qrCode) {
+                    qrcodeContainer.innerHTML = `<img src="${result.qrCode}" alt="QR Code PIX" style="max-width: 250px; border-radius: 8px;">`;
+                }
+                
+                pixCode.value = result.qrCode || 'Código PIX gerado';
+                generatePixButton.textContent = 'PIX Gerado ✓';
+                this.startPaymentStatusCheck();
+                
+            } else {
+                alert('Erro ao gerar PIX: ' + (result.details || result.error || 'Tente novamente.'));
+                this.resetDonationLightbox();
+                this.canCloseLightbox = true;
+            }
+            
+        } catch (error) {
+            console.error('Erro ao gerar PIX:', error);
+            alert('Erro de conexão. Tente novamente.');
+            this.resetDonationLightbox();
+            this.canCloseLightbox = true;
+        }
+    },
+    
+    checkPaymentStatus: async function() {
+        if (!this.currentPaymentId) return null;
+        
+        try {
+            const response = await fetch(`https://us-central1-playtronic-tv.cloudfunctions.net/checkPaymentStatus?paymentId=${this.currentPaymentId}`);
+            
+            if (response.ok) {
+                const result = await response.json();
+                return result.success ? result : null;
+            }
+            
+            return null;
+        } catch (error) {
+            console.error('Erro ao verificar status:', error);
+            return null;
+        }
+    },
+    
+    startPaymentStatusCheck: function() {
+        if (this.paymentCheckInterval) {
+            clearInterval(this.paymentCheckInterval);
+        }
+        
+        this.paymentCheckInterval = setInterval(async () => {
+            const paymentData = await this.checkPaymentStatus();
+            
+            if (paymentData) {
+                this.updatePaymentStatusUI(paymentData.status);
+                
+                if (paymentData.status === 'approved' || paymentData.status === 'rejected') {
+                    clearInterval(this.paymentCheckInterval);
+                    
+                    setTimeout(() => {
+                        this.canCloseLightbox = true;
+                    }, 10000);
+                }
+            }
+        }, 5000);
+    },
+    
+    updatePaymentStatusUI: function(status) {
+        const paymentStatus = document.getElementById('paymentStatus');
+        if (!paymentStatus) return;
+        
+        paymentStatus.style.display = 'block';
+        paymentStatus.className = `status-${status}`;
+        
+        switch(status) {
+            case 'pending':
+                paymentStatus.innerHTML = `
+                    <strong>⏳ Aguardando pagamento...</strong><br>
+                    <small>Escaneie o QR Code ou copie o código PIX para realizar o pagamento.</small>
+                `;
+                break;
+                
+            case 'approved':
+                paymentStatus.innerHTML = `
+                    <strong>✅ Pagamento confirmado!</strong><br>
+                    <small>Obrigado pelo seu apoio! O criador receberá a doação em breve.</small>
+                `;
+                break;
+                
+            case 'rejected':
+                paymentStatus.innerHTML = `
+                    <strong>❌ Pagamento não realizado</strong><br>
+                    <small>O pagamento não foi concluído. Tente novamente se desejar.</small>
+                `;
+                break;
+                
+            default:
+                paymentStatus.innerHTML = `
+                    <strong>📝 Status: ${status}</strong><br>
+                    <small>Aguarde a confirmação do pagamento.</small>
+                `;
+        }
+    },
+    
+    copyPixCode: function() {
+        const pixCode = document.getElementById('pixCode');
+        if (pixCode) {
+            pixCode.select();
+            pixCode.setSelectionRange(0, 99999);
+            document.execCommand('copy');
+            
+            const copyButton = document.getElementById('copyPixCode');
+            if (copyButton) {
+                const originalText = copyButton.textContent;
+                copyButton.textContent = 'Copiado!';
+                copyButton.style.background = '#2ecc71';
+                
+                setTimeout(() => {
+                    copyButton.textContent = originalText;
+                    copyButton.style.background = '#3498db';
+                }, 2000);
+            }
+        }
+    }
+};
+
+
             // ============= SISTEMA DE AUTENTICAÇÃO PARA O CANAL =============
             const authHTML = `
             <!-- Botão de login para o canal -->
@@ -3352,6 +3637,136 @@ if (slotIndex === currentPlayingSlot) {
         .user-card-channel.active {
             display: flex !important;
         }
+/* 🔥 Estilos para Lightbox de Doação */
+#donationLightbox {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    z-index: 10000;
+    justify-content: center;
+    align-items: center;
+}
+
+#donationLightbox > div {
+    background: white;
+    border-radius: 15px;
+    padding: 30px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+}
+
+#closeDonationLightbox {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #333;
+    transition: color 0.3s;
+}
+
+#closeDonationLightbox:hover {
+    color: #e74c3c;
+}
+
+#donationAmount {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #2ecc71;
+    border-radius: 8px;
+    font-size: 16px;
+    text-align: center;
+    transition: border-color 0.3s;
+}
+
+#donationAmount:focus {
+    outline: none;
+    border-color: #27ae60;
+}
+
+#generatePixButton {
+    width: 100%;
+    background: #2ecc71;
+    color: white;
+    border: none;
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-bottom: 20px;
+    transition: background 0.3s;
+}
+
+#generatePixButton:hover:not(:disabled) {
+    background: #27ae60;
+}
+
+#generatePixButton:disabled {
+    background: #95a5a6;
+    cursor: not-allowed;
+}
+
+#copyPixCode {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 20px;
+    transition: background 0.3s;
+}
+
+#copyPixCode:hover {
+    background: #2980b9;
+}
+
+#pixCode {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-family: monospace;
+    font-size: 14px;
+    resize: none;
+    height: 60px;
+    line-height: 1.4;
+}
+
+#paymentStatus {
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    display: none;
+}
+
+.status-pending {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.status-approved {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.status-rejected {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
     </style>
 </head>
 <body>
@@ -3544,6 +3959,9 @@ ${socialMediaHTML}
         let customControls = null;
         let loadingMessage = null;
         let likeDislikeContainer = null;
+
+
+
         
         // ==================== SISTEMA DE AUTENTICAÇÃO ====================
         
@@ -4956,18 +5374,80 @@ function verificarFimDoVideo() {
                 setInterval(verificarMudancaDeDia, 60000);
             }
         }
-        
         document.addEventListener('DOMContentLoaded', function() {
-            inicializarAutenticacao();
-            
-            if (!IS_OFFLINE) {
-                inicializarPlayer();
+    inicializarAutenticacao();
+    
+    if (!IS_OFFLINE) {
+        inicializarPlayer();
+        
+        // 🔥 INICIALIZAR SISTEMA DE DOAÇÃO PIX (1 segundo após o carregamento)
+        setTimeout(function() {
+            if (typeof donationSystem !== 'undefined' && donationSystem.init) {
+                console.log('🚀 Inicializando sistema de doação PIX...');
+                donationSystem.init();
             } else {
-                document.querySelector('.program-info').style.display = 'none';
-                console.log("Canal offline - player desativado, mas autenticação ativa");
+                console.log('⚠️ Sistema de doação não disponível (pode ser normal se não houver monetização)');
             }
-        });
+        }, 1000);
+        
+    } else {
+        document.querySelector('.program-info').style.display = 'none';
+        console.log("Canal offline - player desativado, mas autenticação ativa");
+    }
+});
     <\/script>
+
+<!-- 🔥 Lightbox de Doação PIX -->
+<div id="donationLightbox" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center;">
+    <div style="background: white; border-radius: 15px; padding: 30px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; position: relative;">
+        <button id="closeDonationLightbox" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 24px; cursor: pointer; color: #333;">&times;</button>
+        
+        <h2 style="color: #333; margin-bottom: 20px; text-align: center;">Apoie este canal ❤️</h2>
+        
+        <p style="color: #666; margin-bottom: 25px; text-align: center;">
+            Faça uma doação de qualquer valor para apoiar o trabalho do criador.<br>
+            Você receberá um QR Code PIX para realizar o pagamento.
+        </p>
+        
+        <div style="margin-bottom: 25px;">
+            <label style="display: block; color: #333; margin-bottom: 8px; font-weight: bold;">Valor (R$)</label>
+            <input type="number" id="donationAmount" min="1.00" step="0.01" value="5.00" 
+                   style="width: 100%; padding: 12px; border: 2px solid #2ecc71; border-radius: 8px; font-size: 16px; text-align: center;">
+        </div>
+        
+        <button id="generatePixButton" 
+                style="width: 100%; background: #2ecc71; color: white; border: none; padding: 15px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 20px;">
+            Gerar QR Code PIX
+        </button>
+        
+        <div id="pixArea" style="display: none;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <p style="color: #333; font-weight: bold; margin-bottom: 10px;">Escaneie o QR Code abaixo:</p>
+                <div id="qrcodeContainer" style="margin: 0 auto 20px; max-width: 250px;"></div>
+                
+                <p style="color: #333; font-weight: bold; margin-bottom: 10px;">Ou copie o código PIX:</p>
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #ddd;">
+                    <textarea id="pixCode" readonly 
+                              style="width: 100%; border: none; background: transparent; font-family: monospace; font-size: 14px; resize: none; height: 60px;"></textarea>
+                </div>
+                <button id="copyPixCode" 
+                        style="background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-bottom: 20px;">
+                    Copiar Código
+                </button>
+            </div>
+            
+            <div id="paymentStatus" style="padding: 15px; border-radius: 8px; margin-bottom: 15px; display: none;"></div>
+            
+            <div style="background: #e8f4fc; padding: 15px; border-radius: 8px; border-left: 4px solid #3498db;">
+                <p style="color: #333; margin: 0; font-size: 14px;">
+                    <strong>💡 Importante:</strong> 
+                    O pagamento é processado pelo Mercado Pago.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>`;
             
