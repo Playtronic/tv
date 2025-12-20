@@ -2125,6 +2125,25 @@ function determinarDataEstreia(dadosGerador) {
                     <div class="program-name" id="channelRating">N/D</div>
                 </div>
             </div>` : '';
+
+// 🔥 NOVO: Banner do AdsTerra (se configurado)
+let adsTerraBannerHTML = '';
+if (dados.monetization && dados.monetization.adsTerraBanner && 
+    dados.monetization.adsTerraBanner.enabled && 
+    dados.monetization.adsTerraBanner.code) {
+    
+    adsTerraBannerHTML = `
+    <!-- 🔥 ADS TERRA BANNER -->
+    <div id="adsTerraBannerContainer" style="margin: 20px auto; max-width: 800px; text-align: center;">
+        <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px;">
+            <p style="font-size: 0.9rem; margin-bottom: 10px; opacity: 0.8;">Anúncio</p>
+            <div id="adsTerraBannerPlaceholder">
+                ${dados.monetization.adsTerraBanner.code}
+            </div>
+        </div>
+    </div>
+    `;
+}
             
             // Script de verificação de país
             const countryCheckScript = visibility === 'brazil' ? `
@@ -2768,7 +2787,11 @@ if (slotIndex === currentPlayingSlot) {
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"><\/script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"><\/script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"><\/script>
-    <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
+   
+    <!-- YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"><\/script>
+
+ <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
     <meta name="version" content="${version}">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="${isAdultContent ? 'true' : 'false'}">
@@ -3405,12 +3428,12 @@ if (slotIndex === currentPlayingSlot) {
                 <div class="program-name" id="afterNextProgram">-</div>
             </div>
         </div>
-        
+
         ${debugSection}
         
-        ${socialMediaHTML}
+${adsTerraBannerHTML}
         
-        ${versionHTML}
+${socialMediaHTML}
         
         <div class="contact-info">Contato: ${dados.email}</div>
     </div>
@@ -3492,6 +3515,11 @@ if (slotIndex === currentPlayingSlot) {
         // Variáveis para controle de ordem dos comerciais
         let usedCommercials = [];
         let availableCommercials = [];
+
+        // VARIÁVEIS PARA YOUTUBE API
+        let youtubePlayer = null;
+        let isYoutubeVideo = false;
+        let playerReady = false;
         
         // ELEMENTOS DO PLAYER
         let videoElement = null;
@@ -3768,6 +3796,238 @@ function calcularPercentualSlot() {
         // calcularSlotAtual(), e obterVideoParaSlot() agora estão definidas
         // no script global (diasScript) acima
 
+// ==================== YOUTUBE API FUNCTIONS ====================
+
+// Função chamada automaticamente pela API do YouTube
+function onYouTubeIframeAPIReady() {
+    console.log('YouTube API está pronta');
+    // O player será criado quando necessário
+}
+
+// Função para criar player do YouTube
+function criarPlayerYouTube(videoId, startSeconds = 0, autoplay = true) {
+    // Destruir player anterior se existir
+    if (youtubePlayer) {
+        youtubePlayer.destroy();
+        youtubePlayer = null;
+    }
+    
+    // Esconder vídeo HTML5
+    if (videoElement) {
+        videoElement.style.display = 'none';
+        videoElement.pause();
+    }
+    
+    // Mostrar container do YouTube
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'block';
+        youtubeContainer.innerHTML = '<div id="youtube-player"></div>';
+    }
+    
+    // Criar novo player com configurações para TV (sem controles nativos)
+    youtubePlayer = new YT.Player('youtube-player', {
+        height: '100%',
+        width: '100%',
+        videoId: videoId,
+        playerVars: {
+            'autoplay': autoplay && userStartedPlayback ? 1 : 0,
+            'controls': 0,  // SEM controles nativos
+            'modestbranding': 1,
+            'rel': 0,
+            'showinfo': 0,
+            'start': startSeconds,
+            'enablejsapi': 1,
+            'origin': window.location.origin,
+            'widget_referrer': window.location.href,
+            'iv_load_policy': 3,
+            'playsinline': 1
+        },
+        events: {
+            'onReady': onYouTubePlayerReady,
+            'onStateChange': onYouTubePlayerStateChange,
+            'onError': onYouTubePlayerError
+        }
+    });
+    
+    isYoutubeVideo = true;
+    playerReady = false;
+}
+
+// Quando o player está pronto
+function onYouTubePlayerReady(event) {
+    console.log('Player do YouTube pronto');
+    playerReady = true;
+    
+    // Configurar volume inicial
+    if (volumeSlider) {
+        const volume = parseFloat(volumeSlider.value);
+        event.target.setVolume(volume * 100);
+    }
+    
+    // Se o usuário já iniciou, dar play
+    if (userStartedPlayback) {
+        event.target.playVideo();
+    } else {
+        // Se não, pausar para garantir que não toque sozinho
+        event.target.pauseVideo();
+    }
+}
+
+// Monitorar estado do player
+function onYouTubePlayerStateChange(event) {
+    console.log('Estado do YouTube:', event.data);
+    
+    // 0 = ENDED, 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
+    if (event.data === 0) { // ENDED
+        console.log('YouTube vídeo terminou');
+        verificarFimDoVideo();
+    } else if (event.data === 1) { // PLAYING
+        console.log('YouTube está tocando');
+    } else if (event.data === 2) { // PAUSED
+        console.log('YouTube pausado');
+    } else if (event.data === 3) { // BUFFERING
+        console.log('YouTube buffering');
+    }
+}
+
+// Tratar erros
+function onYouTubePlayerError(event) {
+    console.error('Erro no YouTube player:', event.data);
+    
+    // Tentar próximo vídeo
+    setTimeout(() => {
+        if (currentState === 'program') {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        } else if (currentState === 'commercial') {
+            handleCommercialEnd();
+        }
+    }, 3000);
+}
+
+// Função para atualizar controles do YouTube
+function configurarControlesYouTube() {
+    // Volume
+    if (volumeSlider && youtubePlayer) {
+        volumeSlider.addEventListener('input', function() {
+            if (youtubePlayer && playerReady) {
+                youtubePlayer.setVolume(this.value * 100);
+            }
+            atualizarIconeVolume(this.value);
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Botão de volume
+    if (volumeBtn && youtubePlayer) {
+        volumeBtn.addEventListener('click', function() {
+            if (!youtubePlayer || !playerReady) return;
+            
+            const currentVolume = youtubePlayer.getVolume();
+            if (currentVolume > 0) {
+                youtubePlayer.setVolume(0);
+                if (volumeSlider) volumeSlider.value = 0;
+            } else {
+                youtubePlayer.setVolume(100);
+                if (volumeSlider) volumeSlider.value = 1;
+            }
+            atualizarIconeVolume(volumeSlider ? volumeSlider.value : 1);
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Botão -10s
+    if (rewind10Btn && youtubePlayer) {
+        rewind10Btn.addEventListener('click', function() {
+            if (!youtubePlayer || !playerReady) return;
+            
+            const currentTime = youtubePlayer.getCurrentTime();
+            if (currentTime > 10) {
+                youtubePlayer.seekTo(currentTime - 10, true);
+            } else {
+                youtubePlayer.seekTo(0, true);
+            }
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Botão Início
+    if (restartBtn && youtubePlayer) {
+        restartBtn.addEventListener('click', function() {
+            if (!youtubePlayer || !playerReady) return;
+            
+            youtubePlayer.seekTo(0, true);
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Botão Ao Vivo
+    if (liveBtn && youtubePlayer) {
+        liveBtn.addEventListener('click', function() {
+            if (!youtubePlayer || !playerReady) return;
+            
+            const percentualSlot = calcularPercentualSlot();
+            const duration = youtubePlayer.getDuration();
+            if (duration > 0) {
+                const novoTime = duration * percentualSlot;
+                youtubePlayer.seekTo(novoTime, true);
+                
+                if (youtubePlayer.getPlayerState() !== 1) { // Não está tocando
+                    youtubePlayer.playVideo();
+                }
+            }
+            
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Tela cheia para YouTube
+    if (fullscreenBtn && youtubePlayer) {
+        fullscreenBtn.addEventListener('click', function() {
+            if (!youtubePlayer || !playerReady) return;
+            
+            const iframe = youtubePlayer.getIframe();
+            if (!document.fullscreenElement) {
+                if (iframe.requestFullscreen) {
+                    iframe.requestFullscreen();
+                } else if (iframe.mozRequestFullScreen) {
+                    iframe.mozRequestFullScreen();
+                } else if (iframe.webkitRequestFullscreen) {
+                    iframe.webkitRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.mozCancelFullScreen) {
+                    document.mozCancelFullScreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                }
+            }
+            showControls();
+            resetControlsTimer();
+        });
+    }
+}
+
+// Função para atualizar ícone do volume
+function atualizarIconeVolume(volume) {
+    if (!volumeBtn) return;
+    
+    if (volume === 0) {
+        volumeBtn.textContent = '🔇';
+    } else if (volume < 0.5) {
+        volumeBtn.textContent = '🔈';
+    } else {
+        volumeBtn.textContent = '🔊';
+    }
+}
+
 
           function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
     // Evitar múltiplos carregamentos simultâneos
@@ -3776,6 +4036,15 @@ function calcularPercentualSlot() {
         return;
     }
     isLoadingVideo = true;
+
+    // Esconder player do YouTube se estiver visível
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+        if (youtubePlayer) {
+            youtubePlayer.stopVideo();
+        }
+    }
+    isYoutubeVideo = false;
     
     // Limpar container do YouTube se existir
     if (youtubeContainer) {
@@ -3881,71 +4150,60 @@ function calcularPercentualSlot() {
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
-            // Evitar múltiplos carregamentos simultâneos
-            if (isLoadingVideo) {
-                console.log('Já está carregando um vídeo (YouTube), ignorando chamada duplicada');
-                return;
-            }
-            isLoadingVideo = true;
-            
-            if (videoElement) {
-                videoElement.style.display = 'none';
-                videoElement.pause();
-                videoElement.src = '';
-            }
-            
-            if (youtubeContainer) {
-                youtubeContainer.style.display = 'block';
-                
-                let videoId = '';
-                if (url.includes('v=')) {
-                    videoId = url.split('v=')[1].split('&')[0];
-                } else if (url.includes('youtu.be/')) {
-                    videoId = url.split('youtu.be/')[1].split('?')[0];
-                }
-                
-                if (videoId) {
-                    // Calcula os segundos iniciais baseado no percentual do slot
-                    let startSeconds = 0;
-                    if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-                        startSeconds = Math.floor(300 * iniciarNoPercentual);
-                    }
-                    
-                    // Configura o autoplay baseado no estado
-                    const autoplayParam = (autoplay && userStartedPlayback) ? 1 : 0;
-                    
-                    // Usar concatenação de string para evitar problemas com template strings aninhadas
-                    youtubeContainer.innerHTML = '<iframe class="youtube-iframe" src="https://www.youtube.com/embed/' + videoId + '?autoplay=' + autoplayParam + '&controls=0&modestbranding=1&rel=0&start=' + startSeconds + '&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
-                    
-                    if (loadingMessage) {
-                        loadingMessage.style.display = 'none';
-                    }
-                    
-                    // Tentar detectar quando o iframe está carregado
-                    const iframe = youtubeContainer.querySelector('iframe');
-                    if (iframe) {
-                        iframe.onload = function() {
-                            isLoadingVideo = false;
-                            console.log('Iframe do YouTube carregado');
-                        };
-                        iframe.onerror = function() {
-                            isLoadingVideo = false;
-                            console.error('Erro ao carregar iframe do YouTube');
-                        };
-                    } else {
-                        // Se não conseguir obter o iframe, resetar após um tempo
-                        setTimeout(() => {
-                            isLoadingVideo = false;
-                        }, 3000);
-                    }
-                } else {
-                    // Se não houver videoId, resetar imediatamente
-                    isLoadingVideo = false;
-                }
-            } else {
-                isLoadingVideo = false;
-            }
+    // Evitar múltiplos carregamentos
+    if (isLoadingVideo) {
+        console.log('Já está carregando vídeo (YouTube), ignorando chamada duplicada');
+        return;
+    }
+    isLoadingVideo = true;
+    
+    // Esconder vídeo HTML5
+    if (videoElement) {
+        videoElement.style.display = 'none';
+        videoElement.pause();
+        videoElement.src = '';
+    }
+    
+    // Extrair ID do vídeo
+    let videoId = '';
+    if (url.includes('v=')) {
+        videoId = url.split('v=')[1].split('&')[0];
+    } else if (url.includes('youtu.be/')) {
+        videoId = url.split('youtu.be/')[1].split('?')[0];
+    } else if (url.includes('youtube.com/embed/')) {
+        videoId = url.split('embed/')[1].split('?')[0];
+    }
+    
+    if (!videoId) {
+        console.error('ID do vídeo do YouTube não encontrado:', url);
+        isLoadingVideo = false;
+        // Tentar próximo
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+        return;
+    }
+    
+    // Calcular segundos iniciais
+    let startSeconds = 0;
+    if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
+        startSeconds = Math.floor(300 * iniciarNoPercentual);
+    }
+    
+    console.log('Carregando YouTube:', videoId, 'start:', startSeconds);
+    
+    // Criar player do YouTube
+    criarPlayerYouTube(videoId, startSeconds, autoplay);
+    
+    // Esconder loading após um tempo
+    setTimeout(() => {
+        if (loadingMessage) {
+            loadingMessage.style.display = 'none';
         }
+        isLoadingVideo = false;
+    }, 3000);
+}
 
         
         function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
@@ -4172,9 +4430,23 @@ if (ENABLE_DEBUG) {
             reproduzirPrograma(proximoSlot, 0);
         };
         
-        // Configurar listeners - usar {once: true} para garantir execução única
-        if (videoElement) {
-            // Criar versões encapsuladas das funções para poder remover depois
+        // Configurar listeners para fim do comercial
+        if (isYoutubeVideo && youtubePlayer) {
+            // Para YouTube, usar um intervalo para verificar se terminou
+            const checkYouTubeEnd = setInterval(() => {
+                if (youtubePlayer && youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0) {
+                    clearInterval(checkYouTubeEnd);
+                    handleCommercialEnd();
+                }
+            }, 1000);
+            
+            // Timeout de segurança
+            setTimeout(() => {
+                clearInterval(checkYouTubeEnd);
+                handleCommercialEnd();
+            }, 30000);
+        } else if (videoElement) {
+            // Para HTML5
             const commercialEndHandler = function() {
                 videoElement.removeEventListener('error', commercialErrorHandler);
                 handleCommercialEnd();
@@ -4185,16 +4457,10 @@ if (ENABLE_DEBUG) {
                 handleCommercialError();
             };
             
-            // Remover qualquer listener anterior
-            videoElement.removeEventListener('ended', commercialEndHandler);
-            videoElement.removeEventListener('error', commercialErrorHandler);
-            
-            // Adicionar novos listeners com once: true
             videoElement.addEventListener('ended', commercialEndHandler, { once: true });
             videoElement.addEventListener('error', commercialErrorHandler, { once: true });
         } else {
-            // Fallback se não houver elemento de vídeo
-            console.log('Elemento de vídeo não disponível, usando timeout');
+            // Fallback se não houver elemento
             setTimeout(() => handleCommercialEnd(), 25000);
         }
 
@@ -4260,6 +4526,19 @@ if (ENABLE_DEBUG) {
                 resetControlsTimer();
             }
         }
+
+// Função para esconder controles específicos do YouTube se necessário
+function ocultarControlesYouTube() {
+    if (youtubeContainer) {
+        const iframe = youtubeContainer.querySelector('iframe');
+        if (iframe) {
+            iframe.style.pointerEvents = 'none';
+        }
+    }
+}
+
+// Chamar ao carregar página e periodicamente
+setInterval(ocultarControlesYouTube, 1000);
         
         function hideControls() {
             if (customControls) {
@@ -4277,182 +4556,208 @@ if (ENABLE_DEBUG) {
         }
         
         function configurarControles() {
-            if (volumeBtn && volumeSlider && videoElement) {
-                volumeSlider.addEventListener('input', function() {
-                    videoElement.volume = this.value;
-                    atualizarIconeVolume(this.value);
-                    showControls();
-                    resetControlsTimer();
-                });
-                
-                volumeBtn.addEventListener('click', function() {
-                    if (videoElement.volume > 0) {
-                        videoElement.volume = 0;
-                        volumeSlider.value = 0;
-                    } else {
-                        videoElement.volume = 1;
-                        volumeSlider.value = 1;
-                    }
-                    atualizarIconeVolume(videoElement.volume);
-                    showControls();
-                    resetControlsTimer();
-                });
-                
-                function atualizarIconeVolume(volume) {
-                    if (volume === 0) {
-                        volumeBtn.textContent = '🔇';
-                    } else if (volume < 0.5) {
-                        volumeBtn.textContent = '🔈';
-                    } else {
-                        volumeBtn.textContent = '🔊';
-                    }
+    // Função auxiliar para atualizar ícone do volume
+    function atualizarIconeVolume(volume) {
+        if (!volumeBtn) return;
+        
+        if (volume === 0) {
+            volumeBtn.textContent = '🔇';
+        } else if (volume < 0.5) {
+            volumeBtn.textContent = '🔈';
+        } else {
+            volumeBtn.textContent = '🔊';
+        }
+    }
+
+    // Configurar controles de volume
+    if (volumeBtn && volumeSlider) {
+        volumeSlider.addEventListener('input', function() {
+            if (isYoutubeVideo && youtubePlayer && playerReady) {
+                youtubePlayer.setVolume(this.value * 100);
+            } else if (videoElement) {
+                videoElement.volume = this.value;
+            }
+            atualizarIconeVolume(this.value);
+            showControls();
+            resetControlsTimer();
+        });
+        
+        volumeBtn.addEventListener('click', function() {
+            let currentVolume = 1;
+            if (isYoutubeVideo && youtubePlayer && playerReady) {
+                currentVolume = youtubePlayer.getVolume() / 100;
+            } else if (videoElement) {
+                currentVolume = videoElement.volume;
+            }
+            
+            if (currentVolume > 0) {
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    youtubePlayer.setVolume(0);
+                } else if (videoElement) {
+                    videoElement.volume = 0;
                 }
+                volumeSlider.value = 0;
+            } else {
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    youtubePlayer.setVolume(100);
+                } else if (videoElement) {
+                    videoElement.volume = 1;
+                }
+                volumeSlider.value = 1;
             }
-            
-            if (rewind10Btn && videoElement) {
-                rewind10Btn.addEventListener('click', function() {
-                    if (videoElement.currentTime > 10) {
-                        videoElement.currentTime -= 10;
-                    } else {
-                        videoElement.currentTime = 0;
-                    }
-                    showControls();
-                    resetControlsTimer();
-                });
-            }
-            
-            if (restartBtn && videoElement) {
-                restartBtn.addEventListener('click', function() {
+            atualizarIconeVolume(volumeSlider.value);
+            showControls();
+            resetControlsTimer();
+        });
+        
+        // Configurar volume inicial
+        if (videoElement) {
+            videoElement.volume = volumeSlider.value;
+        }
+    }
+    
+    // Botão -10s
+    if (rewind10Btn) {
+        rewind10Btn.addEventListener('click', function() {
+            if (isYoutubeVideo && youtubePlayer && playerReady) {
+                const currentTime = youtubePlayer.getCurrentTime();
+                if (currentTime > 10) {
+                    youtubePlayer.seekTo(currentTime - 10, true);
+                } else {
+                    youtubePlayer.seekTo(0, true);
+                }
+            } else if (videoElement) {
+                if (videoElement.currentTime > 10) {
+                    videoElement.currentTime -= 10;
+                } else {
                     videoElement.currentTime = 0;
-                    showControls();
-                    resetControlsTimer();
-                });
-            }
-            
-if (liveBtn) {
-    liveBtn.addEventListener('click', function() {
-        console.log('=== BOTÃO AO VIVO CLICADO ===');
-        console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
-        console.log('currentPlayingSlot (atual):', currentPlayingSlot);
-        
-        // 1. CALCULAR SLOT REAL NORMALIZADO NO MOMENTO DO CLIQUE
-        let slotRealAgora;
-        
-        if (PROGRAMMING_MODE === 'grade') {
-    // MODO GRADE: usar calcularSlotAtualGrade() que já retorna base 1
-    slotRealAgora = calcularSlotAtualGrade();
-    console.log('Grade - calcularSlotAtualGrade() retornou:', slotRealAgora);
-} else {
-    // MODO PLAYLIST: usar a função calcularSlotAtualPlaylist() que já faz o cálculo correto
-    slotRealAgora = calcularSlotAtualPlaylist();
-}
-        
-        console.log('slotRealAgora (calculado agora):', slotRealAgora);
-        
-        // 2. COMPARAÇÃO DIRETA
-        console.log('COMPARAÇÃO: currentPlayingSlot =', currentPlayingSlot, '=== slotRealAgora =', slotRealAgora);
-        
-        if (currentPlayingSlot !== slotRealAgora) {
-            console.log('❌ DIFERENTE! Recarregando página.');
-            console.log('Diferença:', Math.abs(currentPlayingSlot - slotRealAgora));
-            sessionStorage.setItem('aoVivoRecarregado', 'true');
-            location.reload();
-            return;
-        }
-        
-        // 3. SE IGUAL: AJUSTAR TEMPO DO VÍDEO
-        console.log('✅ IGUAL! Ajustando tempo do vídeo.');
-        
-        // Calcular percentual do slot atual
-        const percentualSlot = calcularPercentualSlot();
-        console.log('Percentual do slot:', (percentualSlot * 100).toFixed(1) + '%');
-        
-        // Ajustar vídeo atual
-        if (videoElement && videoElement.style.display !== 'none') {
-            if (videoElement.readyState >= 1 && videoElement.duration > 0) {
-                const novoTime = videoElement.duration * percentualSlot;
-                videoElement.currentTime = Math.min(novoTime, videoElement.duration - 1);
-                console.log('Vídeo ajustado para:', novoTime.toFixed(1), 'segundos');
-                
-                if (videoElement.paused) {
-                    videoElement.play().catch(e => console.log('Erro ao dar play:', e));
                 }
             }
-        }
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Botão Início
+    if (restartBtn) {
+        restartBtn.addEventListener('click', function() {
+            if (isYoutubeVideo && youtubePlayer && playerReady) {
+                youtubePlayer.seekTo(0, true);
+            } else if (videoElement) {
+                videoElement.currentTime = 0;
+            }
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Botão Ao Vivo
+    if (liveBtn) {
+        liveBtn.addEventListener('click', function() {
+            console.log('=== BOTÃO AO VIVO CLICADO ===');
+            console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
+            console.log('currentPlayingSlot (atual):', currentPlayingSlot);
+            
+            let slotRealAgora;
+            if (PROGRAMMING_MODE === 'grade') {
+                slotRealAgora = calcularSlotAtualGrade();
+            } else {
+                slotRealAgora = calcularSlotAtualPlaylist();
+            }
+            
+            console.log('slotRealAgora (calculado agora):', slotRealAgora);
+            
+            if (currentPlayingSlot !== slotRealAgora) {
+                console.log('❌ DIFERENTE! Recarregando página.');
+                sessionStorage.setItem('aoVivoRecarregado', 'true');
+                location.reload();
+                return;
+            }
+            
+            console.log('✅ IGUAL! Ajustando tempo do vídeo.');
+            const percentualSlot = calcularPercentualSlot();
+            
+            if (isYoutubeVideo && youtubePlayer && playerReady) {
+                const duration = youtubePlayer.getDuration();
+                if (duration > 0) {
+                    const novoTime = duration * percentualSlot;
+                    youtubePlayer.seekTo(novoTime, true);
+                }
+            } else if (videoElement && videoElement.readyState >= 1) {
+                if (videoElement.duration > 0) {
+                    const novoTime = videoElement.duration * percentualSlot;
+                    videoElement.currentTime = Math.min(novoTime, videoElement.duration - 1);
+                }
+            }
+            
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Tela cheia
+    if (fullscreenBtn && videoWrapper) {
+        fullscreenBtn.addEventListener('click', function() {
+            if (!document.fullscreenElement) {
+                videoWrapper.requestFullscreen().catch(err => {
+                    console.log("Erro ao entrar em tela cheia:", err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Botão Ligar TV
+    if (autoplayButton) {
+        autoplayButton.addEventListener('click', function() {
+            userStartedPlayback = true;
+            
+            const percentualSlot = calcularPercentualSlot();
+            console.log('Ligar TV - Percentual ATUAL:', (percentualSlot*100).toFixed(1), '%');
+            
+            if (autoplayOverlay) {
+                autoplayOverlay.classList.add('hidden');
+            }
+            
+            if (isYoutubeVideo && youtubePlayer && playerReady) {
+                youtubePlayer.playVideo();
+            } else if (videoElement && videoElement.src) {
+                videoElement.muted = false;
+                const playPromise = videoElement.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(error => {
+                        console.log('Erro ao dar play:', error);
+                    });
+                }
+            }
+            
+            reproduzirPrograma(currentPlayingSlot, percentualSlot);
+            
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    
+    // Eventos de mouse/teclado
+    if (videoWrapper) {
+        videoWrapper.addEventListener('mousemove', function() {
+            showControls();
+            resetControlsTimer();
+        });
         
+        videoWrapper.addEventListener('mouseleave', function() {
+            resetControlsTimer();
+        });
+    }
+    
+    document.addEventListener('keydown', function() {
         showControls();
         resetControlsTimer();
     });
 }
-            
-            if (fullscreenBtn && videoWrapper) {
-                fullscreenBtn.addEventListener('click', function() {
-                    if (!document.fullscreenElement) {
-                        videoWrapper.requestFullscreen().catch(err => {
-                            console.log("Erro ao entrar em tela cheia:", err);
-                        });
-                    } else {
-                        document.exitFullscreen();
-                    }
-                    showControls();
-                    resetControlsTimer();
-                });
-            }
-                        if (autoplayButton) {
-                autoplayButton.addEventListener('click', function() {
-                    userStartedPlayback = true;
-                    
-                    // Calcula o percentual ATUAL do slot (NO MOMENTO DO CLIQUE)
-                    const percentualSlot = calcularPercentualSlot();
-                    console.log('Ligar TV - Percentual ATUAL:', (percentualSlot*100).toFixed(1), '%');
-                    
-                    if (autoplayOverlay) {
-                        autoplayOverlay.classList.add('hidden');
-                    }
-                    
-                    // Se já temos um vídeo carregado, ajusta seu tempo e dá play
-                    if (videoElement && videoElement.src && videoElement.src !== '') {
-                        // Para vídeo HTML5
-                        if (videoElement.duration && percentualSlot > 0 && percentualSlot < 1) {
-                            const startTime = videoElement.duration * percentualSlot;
-                            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
-                            console.log('Ligar TV - Ajustando vídeo para:', startTime.toFixed(1), 'segundos (', (percentualSlot*100).toFixed(1), '%)');
-                        }
-                        
-                        // Remove mute e dá play
-                        videoElement.muted = false;
-                        const playPromise = videoElement.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch(error => {
-                                console.log('Erro ao dar play:', error);
-                            });
-                        }
-                    }
-                    
-                    // Atualiza para o slot atual com o percentual ATUAL
-                    reproduzirPrograma(currentPlayingSlot, percentualSlot);
-                    
-                    showControls();
-                    resetControlsTimer();
-                });
-            }
-            
-            if (videoWrapper) {
-                videoWrapper.addEventListener('mousemove', function() {
-                    showControls();
-                    resetControlsTimer();
-                });
-                
-                videoWrapper.addEventListener('mouseleave', function() {
-                    resetControlsTimer();
-                });
-            }
-            
-            document.addEventListener('keydown', function() {
-                showControls();
-                resetControlsTimer();
-            });
-        }
         
         function atualizarHora() {
             if (SHOW_TIME && timeDisplay) {
@@ -4532,6 +4837,16 @@ function verificarFimDoVideo() {
             likeDislikeContainer = document.getElementById('likeDislikeContainer');
             
             configurarControles();
+
+    // Verificar se YouTube API está carregada
+    if (typeof YT === 'undefined') {
+        console.log('YouTube API não carregada, tentando carregar...');
+        setTimeout(() => {
+            if (typeof YT !== 'undefined') {
+                console.log('YouTube API carregada com sucesso');
+            }
+        }, 2000);
+    }
             
             if (!IS_OFFLINE) {
             } else {
@@ -4770,7 +5085,6 @@ function verificarFimDoVideo() {
                         .replace(/[^a-z0-9]/g, '-')
                         .replace(/-+/g, '-') + '.html';
                     const urlCanal = `https://canaisdetv.online/canais/${nomeArquivo}`;
-
                     
                     return {
                         url: urlCanal,
@@ -4810,6 +5124,49 @@ function verificarFimDoVideo() {
         }
 
         // ==================== FUNÇÕES DO BANCO DE DADOS ====================
+
+// 🔥 NOVA FUNÇÃO: Carregar configurações de monetização do Firestore
+async function carregarConfiguracoesMonetizacao(channelId) {
+    if (!currentUser || !channelId) {
+        console.log("Usuário não autenticado ou channelId inválido");
+        return null;
+    }
+    
+    try {
+        console.log(`Carregando configurações de monetização para o canal: ${channelId}`);
+        
+        // Primeiro, tenta buscar na nova estrutura (coleção 'channels')
+        const channelMonetizationRef = db.collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const channelMonetizationDoc = await channelMonetizationRef.get();
+        
+        if (channelMonetizationDoc.exists) {
+            const data = channelMonetizationDoc.data();
+            console.log("Configurações de monetização encontradas na nova estrutura:", data);
+            return data;
+        }
+        
+        // Se não encontrou, tenta na estrutura antiga (coleção 'users')
+        const userMonetizationRef = db.collection('users').doc(currentUser.uid)
+            .collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const userMonetizationDoc = await userMonetizationRef.get();
+        
+        if (userMonetizationDoc.exists) {
+            const data = userMonetizationDoc.data();
+            console.log("Configurações de monetização encontradas na estrutura antiga:", data);
+            return data;
+        }
+        
+        console.log("Nenhuma configuração de monetização encontrada para o canal:", channelId);
+        return null;
+        
+    } catch (error) {
+        console.error("Erro ao carregar configurações de monetização:", error);
+        return null;
+    }
+}
+
 
         // Função para buscar canal por nome no banco de dados
         async function buscarCanalPorNome(nomeCanal, userId) {
@@ -4883,7 +5240,21 @@ function verificarFimDoVideo() {
                 published: channelData.published || false,
                 createdAt: channelData.createdAt || null,
                 updatedAt: channelData.updatedAt || null,
-                version: channelData.version || '1.0.0.0'
+                    customButton: typeof channelData.customButton === 'object' ? {
+        text: channelData.customButton.text || '',
+        url: channelData.customButton.url || ''
+    } : {
+        text: '',
+        url: ''
+    },
+    url: channelData.url || '',
+    userId: channelData.userId || '',
+    published: channelData.published || false,
+    createdAt: channelData.createdAt || null,
+    updatedAt: channelData.updatedAt || null,
+    // 🔥 NOVO: Dados de monetização
+    monetization: channelData.monetization || null,
+    version: channelData.version || '1.0.0.0'
             };
             
             return dadosNormalizados;
@@ -4917,11 +5288,13 @@ function verificarFimDoVideo() {
                 }
                 
                 const channelToSave = {
-                    ...dadosNormalizados,
-                    userId: userId,
-                    updatedAt: now,
-                    published: !!dadosNormalizados.url
-                };
+    ...dadosNormalizados,
+    userId: userId,
+    updatedAt: now,
+    published: !!dadosNormalizados.url,
+    // 🔥 NOVO: Salvar dados de monetização no canal
+    monetization: dadosNormalizados.monetization || null
+};
                 
                 if (currentChannelId) {
                     await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).update(channelToSave);
@@ -5107,7 +5480,9 @@ function verificarFimDoVideo() {
                 isAdultContent: dadosNormalizados.isAdultContent || false,
                 socialMedia: dadosNormalizados.socialMedia,
                 customButton: dadosNormalizados.customButton,
-                version: dadosNormalizados.version
+                version: dadosNormalizados.version,
+                monetization: dadosNormalizados.monetization || null
+
             };
 
             try {
@@ -5304,24 +5679,25 @@ function verificarFimDoVideo() {
                                 .replace(/-+/g, '-');
                             
                             channelCard.innerHTML = `
-                                ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
-                                <div class="channel-name-with-emoji">
-                                    <h3>${channel.name}</h3>
-                                </div>
-                                ${visibilityIcon}
-                                ${adultIcon}
-                                <p class="spectators" id="spectators-${channel.id}">Espectadores: 0</p>
-                                <div class="channel-status ${statusClass}">${statusText}</div>
-                                <div class="channel-actions">
-                                    ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
-                                        `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
-                                    <button class="edit-channel" data-id="${channel.id}">Editar</button>
-                                    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
-                                        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
-                                    </button>
-                                    <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
-                                </div>
-                            `;
+    ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
+    <div class="channel-name-with-emoji">
+        <h3>${channel.name}</h3>
+    </div>
+    ${visibilityIcon}
+    ${adultIcon}
+    <p class="spectators" id="spectators-${channel.id}">Espectadores: 0</p>
+    <div class="channel-status ${statusClass}">${statusText}</div>
+    <div class="channel-actions">
+    ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
+        `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
+    <button class="edit-channel" data-id="${channel.id}">Editar</button>
+    <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
+    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
+        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
+    </button>
+    <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
+</div>
+`;
                             channelsList.appendChild(channelCard);
                             
                             if (!isOffline && isPublished) {
@@ -5345,7 +5721,17 @@ function verificarFimDoVideo() {
                             const toggleBtn = channelCard.querySelector('.toggle-offline-channel');
                             const deleteBtn = channelCard.querySelector('.delete-channel');
                             
-                            if (watchBtn) {
+                            // Botão Monetizar 
+const monetizeBtn = channelCard.querySelector('.monetize-channel');
+if (monetizeBtn) {
+    monetizeBtn.addEventListener('click', function() {
+        const channelId = this.getAttribute('data-id');
+        window.location.href = `monetizar.html?channelId=${channelId}`;
+    });
+}
+
+if (watchBtn) {
+
                                 watchBtn.addEventListener('click', function() {
                                     const channelUrl = this.getAttribute('data-url');
                                     window.open(channelUrl, '_blank');
@@ -5408,6 +5794,15 @@ function verificarFimDoVideo() {
                 const novoEstadoOffline = !isCurrentlyOffline;
                 
                 tvData = { ...dadosNormalizados };
+
+// 🔥 CARREGAR CONFIGURAÇÕES DE MONETIZAÇÃO
+const monetizationData = await carregarConfiguracoesMonetizacao(channelId);
+if (monetizationData) {
+    tvData.monetization = monetizationData;
+    console.log("Configurações de monetização carregadas:", monetizationData);
+} else {
+    tvData.monetization = null;
+}
                 tvData.isOffline = novoEstadoOffline;
                 
                 currentChannelId = channelId;
@@ -6417,58 +6812,92 @@ function verificarFimDoVideo() {
 
         // ==================== OBSERVADOR DE AUTENTICAÇÃO ====================
         auth.onAuthStateChanged(async (user) => {
-            console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
-            currentUser = user;
+    console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
+    currentUser = user;
+    
+    updateAuthUI();
+    
+    if (user) {
+        console.log("Usuário logado:", user.email);
+        
+        await carregarCanais();
+        
+        // 🔥 NOVO: Verificar se veio da tela de monetização
+        const urlParams = new URLSearchParams(window.location.search);
+        const monetizationUpdated = urlParams.get('monetizationUpdated');
+        const source = urlParams.get('source');
+        const channelIdFromMonetize = urlParams.get('channelId');
+        
+        if (monetizationUpdated === 'true' && source === 'monetizar' && channelIdFromMonetize) {
+            console.log('✅ Detectada atualização de monetização para o canal:', channelIdFromMonetize);
             
-            updateAuthUI();
-            
-            if (user) {
-                console.log("Usuário logado:", user.email);
+            // Encontrar o canal na lista
+            const channel = channels.find(c => c.id === channelIdFromMonetize);
+            if (channel) {
+                console.log('📺 Canal encontrado, carregando para publicação...');
                 
-                await carregarCanais();
+                // Carregar o canal para edição
+                await editChannel(channelIdFromMonetize);
                 
-                if (isOnScreen6 && !publicationStarted) {
-                    console.log("Usuário autenticado na tela 6. Iniciando publicação automática...");
-                    
-                    const authRequiredMessage = document.getElementById('authRequiredMessage');
-                    if (authRequiredMessage) {
-                        authRequiredMessage.style.display = 'none';
-                    }
-                    
-                    resetScreen6();
-                    
-                    setTimeout(() => {
-                        iniciarPublicacao();
-                    }, 500);
-                }
+                // 🔥 CARREGAR CONFIGURAÇÕES DE MONETIZAÇÃO
+                await carregarConfiguracoesMonetizacao(channelIdFromMonetize);
                 
-            } else {
-                channels = [];
-                const channelsList = document.getElementById('channelsList');
-                const emptyState = document.getElementById('emptyState');
+                // Ir direto para a tela 6 para publicar
+                setTimeout(() => {
+                    console.log('🚀 Indo para tela 6 para publicação...');
+                    showScreen('screen6');
+                }, 1000);
                 
-                if (channelsList) channelsList.innerHTML = '';
-                if (emptyState) emptyState.style.display = 'block';
+                // Limpar parâmetros da URL
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
                 
-                for (let channelId in channelViewerListeners) {
-                    if (channelViewerListeners[channelId]) {
-                        channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
-                    }
-                }
-                channelViewerListeners = {};
-                
-                if (versionCheckInterval) {
-                    clearInterval(versionCheckInterval);
-                    versionCheckInterval = null;
-                }
-                
-                if (isOnScreen6) {
-                    console.log("Usuário deslogou na tela 6. Mostrando mensagem de autenticação.");
-                    mostrarMensagemAutenticacao();
-                    publicationStarted = false;
-                }
+                return;
             }
-        });
+        }
+        
+        if (isOnScreen6 && !publicationStarted) {
+            console.log("Usuário autenticado na tela 6. Iniciando publicação automática...");
+            
+            const authRequiredMessage = document.getElementById('authRequiredMessage');
+            if (authRequiredMessage) {
+                authRequiredMessage.style.display = 'none';
+            }
+            
+            resetScreen6();
+            
+            setTimeout(() => {
+                iniciarPublicacao();
+            }, 500);
+        }
+        
+    } else {
+        channels = [];
+        const channelsList = document.getElementById('channelsList');
+        const emptyState = document.getElementById('emptyState');
+        
+        if (channelsList) channelsList.innerHTML = '';
+        if (emptyState) emptyState.style.display = 'block';
+        
+        for (let channelId in channelViewerListeners) {
+            if (channelViewerListeners[channelId]) {
+                channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
+            }
+        }
+        channelViewerListeners = {};
+        
+        if (versionCheckInterval) {
+            clearInterval(versionCheckInterval);
+            versionCheckInterval = null;
+        }
+        
+        if (isOnScreen6) {
+            console.log("Usuário deslogou na tela 6. Mostrando mensagem de autenticação.");
+            mostrarMensagemAutenticacao();
+            publicationStarted = false;
+        }
+    }
+});
 
         // ==================== FUNÇÕES DE AUTENTICAÇÃO ====================
 
