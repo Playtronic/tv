@@ -3469,6 +3469,12 @@ ${adsTerraInterstitialSection}
         const RELEASE_DATE = "${releaseDate}";
         const IS_OFFLINE = ${isOffline};
         const CHANNEL_VERSION = "${version}";
+        // CONFIGURAÇÕES DE MONETIZAÇÃO
+        const MONETIZATION_CONFIG = ${JSON.stringify({
+            pixDonations: dados.monetization && dados.monetization.pixDonations ? dados.monetization.pixDonations : { enabled: false },
+            paidCommercials: dados.monetization && dados.monetization.paidCommercials ? dados.monetization.paidCommercials : { enabled: false }
+        })};
+
         const CHANNEL_ID = "${channelId}";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -7790,8 +7796,7 @@ toScreen3Btn.addEventListener('click', () => {
             updateAuthUI();
             
             // NOVA FUNÇÃO: Verificar se veio de atualização de monetização
-async function verificarAtualizacaoMonetizacao() {
-
+function verificarAtualizacaoMonetizacao() {
     const urlParams = new URLSearchParams(window.location.search);
     const monetizationUpdated = urlParams.get('monetizationUpdated');
     const source = urlParams.get('source');
@@ -7800,15 +7805,35 @@ async function verificarAtualizacaoMonetizacao() {
     if (monetizationUpdated === 'true' && source === 'monetizar' && channelId) {
         console.log('⚠️ Atualização de monetização detectada. Carregando canal:', channelId);
         
-        // Redirecionar para a tela de edição do canal específico
-        // Aguardar o carregamento do canal e depois ir para tela 6
-        try {
-            await editChannel(channelId);
-            showScreen('screen6');
-        } catch (error) {
-            console.error('Erro ao carregar canal:', error);
-            showScreen('screen0');
+        // Primeiro, verificar se o usuário está autenticado
+        if (!currentUser) {
+            console.log('Usuário não autenticado, esperando autenticação...');
+            // Aguardar autenticação antes de prosseguir
+            const checkAuth = setInterval(() => {
+                if (currentUser) {
+                    clearInterval(checkAuth);
+                    console.log('Usuário autenticado, carregando canal...');
+                    loadAndEditChannel(channelId);
+                }
+            }, 500);
+        } else {
+            loadAndEditChannel(channelId);
         }
+    }
+}
+
+// Função auxiliar para carregar e editar canal
+async function loadAndEditChannel(channelId) {
+    try {
+        await editChannel(channelId);
+        console.log('Canal carregado com sucesso:', tvData.name);
+        // Após carregar o canal, ir direto para tela 6
+        setTimeout(() => {
+            showScreen('screen6');
+        }, 1000);
+    } catch (error) {
+        console.error('Erro ao carregar canal:', error);
+        alert('Erro ao carregar canal. Tente novamente.');
     }
 }
 
