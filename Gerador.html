@@ -2153,8 +2153,7 @@ function determinarDataEstreia(dadosGerador) {
                 name: program.name,
                 videos: program.videos || []
             })) : [];
-            
-            // Gerar lista de vídeos da playlist (modo playlist)
+                        // Gerar lista de vídeos da playlist (modo playlist)
             const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
                 id: index,
                 name: video.name,
@@ -2163,6 +2162,12 @@ function determinarDataEstreia(dadosGerador) {
             
             // Gerar lista de comerciais
             const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
+            
+            // NOVO: Determinar data de estreia
+            const releaseDate = determinarDataEstreia({
+                customReleaseDate: dados.customReleaseDate,
+                releaseDate: dados.releaseDate
+            });
             
             // Redes sociais
             let socialMediaHTML = '';
@@ -2445,10 +2450,7 @@ function determinarDataEstreia(dadosGerador) {
                 });
             <\/script>
             `;
-            
-                        // NOVO: FUNÇÃO DE CÁLCULO DE DIAS NO CANAL
-const diasScript = `
-<script>
+            const diasScript = `<script>
     // ==================== NOVAS FUNÇÕES DE CÁLCULO ====================
     
     // Função para calcular dias desde a estreia (PARA TODOS OS MODOS)
@@ -2494,69 +2496,67 @@ const diasScript = `
     }
     
     // Função para calcular slot atual no modo PLAYLIST (CORRIGIDA - BASE 1)
-    // Função para calcular slot atual no modo PLAYLIST (CORRIGIDA - BASE 1)
-function calcularSlotAtualPlaylist() {
-    const agora = new Date();
-    
-    // Log para debug
-    console.log('=== calcularSlotAtualPlaylist() ===');
-    console.log('RELEASE_DATE:', RELEASE_DATE);
-    console.log('Agora:', agora.toLocaleString());
-    
-    const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
-    const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
-    
-    console.log('Data de estreia (6h):', dataEstreia.toLocaleString());
-    
-    const diferencaMs = agora.getTime() - dataEstreia.getTime();
-    const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
-    
-    console.log('Diferença em ms:', diferencaMs);
-    console.log('Minutos desde estreia:', minutosDesdeEstreia);
-    
-    if (minutosDesdeEstreia < 0) {
-        console.log('Ainda não começou a estreia, retornando slot 1');
-        return 1;
+    function calcularSlotAtualPlaylist() {
+        const agora = new Date();
+        
+        // Log para debug
+        console.log('=== calcularSlotAtualPlaylist() ===');
+        console.log('RELEASE_DATE:', RELEASE_DATE);
+        console.log('Agora:', agora.toLocaleString());
+        
+        const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
+        const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
+        
+        console.log('Data de estreia (6h):', dataEstreia.toLocaleString());
+        
+        const diferencaMs = agora.getTime() - dataEstreia.getTime();
+        const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
+        
+        console.log('Diferença em ms:', diferencaMs);
+        console.log('Minutos desde estreia:', minutosDesdeEstreia);
+        
+        if (minutosDesdeEstreia < 0) {
+            console.log('Ainda não começou a estreia, retornando slot 1');
+            return 1;
+        }
+        
+        const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
+        const totalVideos = TV_PLAYLIST.length;
+        
+        console.log('Slot bruto (antes da normalização):', slotAtualBruto);
+        console.log('Total de vídeos na playlist:', totalVideos);
+        
+        if (totalVideos <= 0) {
+            console.log('Playlist vazia, retornando slot 1');
+            return 1;
+        }
+        
+        const slotNormalizado = ((slotAtualBruto - 1) % totalVideos) + 1;
+        
+        console.log('Slot normalizado (final):', slotNormalizado);
+        console.log('=============================');
+        
+        return slotNormalizado;
     }
-    
-    const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
-    const totalVideos = TV_PLAYLIST.length;
-    
-    console.log('Slot bruto (antes da normalização):', slotAtualBruto);
-    console.log('Total de vídeos na playlist:', totalVideos);
-    
-    if (totalVideos <= 0) {
-        console.log('Playlist vazia, retornando slot 1');
-        return 1;
-    }
-    
-    const slotNormalizado = ((slotAtualBruto - 1) % totalVideos) + 1;
-    
-    console.log('Slot normalizado (final):', slotNormalizado);
-    console.log('=============================');
-    
-    return slotNormalizado;
-}
-
     
     // Função para ajustar slot no modo PLAYLIST quando excede o total (base 0)
     function ajustarSlotPlaylist(slotAtual, totalSlotsCanal) {
-    if (totalSlotsCanal <= 0) return 0;
-    
-    let slotAjustado = slotAtual;
-    
-    // Se for negativo, retorna 0 (que será convertido para slot 1)
-    if (slotAjustado < 0) {
-        return 0;
+        if (totalSlotsCanal <= 0) return 0;
+        
+        let slotAjustado = slotAtual;
+        
+        // Se for negativo, retorna 0 (que será convertido para slot 1)
+        if (slotAjustado < 0) {
+            return 0;
+        }
+        
+        // Subtrair o total de slots até que seja menor que o total
+        while (slotAjustado >= totalSlotsCanal) {
+            slotAjustado -= totalSlotsCanal;
+        }
+        
+        return slotAjustado; // Retorna base 0
     }
-    
-    // Subtrair o total de slots até que seja menor que o total
-    while (slotAjustado >= totalSlotsCanal) {
-        slotAjustado -= totalSlotsCanal;
-    }
-    
-    return slotAjustado; // Retorna base 0
-}
     
     // Função para calcular slot atual no modo GRADE
     function calcularSlotAtualGrade() {
@@ -2617,29 +2617,29 @@ function calcularSlotAtualPlaylist() {
         return videoAjustado;
     }
     
-    
     // Função unificada para calcular slot atual baseado no modo
-function calcularSlotAtual() {
-    if (PROGRAMMING_MODE === 'grade') {
-        return calcularSlotAtualGrade();
-    } else {
-        return calcularSlotAtualPlaylist();
-    }
-}
-    function obterSlotParaExibicao() {
-    // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
-    if (currentState === 'commercial') {
-        console.log('Em intervalo comercial, mantendo slot atual:', currentPlayingSlot);
-        return currentPlayingSlot;
+    function calcularSlotAtual() {
+        if (PROGRAMMING_MODE === 'grade') {
+            return calcularSlotAtualGrade();
+        } else {
+            return calcularSlotAtualPlaylist();
+        }
     }
     
-    if (PROGRAMMING_MODE === 'grade') {
-        return calcularSlotAtual();
-    } else {
-        // Modo Playlist: calcular slot usando a função que já normaliza
-        return calcularSlotAtualPlaylist();
+    function obterSlotParaExibicao() {
+        // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
+        if (currentState === 'commercial') {
+            console.log('Em intervalo comercial, mantendo slot atual:', currentPlayingSlot);
+            return currentPlayingSlot;
+        }
+        
+        if (PROGRAMMING_MODE === 'grade') {
+            return calcularSlotAtual();
+        } else {
+            // Modo Playlist: calcular slot usando a função que já normaliza
+            return calcularSlotAtualPlaylist();
+        }
     }
-}
     
     // Função para verificar se precisa recarregar a página no modo GRADE
     function verificarRecarregamentoGrade() {
@@ -2659,15 +2659,16 @@ function calcularSlotAtual() {
             }
         }
     }
+    
     // Função principal para obter vídeo para o slot atual (ATUALIZADA)
     function obterVideoParaSlot(slotIndex) {
-    if (PROGRAMMING_MODE === 'grade') {
-        // Modo Grade
-        const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
+        if (PROGRAMMING_MODE === 'grade') {
+            // Modo Grade
+            const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
             currentDay = diasDesdeEstreia;
             if (slotIndex === currentPlayingSlot) {
-    currentPlayingSlot = slotIndex;
-}
+                currentPlayingSlot = slotIndex;
+            }
             
             if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
                 return null;
@@ -2738,10 +2739,9 @@ function calcularSlotAtual() {
             }
             
             // ATENÇÃO: Só atualiza se for o slot principal, não para "A Seguir" ou "Depois"
-// Verifica se é o slot atual que está sendo reproduzido
-if (slotIndex === currentPlayingSlot) {
-    currentPlayingSlot = slotAjustadoBase1;
-}
+            if (slotIndex === currentPlayingSlot) {
+                currentPlayingSlot = slotAjustadoBase1;
+            }
             
             console.log('Vídeo selecionado:', videoInfo.name || 'Sem nome');
             console.log('Slot exibido (base 1):', currentPlayingSlot);
@@ -2754,8 +2754,7 @@ if (slotIndex === currentPlayingSlot) {
             };
         }
     }
-<\/script>
-`;    
+<\/script>`;
             
             // HTML do canal
             const html = `<!DOCTYPE html>
@@ -3342,9 +3341,8 @@ if (slotIndex === currentPlayingSlot) {
 
 ${hasAdsTerraInterstitial ? `
 <!-- AdsTerra Interstitial Script -->
-` + monetization.adsTerraInterstitial.code + `
+${monetization.adsTerraInterstitial.code}
 ` : ''}
-
 
 </head>
 <body>
@@ -3464,12 +3462,11 @@ ${hasAdsTerraInterstitial ? `
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             setTimeout(function() {
-                /* AdsTerra code injected later */
+                ${monetization.adsTerraInterstitial.code}
             }, 1000);
         });
     </script>
     ` : ''}
-
     
     <!-- Lightbox de Doação -->
     ${hasPixDonations ? '<div id="donationLightbox" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; justify-content: center; align-items: center;"><div style="background: white; padding: 30px; border-radius: 10px; max-width: 400px; width: 90%; color: black; text-align: center; box-shadow: 0 5px 30px rgba(0,0,0,0.5);"><button id="closeDonationLightbox" style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">×</button><h3 style="color: #333; margin-bottom: 15px;">Apoie este canal</h3><p style="color: #666; margin-bottom: 20px;">Faça uma doação de QUALQUER valor para incentivar o criador.</p><div style="margin: 20px 0;"><label for="donationAmount" style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Valor (R$):</label><input type="number" id="donationAmount" min="1" step="0.01" placeholder="Ex: 10.00" style="width: 100%; padding: 12px; border: 2px solid #3498db; border-radius: 5px; font-size: 16px; text-align: center;"><small style="color: #666; display: block; margin-top: 8px;">Você será redirecionado para o Mercado Pago para finalizar o pagamento via PIX.</small></div><div style="display: flex; justify-content: space-between; gap: 10px;"><button id="cancelDonation" style="background: #e74c3c; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; flex: 1;">Cancelar</button><button id="confirmDonation" style="background: #27ae60; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; flex: 1;">Pagar via PIX</button></div><div id="donationResult" style="margin-top: 20px; display: none;"></div></div></div>' : ''}
@@ -3511,46 +3508,46 @@ ${hasAdsTerraInterstitial ? `
             });
         }
     </script>
-     
-    <script>    <script>
-        // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "` + programmingMode + `";
-        const TV_PROGRAMS = ` + JSON.stringify(programasArray) + `;
-        const TV_PLAYLIST = ` + JSON.stringify(playlistArray) + `;
-        const TV_COMMERCIALS = ` + JSON.stringify(comerciaisArray) + `;
-        const ENABLE_COMMERCIALS = ` + (dados.enableCommercials || false) + `;
-        const COMMERCIALS_PER_BREAK = ` + (dados.commercialsPerBreak || 2) + `;
-        const COMMERCIALS_ORDER = "` + commercialsOrder + `";
-        const GRADE = ` + JSON.stringify(GRADE) + `;
-        const TOTAL_SLOTS = 58;
-        const SLOT_DURATION = 25;
-        const SHOW_TIME = ` + (dados.showTime || true) + `;
-        const ENABLE_REWIND_10 = ` + (dados.enableRewind10 || true) + `;
-        const ENABLE_RESTART = ` + (dados.enableRestart || true) + `;
-        const ENABLE_LIVE = ` + (dados.enableLive || true) + `;
-        const ENABLE_DEBUG = ` + (dados.enableDebug !== undefined ? dados.enableDebug : true) + `;
-        const IS_ADULT_CONTENT = ` + isAdultContent + `;
-        
-        const RELEASE_DATE = "` + releaseDate + `";
-        const IS_OFFLINE = ` + isOffline + `;
-        const CHANNEL_VERSION = "` + version + `";
-        const CHANNEL_ID = "` + channelId + `";
-        
-        // ==================== CONFIGURAÇÃO DO FIREBASE ====================
-        const firebaseConfig = {
-            apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
-            authDomain: "playtronic-tv.firebaseapp.com",
-            projectId: "playtronic-tv",
-            storageBucket: "playtronic-tv.firebasestorage.app",
-            messagingSenderId: "272337341020",
-            appId: "1:272337341020:web:a30d949985fd614b5c7499",
-            measurementId: "G-1QRKY0NN0W",
-            databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
-        };
 
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
+     <script>
+    // CONFIGURAÇÕES DO CANAL
+    const PROGRAMMING_MODE = "${programmingMode}";
+    const TV_PROGRAMS = ${JSON.stringify(programasArray)};
+    const TV_PLAYLIST = ${JSON.stringify(playlistArray)};
+    const TV_COMMERCIALS = ${JSON.stringify(comerciaisArray)};
+    const ENABLE_COMMERCIALS = ${dados.enableCommercials || false};
+    const COMMERCIALS_PER_BREAK = ${dados.commercialsPerBreak || 2};
+    const COMMERCIALS_ORDER = "${commercialsOrder}";
+    const GRADE = ${JSON.stringify(GRADE)};
+    const TOTAL_SLOTS = 58;
+    const SLOT_DURATION = 25;
+    const SHOW_TIME = ${dados.showTime || true};
+    const ENABLE_REWIND_10 = ${dados.enableRewind10 || true};
+    const ENABLE_RESTART = ${dados.enableRestart || true};
+    const ENABLE_LIVE = ${dados.enableLive || true};
+    const ENABLE_DEBUG = ${dados.enableDebug !== undefined ? dados.enableDebug : true};
+    const IS_ADULT_CONTENT = ${isAdultContent};
+    
+    const RELEASE_DATE = "${releaseDate}";
+    const IS_OFFLINE = ${isOffline};
+    const CHANNEL_VERSION = "${version}";
+    const CHANNEL_ID = "${channelId}";
+    
+    // ==================== CONFIGURAÇÃO DO FIREBASE ====================
+    const firebaseConfig = {
+        apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
+        authDomain: "playtronic-tv.firebaseapp.com",
+        projectId: "playtronic-tv",
+        storageBucket: "playtronic-tv.firebasestorage.app",
+        messagingSenderId: "272337341020",
+        appId: "1:272337341020:web:a30d949985fd614b5c7499",
+        measurementId: "G-1QRKY0NN0W",
+        databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
+    };
+
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
         
         const auth = firebase.auth();
         const database = firebase.database();
