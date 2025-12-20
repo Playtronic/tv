@@ -5509,19 +5509,22 @@ async function iniciarPublicacao() {
     const urlParams = new URLSearchParams(window.location.search);
     const monetizationUpdated = urlParams.get('monetizationUpdated');
     const source = urlParams.get('source');
-    
-    if (monetizationUpdated === 'true' && source === 'monetizar' && currentChannelId) {
+        if (monetizationUpdated === 'true' && source === 'monetizar' && currentChannelId) {
         console.log('🔄 Iniciando publicação por atualização de monetização');
         
-        // Primeiro carregar o canal
-        await editChannel(currentChannelId);
+        // Primeiro garantir que o canal está carregado
+        if (!tvData.name) {
+            console.log('📥 Canal não carregado, carregando agora...');
+            await apenasCarregarCanal(currentChannelId);
+        }
         
         // Depois processar atualizações de monetização
         await processarAtualizacaoMonetizacao(currentChannelId);
         
         console.log('💰 Dados após processamento:', {
+            name: tvData.name,
             hasMonetization: !!tvData.monetization,
-            monetization: tvData.monetization
+            programs: tvData.programs?.length || 0
         });
     }
             
@@ -5688,6 +5691,7 @@ async function iniciarPublicacao() {
                             carregarCanais();
                         }
                     });
+
                     
                 } else {
                     throw new Error("Falha ao salvar canal no banco de dados");
@@ -6767,13 +6771,17 @@ if (watchBtn) {
         }
 
         // Editar canal
-        async function editChannel(channelId) {
-            console.log("Iniciando edição do canal:", channelId);
-            
-            if (!currentUser) {
-                alert("É necessário fazer login para editar canais");
-                return;
-            }
+            // Se for uma atualização de monetização, não preencher formulário
+    const urlParams = new URLSearchParams(window.location.search);
+    const monetizationUpdated = urlParams.get('monetizationUpdated');
+    const source = urlParams.get('source');
+    
+    if (monetizationUpdated === 'true' && source === 'monetizar') {
+        console.log('💰 Modo atualização de monetização - apenas carregando dados');
+        window.isMonetizationUpdate = true;
+    } else {
+        window.isMonetizationUpdate = false;
+    }
             
             try {
                 const doc = await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).get();
@@ -6918,8 +6926,15 @@ if (watchBtn) {
                 validateScreen3Navigation();
                 validateScreen4Navigation();
                 
-                console.log("Formulário preenchido com sucesso. Indo para tela 1...");
-                showScreen('screen1');
+                console.log("Formulário preenchido com sucesso.");
+        
+        // Se for atualização de monetização, NÃO ir para tela 1
+        if (window.isMonetizationUpdate) {
+            console.log('💰 Modo monetização - mantendo dados carregados mas não mostrando tela 1');
+            // Não mostrar tela, apenas manter dados carregados
+        } else {
+            showScreen('screen1');
+        }
                 
             } catch (error) {
                 console.error("Erro detalhado ao carregar canal para edição:", error);
@@ -7872,18 +7887,20 @@ function verificarAtualizacaoMonetizacao() {
     const channelId = urlParams.get('channelId');
     
     if (monetizationUpdated === 'true' && source === 'monetizar' && channelId) {
-        console.log('⚠️ Atualização de monetização detectada. Carregando canal:', channelId);
+        console.log('⚠️ Atualização de monetização detectada. Processando...');
         
-        // Salvar o channelId globalmente
-        currentChannelId = channelId;
-        editingChannel = true;
-        
-        // Marcar como publicação por monetização
-        window.isMonetizationUpdate = true;
-        
-        // Ir direto para tela 6
-        setTimeout(() => {
-            showScreen('screen6');
+        // Usar a função que só carrega dados, não preenche formulário
+        setTimeout(async () => {
+            try {
+                await apenasCarregarCanal(channelId);
+                console.log('✅ Canal carregado para monetização. Indo para tela 6...');
+                
+                // Ir direto para tela 6
+                showScreen('screen6');
+            } catch (error) {
+                console.error('❌ Erro ao carregar canal para monetização:', error);
+                alert('Erro ao processar atualização de monetização. Tente novamente.');
+            }
         }, 500);
     }
 }
@@ -7891,12 +7908,14 @@ function verificarAtualizacaoMonetizacao() {
 // Função auxiliar para carregar e editar canal
 async function loadAndEditChannel(channelId) {
     try {
+        // Carregar o canal usando editChannel normal
         await editChannel(channelId);
         console.log('Canal carregado com sucesso:', tvData.name);
-        // Após carregar o canal, ir direto para tela 6
+        
+        // Forçar ir para tela 6 imediatamente
         setTimeout(() => {
             showScreen('screen6');
-        }, 1000);
+        }, 100);
     } catch (error) {
         console.error('Erro ao carregar canal:', error);
         alert('Erro ao carregar canal. Tente novamente.');
