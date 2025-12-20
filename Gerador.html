@@ -2072,36 +2072,35 @@ function determinarDataEstreia(dadosGerador) {
             const isAdultContent = dados.isAdultContent || false;
             const programmingMode = dados.programmingMode || 'grade';
             const commercialsOrder = dados.commercialsOrder || 'sequential';
-
-    // Gerar channelId
-    const channelId = dados.name.toLowerCase()
-        .replace(/[^a-z0-9]/g, '-')
-        .replace(/-+/g, '-');
-    
-    // Variáveis de monetização
-    const monetization = dados.monetization || {};
-    const hasAdsTerraBanner = !isOffline && monetization.adsTerraBanner?.enabled && monetization.adsTerraBanner.code;
-    const hasAdsTerraInterstitial = !isOffline && monetization.adsTerraInterstitial?.enabled && monetization.adsTerraInterstitial.code;
-    const hasPixDonations = !isOffline && monetization.pixDonations?.enabled && monetization.pixDonations.mpAccessToken;
-    const hasPaidCommercials = !isOffline && monetization.paidCommercials?.enabled;
-    
-    // Gerar grade de programação (apenas para modo grade)
-    let GRADE = [];
-    let totalPrograms = 0;
-    
-    if (programmingMode === 'grade') {
-        totalPrograms = dados.programas.length;
-        
-        if (totalPrograms === 0) {
-            for (let i = 0; i < totalSlots; i++) {
-                GRADE.push(0);
+            
+            // Gerar grade de programação (apenas para modo grade)
+            let GRADE = [];
+            let totalPrograms = 0;
+            
+            if (programmingMode === 'grade') {
+                totalPrograms = dados.programas.length;
+                
+                if (totalPrograms === 0) {
+                    for (let i = 0; i < totalSlots; i++) {
+                        GRADE.push(0);
+                    }
+                } else {
+                    for (let i = 0; i < totalSlots; i++) {
+                        GRADE.push(i % totalPrograms);
+                    }
+                }
             }
-        } else {
-            for (let i = 0; i < totalSlots; i++) {
-                GRADE.push(i % totalPrograms);
-            }
-        }
-    }
+            
+            // Determinar data de estreia usando a nova função
+            const releaseDate = dados.release || determinarDataEstreia({
+    customReleaseDate: dados.customReleaseDate || false,
+    releaseDate: dados.release || ''
+});
+            
+            // Gerar channelId
+            const channelId = dados.name.toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-');
             
             const debugSection = (!isOffline && dados.enableDebug) ? `
             <div class="debug-info">
@@ -2153,7 +2152,8 @@ function determinarDataEstreia(dadosGerador) {
                 name: program.name,
                 videos: program.videos || []
             })) : [];
-                        // Gerar lista de vídeos da playlist (modo playlist)
+            
+            // Gerar lista de vídeos da playlist (modo playlist)
             const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
                 id: index,
                 name: video.name,
@@ -2162,12 +2162,6 @@ function determinarDataEstreia(dadosGerador) {
             
             // Gerar lista de comerciais
             const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
-            
-            // NOVO: Determinar data de estreia
-            const releaseDate = determinarDataEstreia({
-                customReleaseDate: dados.customReleaseDate,
-                releaseDate: dados.releaseDate
-            });
             
             // Redes sociais
             let socialMediaHTML = '';
@@ -2450,7 +2444,10 @@ function determinarDataEstreia(dadosGerador) {
                 });
             <\/script>
             `;
-            const diasScript = `<script>
+            
+                        // NOVO: FUNÇÃO DE CÁLCULO DE DIAS NO CANAL
+const diasScript = `
+<script>
     // ==================== NOVAS FUNÇÕES DE CÁLCULO ====================
     
     // Função para calcular dias desde a estreia (PARA TODOS OS MODOS)
@@ -2496,67 +2493,69 @@ function determinarDataEstreia(dadosGerador) {
     }
     
     // Função para calcular slot atual no modo PLAYLIST (CORRIGIDA - BASE 1)
-    function calcularSlotAtualPlaylist() {
-        const agora = new Date();
-        
-        // Log para debug
-        console.log('=== calcularSlotAtualPlaylist() ===');
-        console.log('RELEASE_DATE:', RELEASE_DATE);
-        console.log('Agora:', agora.toLocaleString());
-        
-        const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
-        const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
-        
-        console.log('Data de estreia (6h):', dataEstreia.toLocaleString());
-        
-        const diferencaMs = agora.getTime() - dataEstreia.getTime();
-        const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
-        
-        console.log('Diferença em ms:', diferencaMs);
-        console.log('Minutos desde estreia:', minutosDesdeEstreia);
-        
-        if (minutosDesdeEstreia < 0) {
-            console.log('Ainda não começou a estreia, retornando slot 1');
-            return 1;
-        }
-        
-        const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
-        const totalVideos = TV_PLAYLIST.length;
-        
-        console.log('Slot bruto (antes da normalização):', slotAtualBruto);
-        console.log('Total de vídeos na playlist:', totalVideos);
-        
-        if (totalVideos <= 0) {
-            console.log('Playlist vazia, retornando slot 1');
-            return 1;
-        }
-        
-        const slotNormalizado = ((slotAtualBruto - 1) % totalVideos) + 1;
-        
-        console.log('Slot normalizado (final):', slotNormalizado);
-        console.log('=============================');
-        
-        return slotNormalizado;
+    // Função para calcular slot atual no modo PLAYLIST (CORRIGIDA - BASE 1)
+function calcularSlotAtualPlaylist() {
+    const agora = new Date();
+    
+    // Log para debug
+    console.log('=== calcularSlotAtualPlaylist() ===');
+    console.log('RELEASE_DATE:', RELEASE_DATE);
+    console.log('Agora:', agora.toLocaleString());
+    
+    const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
+    const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
+    
+    console.log('Data de estreia (6h):', dataEstreia.toLocaleString());
+    
+    const diferencaMs = agora.getTime() - dataEstreia.getTime();
+    const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
+    
+    console.log('Diferença em ms:', diferencaMs);
+    console.log('Minutos desde estreia:', minutosDesdeEstreia);
+    
+    if (minutosDesdeEstreia < 0) {
+        console.log('Ainda não começou a estreia, retornando slot 1');
+        return 1;
     }
+    
+    const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
+    const totalVideos = TV_PLAYLIST.length;
+    
+    console.log('Slot bruto (antes da normalização):', slotAtualBruto);
+    console.log('Total de vídeos na playlist:', totalVideos);
+    
+    if (totalVideos <= 0) {
+        console.log('Playlist vazia, retornando slot 1');
+        return 1;
+    }
+    
+    const slotNormalizado = ((slotAtualBruto - 1) % totalVideos) + 1;
+    
+    console.log('Slot normalizado (final):', slotNormalizado);
+    console.log('=============================');
+    
+    return slotNormalizado;
+}
+
     
     // Função para ajustar slot no modo PLAYLIST quando excede o total (base 0)
     function ajustarSlotPlaylist(slotAtual, totalSlotsCanal) {
-        if (totalSlotsCanal <= 0) return 0;
-        
-        let slotAjustado = slotAtual;
-        
-        // Se for negativo, retorna 0 (que será convertido para slot 1)
-        if (slotAjustado < 0) {
-            return 0;
-        }
-        
-        // Subtrair o total de slots até que seja menor que o total
-        while (slotAjustado >= totalSlotsCanal) {
-            slotAjustado -= totalSlotsCanal;
-        }
-        
-        return slotAjustado; // Retorna base 0
+    if (totalSlotsCanal <= 0) return 0;
+    
+    let slotAjustado = slotAtual;
+    
+    // Se for negativo, retorna 0 (que será convertido para slot 1)
+    if (slotAjustado < 0) {
+        return 0;
     }
+    
+    // Subtrair o total de slots até que seja menor que o total
+    while (slotAjustado >= totalSlotsCanal) {
+        slotAjustado -= totalSlotsCanal;
+    }
+    
+    return slotAjustado; // Retorna base 0
+}
     
     // Função para calcular slot atual no modo GRADE
     function calcularSlotAtualGrade() {
@@ -2617,29 +2616,29 @@ function determinarDataEstreia(dadosGerador) {
         return videoAjustado;
     }
     
+    
     // Função unificada para calcular slot atual baseado no modo
-    function calcularSlotAtual() {
-        if (PROGRAMMING_MODE === 'grade') {
-            return calcularSlotAtualGrade();
-        } else {
-            return calcularSlotAtualPlaylist();
-        }
+function calcularSlotAtual() {
+    if (PROGRAMMING_MODE === 'grade') {
+        return calcularSlotAtualGrade();
+    } else {
+        return calcularSlotAtualPlaylist();
+    }
+}
+    function obterSlotParaExibicao() {
+    // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
+    if (currentState === 'commercial') {
+        console.log('Em intervalo comercial, mantendo slot atual:', currentPlayingSlot);
+        return currentPlayingSlot;
     }
     
-    function obterSlotParaExibicao() {
-        // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
-        if (currentState === 'commercial') {
-            console.log('Em intervalo comercial, mantendo slot atual:', currentPlayingSlot);
-            return currentPlayingSlot;
-        }
-        
-        if (PROGRAMMING_MODE === 'grade') {
-            return calcularSlotAtual();
-        } else {
-            // Modo Playlist: calcular slot usando a função que já normaliza
-            return calcularSlotAtualPlaylist();
-        }
+    if (PROGRAMMING_MODE === 'grade') {
+        return calcularSlotAtual();
+    } else {
+        // Modo Playlist: calcular slot usando a função que já normaliza
+        return calcularSlotAtualPlaylist();
     }
+}
     
     // Função para verificar se precisa recarregar a página no modo GRADE
     function verificarRecarregamentoGrade() {
@@ -2659,16 +2658,15 @@ function determinarDataEstreia(dadosGerador) {
             }
         }
     }
-    
     // Função principal para obter vídeo para o slot atual (ATUALIZADA)
     function obterVideoParaSlot(slotIndex) {
-        if (PROGRAMMING_MODE === 'grade') {
-            // Modo Grade
-            const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade
+        const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
             currentDay = diasDesdeEstreia;
             if (slotIndex === currentPlayingSlot) {
-                currentPlayingSlot = slotIndex;
-            }
+    currentPlayingSlot = slotIndex;
+}
             
             if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
                 return null;
@@ -2739,9 +2737,10 @@ function determinarDataEstreia(dadosGerador) {
             }
             
             // ATENÇÃO: Só atualiza se for o slot principal, não para "A Seguir" ou "Depois"
-            if (slotIndex === currentPlayingSlot) {
-                currentPlayingSlot = slotAjustadoBase1;
-            }
+// Verifica se é o slot atual que está sendo reproduzido
+if (slotIndex === currentPlayingSlot) {
+    currentPlayingSlot = slotAjustadoBase1;
+}
             
             console.log('Vídeo selecionado:', videoInfo.name || 'Sem nome');
             console.log('Slot exibido (base 1):', currentPlayingSlot);
@@ -2754,7 +2753,8 @@ function determinarDataEstreia(dadosGerador) {
             };
         }
     }
-<\/script>`;
+<\/script>
+`;    
             
             // HTML do canal
             const html = `<!DOCTYPE html>
@@ -3333,17 +3333,7 @@ function determinarDataEstreia(dadosGerador) {
         .user-card-channel.active {
             display: flex !important;
         }
-    ${hasAdsTerraInterstitial ? `
-    /* AdsTerra Interstitial será injetado via JavaScript */
-    ` : ''}
-
-</style>
-
-${hasAdsTerraInterstitial ? `
-<!-- AdsTerra Interstitial Script -->
-${monetization.adsTerraInterstitial.code}
-` : ''}
-
+    </style>
 </head>
 <body>
     ${authHTML}
@@ -3405,25 +3395,6 @@ ${monetization.adsTerraInterstitial.code}
         
         ${customButtonHTML}
         
-        <!-- Botões de Monetização -->
-        ${!isOffline && (hasPixDonations || hasPaidCommercials || customButtonHTML) ? `
-        <div style="text-align: center; margin: 20px 0;">
-            <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
-                ${hasPixDonations ? `
-                <button id="donationButton" style="background: #27ae60; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
-                    ❤️ Apoiar
-                </button>
-                ` : ''}
-                
-                ${hasPaidCommercials ? `
-                <button id="commercialsButton" style="background: #9b59b6; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
-                    Inserir comercial
-                </button>
-                ` : ''}
-            </div>
-        </div>
-        ` : ''}
-        
         <div class="program-info" id="program-info">
             <div class="program-item">
                 <div class="program-label">Você está assistindo:</div>
@@ -3441,13 +3412,6 @@ ${monetization.adsTerraInterstitial.code}
         
         ${debugSection}
         
-        ${hasAdsTerraBanner ? `
-        <!-- AdsTerra Banner -->
-        <div id="adsterra-banner" style="width: 100%; text-align: center; margin: 20px 0; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 8px;">
-            ${monetization.adsTerraBanner.code}
-        </div>
-        ` : ''}
-        
         ${socialMediaHTML}
         
         ${versionHTML}
@@ -3455,28 +3419,14 @@ ${monetization.adsTerraInterstitial.code}
         <div class="contact-info">Contato: ${dados.email}</div>
     </div>
 
-        ${countryCheckScript}
+    ${countryCheckScript}
     
-    ${hasAdsTerraInterstitial ? `
-    <!-- AdsTerra Interstitial -->
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(function() {
-                ${monetization.adsTerraInterstitial.code}
-            }, 1000);
-        });
-    </script>
-    ` : ''}
-    
-    <!-- Lightbox de Doação -->
-    ${hasPixDonations ? '<div id="donationLightbox" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; justify-content: center; align-items: center;"><div style="background: white; padding: 30px; border-radius: 10px; max-width: 400px; width: 90%; color: black; text-align: center; box-shadow: 0 5px 30px rgba(0,0,0,0.5);"><button id="closeDonationLightbox" style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">×</button><h3 style="color: #333; margin-bottom: 15px;">Apoie este canal</h3><p style="color: #666; margin-bottom: 20px;">Faça uma doação de QUALQUER valor para incentivar o criador.</p><div style="margin: 20px 0;"><label for="donationAmount" style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Valor (R$):</label><input type="number" id="donationAmount" min="1" step="0.01" placeholder="Ex: 10.00" style="width: 100%; padding: 12px; border: 2px solid #3498db; border-radius: 5px; font-size: 16px; text-align: center;"><small style="color: #666; display: block; margin-top: 8px;">Você será redirecionado para o Mercado Pago para finalizar o pagamento via PIX.</small></div><div style="display: flex; justify-content: space-between; gap: 10px;"><button id="cancelDonation" style="background: #e74c3c; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; flex: 1;">Cancelar</button><button id="confirmDonation" style="background: #27ae60; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; flex: 1;">Pagar via PIX</button></div><div id="donationResult" style="margin-top: 20px; display: none;"></div></div></div>' : ''}
-    
-        <!-- SISTEMA DE CURTIDAS/DESCURTIDAS -->
+    <!-- SISTEMA DE CURTIDAS/DESCURTIDAS -->
     ${likeSystemScript}
     
     <!-- SISTEMA DE CÁLCULO DE DIAS -->
     ${diasScript}
-        
+    
     <script>
         // CONFIGURAÇÕES DO CANAL
         const PROGRAMMING_MODE = "${programmingMode}";
@@ -5153,45 +5103,7 @@ function verificarFimDoVideo() {
                 return false;
             }
         }
-// Função para buscar configurações de monetização do Firestore
-async function buscarConfiguracoesMonetizacao(channelId) {
-    try {
-        if (!currentUser || !channelId) {
-            console.warn('Usuário ou channelId não disponível para buscar monetização');
-            return null;
-        }
-        
-        // Buscar na estrutura nova (channels collection)
-        const monetizationRef = db.collection('channels').doc(channelId)
-            .collection('monetization').doc('settings');
-        const monetizationDoc = await monetizationRef.get();
-        
-        if (monetizationDoc.exists) {
-            const data = monetizationDoc.data();
-            console.log('Configurações de monetização encontradas (nova estrutura):', data);
-            return data;
-        }
-        
-        // Buscar na estrutura antiga para compatibilidade
-        const oldMonetizationRef = db.collection('users').doc(currentUser.uid)
-            .collection('channels').doc(channelId)
-            .collection('monetization').doc('settings');
-        const oldMonetizationDoc = await oldMonetizationRef.get();
-        
-        if (oldMonetizationDoc.exists) {
-            const data = oldMonetizationDoc.data();
-            console.log('Configurações de monetização encontradas (estrutura antiga):', data);
-            return data;
-        }
-        
-        console.log('Nenhuma configuração de monetização encontrada');
-        return null;
-        
-    } catch (error) {
-        console.error('Erro ao buscar configurações de monetização:', error);
-        return null;
-    }
-}
+
         // ==================== FUNÇÕES DO BANCO DE DADOS ====================
 
         // Função para buscar canal por nome no banco de dados
@@ -5416,33 +5328,16 @@ async function buscarConfiguracoesMonetizacao(channelId) {
         }
 
         // Função principal de publicação (ATUALIZADA COM NOVA LÓGICA DE DATA)
-async function iniciarPublicacao() {
-    console.log("Iniciando publicação...");
-    
-    // Verificar se veio da página de monetização
-    const urlParams = new URLSearchParams(window.location.search);
-    const monetizationUpdated = urlParams.get('monetizationUpdated');
-    const source = urlParams.get('source');
-    
-    if (monetizationUpdated === 'true' && source === 'monetizar' && currentChannelId) {
-        console.log('📈 Atualização de monetização detectada! Buscando configurações...');
-        
-        // Buscar configurações de monetização
-        const monetizationData = await buscarConfiguracoesMonetizacao(currentChannelId);
-        if (monetizationData) {
-            // Incorporar dados de monetização no tvData
-            tvData.monetization = monetizationData;
-            console.log('Dados de monetização incorporados:', monetizationData);
-        }
-    }
-    
-    if (!currentUser) {
-        console.log("Usuário não autenticado, mostrando mensagem de autenticação");
-        mostrarMensagemAutenticacao();
-        return;
-    }
-    
-    publicationStarted = true;
+        async function iniciarPublicacao() {
+            console.log("Iniciando publicação...");
+            
+            if (!currentUser) {
+                console.log("Usuário não autenticado, mostrando mensagem de autenticação");
+                mostrarMensagemAutenticacao();
+                return;
+            }
+            
+            publicationStarted = true;
             
             if (editingChannel) {
                 tvData.version = incrementarVersao(tvData.version);
@@ -7707,39 +7602,6 @@ toScreen3Btn.addEventListener('click', () => {
             
             // Inicializar autenticação
             updateAuthUI();
-            
-            
-            // Verificar se veio da monetização
-            const urlParams = new URLSearchParams(window.location.search);
-            const monetizationUpdated = urlParams.get('monetizationUpdated');
-            const source = urlParams.get('source');
-            const channelIdFromUrl = urlParams.get('channelId');
-            
-            if (monetizationUpdated === 'true' && source === 'monetizar' && channelIdFromUrl) {
-                console.log('🔥 Atualização de monetização detectada!');
-                
-                // Aguardar autenticação
-                const checkAuthInterval = setInterval(() => {
-                    if (currentUser) {
-                        clearInterval(checkAuthInterval);
-                        console.log('Usuário autenticado, editando canal:', channelIdFromUrl);
-                        
-                        // Editar o canal para carregar os dados
-                        editChannel(channelIdFromUrl);
-                        
-                        // Ir direto para tela 6 após um breve delay
-                        setTimeout(() => {
-                            console.log('Indo para tela 6 para publicar...');
-                            showScreen('screen6');
-                        }, 1000);
-                    }
-                }, 500);
-                
-                // Timeout de segurança
-                setTimeout(() => {
-                    clearInterval(checkAuthInterval);
-                }, 10000);
-            }
             
             // Inicializar a tela 0
             showScreen('screen0');
