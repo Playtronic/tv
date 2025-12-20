@@ -11937,41 +11937,55 @@ if (watchBtn) {
         }
 
         // ==================== OBSERVADOR DE AUTENTICAÇÃO ====================
-        auth.onAuthStateChanged(async (user) => {
+auth.onAuthStateChanged(async (user) => {
     console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
     currentUser = user;
     
     updateAuthUI();
-    
-    // Verificar se veio da página de monetização
-    const urlParams = new URLSearchParams(window.location.search);
-    const monetizationUpdated = urlParams.get('monetizationUpdated');
-    const channelIdFromUrl = urlParams.get('channelId');
     
     if (user) {
         console.log("Usuário logado:", user.email);
         
         await carregarCanais();
         
-        // Verificar se veio da página de monetização
-        if (monetizationUpdated === 'true' && channelIdFromUrl) {
-            console.log('Detectada atualização de monetização para o canal:', channelIdFromUrl);
+        // ==================== NOVO: VERIFICAR SE VEIO DA MONETIZAÇÃO ====================
+        const urlParams = new URLSearchParams(window.location.search);
+        const monetizationUpdated = urlParams.get('monetizationUpdated');
+        const channelIdFromUrl = urlParams.get('channelId');
+        const source = urlParams.get('source');
+        
+        if (monetizationUpdated === 'true' && channelIdFromUrl && source === 'monetizar') {
+            console.log('🚀 Detectada atualização de monetização para o canal:', channelIdFromUrl);
             
-            // Buscar configurações de monetização do Firestore
-            await carregarConfiguracoesMonetizacao(channelIdFromUrl);
-            
-            // Editar o canal
-            await editChannel(channelIdFromUrl);
-            
-            // Ir direto para a tela 6
-            showScreen('screen6');
-            
-            // Limpar parâmetros da URL
-            window.history.replaceState({}, document.title, window.location.pathname);
-            
-            // Não executar a lógica normal da tela 6
-            return;
+            try {
+                // Buscar configurações de monetização do Firestore
+                const monetizationData = await carregarConfiguracoesMonetizacao(channelIdFromUrl);
+                console.log('Configurações de monetização carregadas:', monetizationData);
+                
+                // Mesclar com tvData
+                if (monetizationData) {
+                    tvData.monetization = monetizationData;
+                }
+                
+                // Editar o canal automaticamente
+                await editChannel(channelIdFromUrl);
+                
+                // Ir direto para a tela 6 para publicar
+                showScreen('screen6');
+                
+                // Limpar parâmetros da URL
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
+                
+                console.log('✅ Redirecionado para publicação automática');
+                return; // Interromper o fluxo normal
+                
+            } catch (error) {
+                console.error('❌ Erro ao processar atualização de monetização:', error);
+                // Continuar com fluxo normal
+            }
         }
+        // ==================== FIM DA NOVA SEÇÃO ====================
         
         if (isOnScreen6 && !publicationStarted) {
             console.log("Usuário autenticado na tela 6. Iniciando publicação automática...");
