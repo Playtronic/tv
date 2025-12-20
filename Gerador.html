@@ -2067,11 +2067,6 @@ function determinarDataEstreia(dadosGerador) {
 
         // Função para gerar HTML do canal (ATUALIZADA COM NOVA LÓGICA DE DATA)
         function gerarHTMLdoCanal(dados) {
-    console.log('💰 Dados recebidos para gerarHTMLdoCanal:', {
-        name: dados.name,
-        hasMonetization: !!dados.monetization,
-        monetizationData: dados.monetization
-    });
             const isOffline = dados.isOffline || false;
             const visibility = dados.visibility || 'brazil';
             const isAdultContent = dados.isAdultContent || false;
@@ -2126,32 +2121,10 @@ function determinarDataEstreia(dadosGerador) {
                     <div class="program-name" id="onlineViewers">0</div>
                 </div>
                 <div class="program-item">
-                    <div class="program-label">
-
-Nota do Canal:</div>
+                    <div class="program-label">Nota do Canal:</div>
                     <div class="program-name" id="channelRating">N/D</div>
                 </div>
             </div>` : '';
-
-
-            // SEÇÃO DE MONETIZAÇÃO - BANNER ADSTERRA
-            let adsTerraBannerSection = '';
-            if (dados.monetization && dados.monetization.adsTerraBanner && dados.monetization.adsTerraBanner.enabled && dados.monetization.adsTerraBanner.code) {
-                adsTerraBannerSection = `
-                <div class="ads-terra-banner-section" style="margin: 20px 0; padding: 15px; background: rgba(255,255,255,0.1); border-radius: 8px; text-align: center;">
-                    <h3 style="margin-bottom: 15px; color: #fdbb2d;">Publicidade</h3>
-                    <div id="adsTerraBannerContainer">
-                        ${dados.monetization.adsTerraBanner.code}
-                    </div>
-                </div>
-                `;
-            }
-
-            // SEÇÃO DE MONETIZAÇÃO - INTERSTICIAL ADSTERRA (será injetado via script)
-            let adsTerraInterstitialSection = '';
-            if (dados.monetization && dados.monetization.adsTerraInterstitial && dados.monetization.adsTerraInterstitial.enabled && dados.monetization.adsTerraInterstitial.code) {
-                adsTerraInterstitialSection = dados.monetization.adsTerraInterstitial.code;
-            }
             
             // Script de verificação de país
             const countryCheckScript = visibility === 'brazil' ? `
@@ -3421,21 +3394,6 @@ if (slotIndex === currentPlayingSlot) {
         </div>
         
         ${customButtonHTML}
-
-${dados.monetization && dados.monetization.pixDonations && dados.monetization.pixDonations.enabled ? `
-<!-- Botão de Doação PIX -->
-<div style="text-align: center; margin: 20px 0;">
-    <button id="pixDonationBtn" style="background: linear-gradient(135deg, #009ee3, #0077b3); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 1.1rem; cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
-        💝 Fazer uma Doação
-    </button>
-</div>
-<script>
-    document.getElementById('pixDonationBtn').addEventListener('click', function() {
-        // Abrir modal de doação ou redirecionar para página de doação
-        alert('Sistema de doações via PIX em desenvolvimento. Em breve disponível!');
-    });
-<\/script>
-` : ''}
         
         <div class="program-info" id="program-info">
             <div class="program-item">
@@ -3453,13 +3411,8 @@ ${dados.monetization && dados.monetization.pixDonations && dados.monetization.pi
         </div>
         
         ${debugSection}
-
-${adsTerraBannerSection}
         
         ${socialMediaHTML}
-
-<!-- Script para intersticial AdsTerra -->
-${adsTerraInterstitialSection}
         
         ${versionHTML}
         
@@ -3496,16 +3449,6 @@ ${adsTerraInterstitialSection}
         const RELEASE_DATE = "${releaseDate}";
         const IS_OFFLINE = ${isOffline};
         const CHANNEL_VERSION = "${version}";
-        const MONETIZATION_CONFIG = ${JSON.stringify({
-            pixDonations: dados.monetization && dados.monetization.pixDonations ? dados.monetization.pixDonations : { enabled: false },
-            paidCommercials: dados.monetization && dados.monetization.paidCommercials ? dados.monetization.paidCommercials : { enabled: false }
-        })};
-        // CONFIGURAÇÕES DE MONETIZAÇÃO
-        const MONETIZATION_CONFIG = ${JSON.stringify({
-            pixDonations: dados.monetization && dados.monetization.pixDonations ? dados.monetization.pixDonations : { enabled: false },
-            paidCommercials: dados.monetization && dados.monetization.paidCommercials ? dados.monetization.paidCommercials : { enabled: false }
-        })};
-
         const CHANNEL_ID = "${channelId}";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -5138,76 +5081,6 @@ function verificarFimDoVideo() {
             }
         }
 
-// 🔥 NOVA FUNÇÃO: Processar atualização de monetização
-async function processarAtualizacaoMonetizacao(channelId) {
-    if (!currentUser || !channelId) {
-        console.error('Usuário não autenticado ou channelId não fornecido');
-        return false;
-    }
-    
-    try {
-        console.log('🔄 Processando atualização de monetização para canal:', channelId);
-        
-        // 1. Carregar o canal
-        await editChannel(channelId);
-        
-        // 2. Verificar se há atualizações de monetização pendentes
-        const systemDoc = await db.collection('channels').doc(channelId)
-            .collection('system').doc('monetization_update').get();
-        
-        if (systemDoc.exists && systemDoc.data().needsUpdate) {
-            console.log('📝 Atualização de monetização detectada, iniciando republicação...');
-            
-            // 3. Carregar configurações atualizadas
-            const monetizationDoc = await db.collection('channels').doc(channelId)
-                .collection('monetization').doc('settings').get();
-            
-            if (monetizationDoc.exists) {
-                const monetizationData = monetizationDoc.data();
-                
-                // 4. Atualizar tvData com as novas configurações
-                if (!tvData.monetization) {
-                    tvData.monetization = {
-                        adsTerraBanner: { enabled: false, code: '' },
-                        adsTerraInterstitial: { enabled: false, code: '' },
-                        pixDonations: { enabled: false, mpAccessToken: '', mpRefreshToken: '', mpPlatformUserId: '282224393' },
-                        paidCommercials: { enabled: false, pricePerSecond: 0.05, maxDuration: 90, mpAccessToken: '', mpPlatformUserId: '282224393' }
-                    };
-                }
-                
-                if (monetizationData.adsTerraBanner) {
-                    tvData.monetization.adsTerraBanner = monetizationData.adsTerraBanner;
-                }
-                if (monetizationData.adsTerraInterstitial) {
-                    tvData.monetization.adsTerraInterstitial = monetizationData.adsTerraInterstitial;
-                }
-                if (monetizationData.pixDonations) {
-                    tvData.monetization.pixDonations = monetizationData.pixDonations;
-                }
-                if (monetizationData.paidCommercials) {
-                    tvData.monetization.paidCommercials = monetizationData.paidCommercials;
-                }
-                
-                console.log('💰 tvData atualizado com monetização:', tvData.monetization);
-                
-                // 5. Marcar como processado
-                await systemDoc.ref.update({
-                    needsUpdate: false,
-                    processedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                console.log('✅ Atualização de monetização processada com sucesso');
-                return true;
-            }
-        }
-        
-        return false;
-    } catch (error) {
-        console.error('❌ Erro ao processar atualização de monetização:', error);
-        return false;
-    }
-}
-
         // Função para apagar canal do servidor
         async function apagarCanalServidor(nomeCanal) {
             try {
@@ -5304,28 +5177,9 @@ async function processarAtualizacaoMonetizacao(channelId) {
                 userId: channelData.userId || '',
                 published: channelData.published || false,
                 createdAt: channelData.createdAt || null,
-                updatedAt: channelData.updatedAt || null,        
-
-version: channelData.version || '1.0.0.0',
-        // Dados de monetização
-        monetization: channelData.monetization || {
-            adsTerraBanner: { enabled: false, code: '' },
-            adsTerraInterstitial: { enabled: false, code: '' },
-            pixDonations: { 
-                enabled: false, 
-                mpAccessToken: '',
-                mpRefreshToken: '',
-                mpPlatformUserId: '282224393'
-            },
-            paidCommercials: { 
-                enabled: false, 
-                pricePerSecond: 0.05, 
-                maxDuration: 90,
-                mpAccessToken: '',
-                mpPlatformUserId: '282224393'
-            }
-        }
-    };
+                updatedAt: channelData.updatedAt || null,
+                version: channelData.version || '1.0.0.0'
+            };
             
             return dadosNormalizados;
         }
@@ -5367,35 +5221,7 @@ version: channelData.version || '1.0.0.0',
                 if (currentChannelId) {
                     await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).update(channelToSave);
                     console.log("Canal atualizado no banco de dados:", currentChannelId);
-                                    // 🔥 SALVAR TAMBÉM NA ESTRUTURA NOVA (channels) para monetização
-                try {
-                    const channelRef = db.collection('channels').doc(currentChannelId);
-                    
-                    // Salvar dados básicos do canal
-                    await channelRef.set({
-                        channelId: currentChannelId,
-                        ownerId: userId,
-                        name: channelToSave.name,
-                        email: channelToSave.email,
-                        logo: channelToSave.logo,
-                        slogan: channelToSave.slogan,
-                        updatedAt: now
-                    }, { merge: true });
-                    
-                    // Salvar configurações de monetização se existirem
-                    if (channelToSave.monetization) {
-                        await channelRef.collection('monetization').doc('settings').set({
-                            ...channelToSave.monetization,
-                            lastUpdated: now
-                        }, { merge: true });
-                    }
-                    
-                    console.log('💰 Dados de monetização salvos na nova estrutura');
-                } catch (error) {
-                    console.error('Erro ao salvar dados de monetização:', error);
-                }
-                
-                return currentChannelId;
+                    return currentChannelId;
                 } else {
                     const docRef = await db.collection('users').doc(userId).collection('channels').add({
                         ...channelToSave,
@@ -5502,31 +5328,8 @@ version: channelData.version || '1.0.0.0',
         }
 
         // Função principal de publicação (ATUALIZADA COM NOVA LÓGICA DE DATA)
-async function iniciarPublicacao() {
-    console.log("Iniciando publicação...");
-    
-    // 🔥 VERIFICAR SE É UMA ATUALIZAÇÃO DE MONETIZAÇÃO
-    const urlParams = new URLSearchParams(window.location.search);
-    const monetizationUpdated = urlParams.get('monetizationUpdated');
-    const source = urlParams.get('source');
-        if (monetizationUpdated === 'true' && source === 'monetizar' && currentChannelId) {
-        console.log('🔄 Iniciando publicação por atualização de monetização');
-        
-        // Primeiro garantir que o canal está carregado
-        if (!tvData.name) {
-            console.log('📥 Canal não carregado, carregando agora...');
-            await apenasCarregarCanal(currentChannelId);
-        }
-        
-        // Depois processar atualizações de monetização
-        await processarAtualizacaoMonetizacao(currentChannelId);
-        
-        console.log('💰 Dados após processamento:', {
-            name: tvData.name,
-            hasMonetization: !!tvData.monetization,
-            programs: tvData.programs?.length || 0
-        });
-    }
+        async function iniciarPublicacao() {
+            console.log("Iniciando publicação...");
             
             if (!currentUser) {
                 console.log("Usuário não autenticado, mostrando mensagem de autenticação");
@@ -5599,24 +5402,7 @@ async function iniciarPublicacao() {
                 isAdultContent: dadosNormalizados.isAdultContent || false,
                 socialMedia: dadosNormalizados.socialMedia,
                 customButton: dadosNormalizados.customButton,
-                version: dadosNormalizados.version,
-                monetization: dadosNormalizados.monetization || {
-                    adsTerraBanner: { enabled: false, code: '' },
-                    adsTerraInterstitial: { enabled: false, code: '' },
-                    pixDonations: { 
-                        enabled: false, 
-                        mpAccessToken: '',
-                        mpRefreshToken: '',
-                        mpPlatformUserId: '282224393'
-                    },
-                    paidCommercials: { 
-                        enabled: false, 
-                        pricePerSecond: 0.05, 
-                        maxDuration: 90,
-                        mpAccessToken: '',
-                        mpPlatformUserId: '282224393'
-                    }
-                }
+                version: dadosNormalizados.version
             };
 
             try {
@@ -5691,7 +5477,6 @@ async function iniciarPublicacao() {
                             carregarCanais();
                         }
                     });
-
                     
                 } else {
                     throw new Error("Falha ao salvar canal no banco de dados");
@@ -5929,56 +5714,6 @@ if (watchBtn) {
                 const novoEstadoOffline = !isCurrentlyOffline;
                 
                 tvData = { ...dadosNormalizados };
-        // 🔥 CARREGAR CONFIGURAÇÕES DE MONETIZAÇÃO DA NOVA ESTRUTURA
-        try {
-            // Primeiro, tentar carregar da estrutura nova (channels collection)
-            const monetizationDoc = await db.collection('channels').doc(channelId)
-                .collection('monetization').doc('settings').get();
-            
-            if (monetizationDoc.exists) {
-                const monetizationData = monetizationDoc.data();
-                console.log('💰 Dados de monetização carregados:', monetizationData);
-                
-                // Atualizar tvData com os dados de monetização
-                if (monetizationData.adsTerraBanner) {
-                    tvData.monetization.adsTerraBanner = monetizationData.adsTerraBanner;
-                }
-                if (monetizationData.adsTerraInterstitial) {
-                    tvData.monetization.adsTerraInterstitial = monetizationData.adsTerraInterstitial;
-                }
-                if (monetizationData.pixDonations) {
-                    tvData.monetization.pixDonations = monetizationData.pixDonations;
-                }
-                if (monetizationData.paidCommercials) {
-                    tvData.monetization.paidCommercials = monetizationData.paidCommercials;
-                }
-            } else {
-                // Se não existir na nova estrutura, tentar carregar da antiga
-                const oldMonetizationDoc = await db.collection('users').doc(currentUser.uid)
-                    .collection('channels').doc(channelId)
-                    .collection('monetization').doc('settings').get();
-                
-                if (oldMonetizationDoc.exists) {
-                    const oldMonetizationData = oldMonetizationDoc.data();
-                    console.log('💰 Dados de monetização antigos carregados:', oldMonetizationData);
-                    
-                    if (oldMonetizationData.adsTerraBanner) {
-                        tvData.monetization.adsTerraBanner = oldMonetizationData.adsTerraBanner;
-                    }
-                    if (oldMonetizationData.adsTerraInterstitial) {
-                        tvData.monetization.adsTerraInterstitial = oldMonetizationData.adsTerraInterstitial;
-                    }
-                    if (oldMonetizationData.pixDonations) {
-                        tvData.monetization.pixDonations = oldMonetizationData.pixDonations;
-                    }
-                    if (oldMonetizationData.paidCommercials) {
-                        tvData.monetization.paidCommercials = oldMonetizationData.paidCommercials;
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Erro ao carregar dados de monetização:', error);
-        }
                 tvData.isOffline = novoEstadoOffline;
                 
                 currentChannelId = channelId;
@@ -6771,17 +6506,13 @@ if (watchBtn) {
         }
 
         // Editar canal
-            // Se for uma atualização de monetização, não preencher formulário
-    const urlParams = new URLSearchParams(window.location.search);
-    const monetizationUpdated = urlParams.get('monetizationUpdated');
-    const source = urlParams.get('source');
-    
-    if (monetizationUpdated === 'true' && source === 'monetizar') {
-        console.log('💰 Modo atualização de monetização - apenas carregando dados');
-        window.isMonetizationUpdate = true;
-    } else {
-        window.isMonetizationUpdate = false;
-    }
+        async function editChannel(channelId) {
+            console.log("Iniciando edição do canal:", channelId);
+            
+            if (!currentUser) {
+                alert("É necessário fazer login para editar canais");
+                return;
+            }
             
             try {
                 const doc = await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).get();
@@ -6926,15 +6657,8 @@ if (watchBtn) {
                 validateScreen3Navigation();
                 validateScreen4Navigation();
                 
-                console.log("Formulário preenchido com sucesso.");
-        
-        // Se for atualização de monetização, NÃO ir para tela 1
-        if (window.isMonetizationUpdate) {
-            console.log('💰 Modo monetização - mantendo dados carregados mas não mostrando tela 1');
-            // Não mostrar tela, apenas manter dados carregados
-        } else {
-            showScreen('screen1');
-        }
+                console.log("Formulário preenchido com sucesso. Indo para tela 1...");
+                showScreen('screen1');
                 
             } catch (error) {
                 console.error("Erro detalhado ao carregar canal para edição:", error);
@@ -7879,56 +7603,8 @@ toScreen3Btn.addEventListener('click', () => {
             // Inicializar autenticação
             updateAuthUI();
             
-            // NOVA FUNÇÃO: Verificar se veio de atualização de monetização
-function verificarAtualizacaoMonetizacao() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const monetizationUpdated = urlParams.get('monetizationUpdated');
-    const source = urlParams.get('source');
-    const channelId = urlParams.get('channelId');
-    
-    if (monetizationUpdated === 'true' && source === 'monetizar' && channelId) {
-        console.log('⚠️ Atualização de monetização detectada. Processando...');
-        
-        // Usar a função que só carrega dados, não preenche formulário
-        setTimeout(async () => {
-            try {
-                await apenasCarregarCanal(channelId);
-                console.log('✅ Canal carregado para monetização. Indo para tela 6...');
-                
-                // Ir direto para tela 6
-                showScreen('screen6');
-            } catch (error) {
-                console.error('❌ Erro ao carregar canal para monetização:', error);
-                alert('Erro ao processar atualização de monetização. Tente novamente.');
-            }
-        }, 500);
-    }
-}
-
-// Função auxiliar para carregar e editar canal
-async function loadAndEditChannel(channelId) {
-    try {
-        // Carregar o canal usando editChannel normal
-        await editChannel(channelId);
-        console.log('Canal carregado com sucesso:', tvData.name);
-        
-        // Forçar ir para tela 6 imediatamente
-        setTimeout(() => {
-            showScreen('screen6');
-        }, 100);
-    } catch (error) {
-        console.error('Erro ao carregar canal:', error);
-        alert('Erro ao carregar canal. Tente novamente.');
-    }
-}
-
-// Chamar após o DOM estar carregado
-setTimeout(async () => {
-    await verificarAtualizacaoMonetizacao();
-}, 1000);
-
-// Inicializar a tela 0
-showScreen('screen0');
+            // Inicializar a tela 0
+            showScreen('screen0');
         });
     </script>
 </body>
