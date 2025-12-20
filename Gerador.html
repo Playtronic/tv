@@ -2125,6 +2125,25 @@ function determinarDataEstreia(dadosGerador) {
                     <div class="program-name" id="channelRating">N/D</div>
                 </div>
             </div>` : '';
+
+// 🔥 NOVO: Banner do AdsTerra (se configurado)
+let adsTerraBannerHTML = '';
+if (dados.monetization && dados.monetization.adsTerraBanner && 
+    dados.monetization.adsTerraBanner.enabled && 
+    dados.monetization.adsTerraBanner.code) {
+    
+    adsTerraBannerHTML = `
+    <!-- 🔥 ADS TERRA BANNER -->
+    <div id="adsTerraBannerContainer" style="margin: 20px auto; max-width: 800px; text-align: center;">
+        <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px;">
+            <p style="font-size: 0.9rem; margin-bottom: 10px; opacity: 0.8;">Anúncio</p>
+            <div id="adsTerraBannerPlaceholder">
+                ${dados.monetization.adsTerraBanner.code}
+            </div>
+        </div>
+    </div>
+    `;
+}
             
             // Script de verificação de país
             const countryCheckScript = visibility === 'brazil' ? `
@@ -3409,12 +3428,12 @@ if (slotIndex === currentPlayingSlot) {
                 <div class="program-name" id="afterNextProgram">-</div>
             </div>
         </div>
-        
+
         ${debugSection}
         
-        ${socialMediaHTML}
+${adsTerraBannerHTML}
         
-        ${versionHTML}
+${socialMediaHTML}
         
         <div class="contact-info">Contato: ${dados.email}</div>
     </div>
@@ -5106,6 +5125,49 @@ function verificarFimDoVideo() {
 
         // ==================== FUNÇÕES DO BANCO DE DADOS ====================
 
+// 🔥 NOVA FUNÇÃO: Carregar configurações de monetização do Firestore
+async function carregarConfiguracoesMonetizacao(channelId) {
+    if (!currentUser || !channelId) {
+        console.log("Usuário não autenticado ou channelId inválido");
+        return null;
+    }
+    
+    try {
+        console.log(`Carregando configurações de monetização para o canal: ${channelId}`);
+        
+        // Primeiro, tenta buscar na nova estrutura (coleção 'channels')
+        const channelMonetizationRef = db.collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const channelMonetizationDoc = await channelMonetizationRef.get();
+        
+        if (channelMonetizationDoc.exists) {
+            const data = channelMonetizationDoc.data();
+            console.log("Configurações de monetização encontradas na nova estrutura:", data);
+            return data;
+        }
+        
+        // Se não encontrou, tenta na estrutura antiga (coleção 'users')
+        const userMonetizationRef = db.collection('users').doc(currentUser.uid)
+            .collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const userMonetizationDoc = await userMonetizationRef.get();
+        
+        if (userMonetizationDoc.exists) {
+            const data = userMonetizationDoc.data();
+            console.log("Configurações de monetização encontradas na estrutura antiga:", data);
+            return data;
+        }
+        
+        console.log("Nenhuma configuração de monetização encontrada para o canal:", channelId);
+        return null;
+        
+    } catch (error) {
+        console.error("Erro ao carregar configurações de monetização:", error);
+        return null;
+    }
+}
+
+
         // Função para buscar canal por nome no banco de dados
         async function buscarCanalPorNome(nomeCanal, userId) {
             try {
@@ -5178,7 +5240,21 @@ function verificarFimDoVideo() {
                 published: channelData.published || false,
                 createdAt: channelData.createdAt || null,
                 updatedAt: channelData.updatedAt || null,
-                version: channelData.version || '1.0.0.0'
+                    customButton: typeof channelData.customButton === 'object' ? {
+        text: channelData.customButton.text || '',
+        url: channelData.customButton.url || ''
+    } : {
+        text: '',
+        url: ''
+    },
+    url: channelData.url || '',
+    userId: channelData.userId || '',
+    published: channelData.published || false,
+    createdAt: channelData.createdAt || null,
+    updatedAt: channelData.updatedAt || null,
+    // 🔥 NOVO: Dados de monetização
+    monetization: channelData.monetization || null,
+    version: channelData.version || '1.0.0.0'
             };
             
             return dadosNormalizados;
@@ -5212,11 +5288,13 @@ function verificarFimDoVideo() {
                 }
                 
                 const channelToSave = {
-                    ...dadosNormalizados,
-                    userId: userId,
-                    updatedAt: now,
-                    published: !!dadosNormalizados.url
-                };
+    ...dadosNormalizados,
+    userId: userId,
+    updatedAt: now,
+    published: !!dadosNormalizados.url,
+    // 🔥 NOVO: Salvar dados de monetização no canal
+    monetization: dadosNormalizados.monetization || null
+};
                 
                 if (currentChannelId) {
                     await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).update(channelToSave);
@@ -5403,6 +5481,8 @@ function verificarFimDoVideo() {
                 socialMedia: dadosNormalizados.socialMedia,
                 customButton: dadosNormalizados.customButton,
                 version: dadosNormalizados.version
+                monetization: dadosNormalizados.monetization || null
+
             };
 
             try {
@@ -5714,6 +5794,15 @@ if (watchBtn) {
                 const novoEstadoOffline = !isCurrentlyOffline;
                 
                 tvData = { ...dadosNormalizados };
+
+// 🔥 CARREGAR CONFIGURAÇÕES DE MONETIZAÇÃO
+const monetizationData = await carregarConfiguracoesMonetizacao(channelId);
+if (monetizationData) {
+    tvData.monetization = monetizationData;
+    console.log("Configurações de monetização carregadas:", monetizationData);
+} else {
+    tvData.monetization = null;
+}
                 tvData.isOffline = novoEstadoOffline;
                 
                 currentChannelId = channelId;
@@ -6723,58 +6812,92 @@ if (watchBtn) {
 
         // ==================== OBSERVADOR DE AUTENTICAÇÃO ====================
         auth.onAuthStateChanged(async (user) => {
-            console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
-            currentUser = user;
+    console.log("Estado da autenticação mudou:", user ? "Logado" : "Deslogado");
+    currentUser = user;
+    
+    updateAuthUI();
+    
+    if (user) {
+        console.log("Usuário logado:", user.email);
+        
+        await carregarCanais();
+        
+        // 🔥 NOVO: Verificar se veio da tela de monetização
+        const urlParams = new URLSearchParams(window.location.search);
+        const monetizationUpdated = urlParams.get('monetizationUpdated');
+        const source = urlParams.get('source');
+        const channelIdFromMonetize = urlParams.get('channelId');
+        
+        if (monetizationUpdated === 'true' && source === 'monetizar' && channelIdFromMonetize) {
+            console.log('✅ Detectada atualização de monetização para o canal:', channelIdFromMonetize);
             
-            updateAuthUI();
-            
-            if (user) {
-                console.log("Usuário logado:", user.email);
+            // Encontrar o canal na lista
+            const channel = channels.find(c => c.id === channelIdFromMonetize);
+            if (channel) {
+                console.log('📺 Canal encontrado, carregando para publicação...');
                 
-                await carregarCanais();
+                // Carregar o canal para edição
+                await editChannel(channelIdFromMonetize);
                 
-                if (isOnScreen6 && !publicationStarted) {
-                    console.log("Usuário autenticado na tela 6. Iniciando publicação automática...");
-                    
-                    const authRequiredMessage = document.getElementById('authRequiredMessage');
-                    if (authRequiredMessage) {
-                        authRequiredMessage.style.display = 'none';
-                    }
-                    
-                    resetScreen6();
-                    
-                    setTimeout(() => {
-                        iniciarPublicacao();
-                    }, 500);
-                }
+                // 🔥 CARREGAR CONFIGURAÇÕES DE MONETIZAÇÃO
+                await carregarConfiguracoesMonetizacao(channelIdFromMonetize);
                 
-            } else {
-                channels = [];
-                const channelsList = document.getElementById('channelsList');
-                const emptyState = document.getElementById('emptyState');
+                // Ir direto para a tela 6 para publicar
+                setTimeout(() => {
+                    console.log('🚀 Indo para tela 6 para publicação...');
+                    showScreen('screen6');
+                }, 1000);
                 
-                if (channelsList) channelsList.innerHTML = '';
-                if (emptyState) emptyState.style.display = 'block';
+                // Limpar parâmetros da URL
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
                 
-                for (let channelId in channelViewerListeners) {
-                    if (channelViewerListeners[channelId]) {
-                        channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
-                    }
-                }
-                channelViewerListeners = {};
-                
-                if (versionCheckInterval) {
-                    clearInterval(versionCheckInterval);
-                    versionCheckInterval = null;
-                }
-                
-                if (isOnScreen6) {
-                    console.log("Usuário deslogou na tela 6. Mostrando mensagem de autenticação.");
-                    mostrarMensagemAutenticacao();
-                    publicationStarted = false;
-                }
+                return;
             }
-        });
+        }
+        
+        if (isOnScreen6 && !publicationStarted) {
+            console.log("Usuário autenticado na tela 6. Iniciando publicação automática...");
+            
+            const authRequiredMessage = document.getElementById('authRequiredMessage');
+            if (authRequiredMessage) {
+                authRequiredMessage.style.display = 'none';
+            }
+            
+            resetScreen6();
+            
+            setTimeout(() => {
+                iniciarPublicacao();
+            }, 500);
+        }
+        
+    } else {
+        channels = [];
+        const channelsList = document.getElementById('channelsList');
+        const emptyState = document.getElementById('emptyState');
+        
+        if (channelsList) channelsList.innerHTML = '';
+        if (emptyState) emptyState.style.display = 'block';
+        
+        for (let channelId in channelViewerListeners) {
+            if (channelViewerListeners[channelId]) {
+                channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
+            }
+        }
+        channelViewerListeners = {};
+        
+        if (versionCheckInterval) {
+            clearInterval(versionCheckInterval);
+            versionCheckInterval = null;
+        }
+        
+        if (isOnScreen6) {
+            console.log("Usuário deslogou na tela 6. Mostrando mensagem de autenticação.");
+            mostrarMensagemAutenticacao();
+            publicationStarted = false;
+        }
+    }
+});
 
         // ==================== FUNÇÕES DE AUTENTICAÇÃO ====================
 
