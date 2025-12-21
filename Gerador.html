@@ -5887,200 +5887,273 @@ async function carregarConfiguracoesMonetizacao(channelId) {
 
         // Função principal de publicação (ATUALIZADA COM NOVA LÓGICA DE DATA)
         async function iniciarPublicacao() {
-            console.log("Iniciando publicação...");
-            
-            if (!currentUser) {
-                console.log("Usuário não autenticado, mostrando mensagem de autenticação");
-                mostrarMensagemAutenticacao();
-                return;
-            }
-            
-            publicationStarted = true;
-            
-            if (editingChannel) {
-                tvData.version = incrementarVersao(tvData.version);
-                console.log(`Versão incrementada para atualização: ${tvData.version}`);
-            } else {
-                tvData.version = '1.0.0.0';
-                console.log(`Novo canal com versão: ${tvData.version}`);
-            }
-            
-            const dadosNormalizados = normalizarDadosCanal(tvData);
-            
-            let GRADE = [];
-            if (dadosNormalizados.programmingMode === 'grade') {
-                const totalPrograms = dadosNormalizados.programs.length;
-                
-                if (totalPrograms === 0) {
-                    for (let i = 0; i < totalSlots; i++) {
-                        GRADE.push(0);
-                    }
-                } else {
-                    for (let i = 0; i < totalSlots; i++) {
-                        GRADE.push(i % totalPrograms);
-                    }
+    console.log("Iniciando publicação...");
+    
+    if (!currentUser) {
+        console.log("Usuário não autenticado, mostrando mensagem de autenticação");
+        mostrarMensagemAutenticacao();
+        return;
+    }
+    
+    publicationStarted = true;
+    
+    // 🔥🔥🔥 CARREGAMENTO OBRIGATÓRIO DAS CONFIGURAÇÕES DE MONETIZAÇÃO
+    // SEMPRE, independentemente de como chegou na tela 6
+    
+    if (editingChannel) {
+        tvData.version = incrementarVersao(tvData.version);
+        console.log(`Versão incrementada para atualização: ${tvData.version}`);
+    } else {
+        tvData.version = '1.0.0.0';
+        console.log(`Novo canal com versão: ${tvData.version}`);
+    }
+    
+    const dadosNormalizados = normalizarDadosCanal(tvData);
+    
+    // 1. Se estamos editando um canal existente
+    if (editingChannel && currentChannelId) {
+        console.log("🔍 EDITANDO CANAL EXISTENTE - Carregando monetização...");
+        
+        // Carrega do Firestore (sempre a versão mais recente)
+        const monetizationData = await carregarConfiguracoesMonetizacao(currentChannelId);
+        
+        if (monetizationData) {
+            console.log("✅ Monetização carregada do Firestore:", monetizationData);
+            dadosNormalizados.monetization = monetizationData;
+        } else {
+            console.log("⚠️ Nenhuma configuração de monetização encontrada para este canal");
+            // Inicializa estrutura vazia
+            dadosNormalizados.monetization = {
+                adsTerraBanner: { enabled: false, code: '' },
+                adsTerraInterstitial: { enabled: false, code: '' },
+                pixDonations: { 
+                    enabled: false, 
+                    mpAccessToken: '',
+                    mpPlatformUserId: '282224393'
+                },
+                paidCommercials: { 
+                    enabled: false, 
+                    pricePerSecond: 0.05, 
+                    maxDuration: 90,
+                    mpAccessToken: '',
+                    mpPlatformUserId: '282224393'
                 }
-            }
-            
-            // NOVA LÓGICA: Determinar data de estreia usando a função determinarDataEstreia
-            const releaseDate = determinarDataEstreia({
-                customReleaseDate: dadosNormalizados.customReleaseDate,
-                releaseDate: dadosNormalizados.releaseDate
-            });
-            
-            console.log(`Data de estreia determinada: ${releaseDate}`);
-            
-            const dadosParaEnvio = {
-                name: dadosNormalizados.name,
-                email: dadosNormalizados.email,
-                slogan: dadosNormalizados.slogan,
-                logo: dadosNormalizados.logo || DEFAULT_LOGO,
-                visibility: dadosNormalizados.visibility,
-                programmingMode: dadosNormalizados.programmingMode,
-                programas: dadosNormalizados.programs.map(program => ({
-                    name: program.name,
-                    videos: program.videos || []
-                })),
-                playlistVideos: dadosNormalizados.playlistVideos.map(video => ({
-                    name: video.name,
-                    url: video.url
-                })),
-                grade: GRADE,
-                comerciais: dadosNormalizados.commercials,
-                release: releaseDate,
-                showTime: dadosNormalizados.showTime,
-                enableRewind10: dadosNormalizados.enableRewind10,
-                enableRestart: dadosNormalizados.enableRestart,
-                enableLive: dadosNormalizados.enableLive,
-                enableDebug: dadosNormalizados.enableDebug,
-                enableCommercials: dadosNormalizados.enableCommercials,
-                commercialsPerBreak: dadosNormalizados.commercialsPerBreak,
-                commercialsOrder: dadosNormalizados.commercialsOrder,
-                isOffline: dadosNormalizados.isOffline || false,
-                isAdultContent: dadosNormalizados.isAdultContent || false,
-                socialMedia: dadosNormalizados.socialMedia,
-                customButton: dadosNormalizados.customButton,
-                version: dadosNormalizados.version,
-                monetization: dadosNormalizados.monetization || null
-
             };
-
-            try {
-                const publishingStatus = document.getElementById('publishingStatus');
-                const processingMessage = document.getElementById('processingMessage');
-                const successMessage = document.getElementById('successMessage');
-                const serverResult = document.getElementById('serverResult');
-                const authRequiredMessage = document.getElementById('authRequiredMessage');
-                const backToScreen5Btn = document.getElementById('backToScreen5');
-                const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
-                const retryPublish = document.getElementById('retryPublish');
-                
-                publishingStatus.style.display = 'block';
-                processingMessage.style.display = 'none';
-                successMessage.style.display = 'none';
-                serverResult.style.display = 'none';
-                backToScreen5Btn.style.display = 'none';
-                backToHomeFromSuccess.style.display = 'none';
-                retryPublish.style.display = 'none';
-                
-                document.querySelector('#publishingStatus .progress-bar').style.width = '30%';
-                
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                publishingStatus.style.display = 'none';
-                processingMessage.style.display = 'block';
-                document.querySelector('#processingMessage .progress-bar').style.width = '60%';
-                
-                console.log("Enviando para publicação...");
-                const resultado = await publicarCanal(dadosNormalizados.name, dadosParaEnvio);
-                
-                tvData.url = resultado.url;
-                tvData.published = true;
-                
-                const channelId = await salvarCanalBancoDados(tvData, true);
-                
-                if (channelId) {
-                    const versaoAtual = tvData.version;
-                    
-                    processingMessage.innerHTML = `
-                        <div class="spinner"></div>
-                        <h3>Verificando publicação...</h3>
-                        <p>Confirmando que seu canal está disponível.</p>
-                        <div class="progress-container">
-                            <div class="progress-bar" style="width: 80%;"></div>
-                        </div>
-                    `;
-                    
-                    const isNewChannel = !editingChannel;
-                    const stopChecking = verificarDisponibilidadeCanal(resultado.url, versaoAtual, isNewChannel, (success, foundVersion) => {
-                        if (success) {
-                            processingMessage.style.display = 'none';
-                            successMessage.style.display = 'block';
-                            
-                            let mensagemSucesso = '';
-                            if (isNewChannel) {
-                                mensagemSucesso = `Seu canal já está no ar!<br><small>O canal foi verificado e está disponível para seus espectadores.</small>`;
-                            } else {
-                                mensagemSucesso = `Canal Atualizado!<br><small>A nova versão do seu canal já está disponível para seus espectadores.</small>`;
-                            }
-                            
-                            successMessage.innerHTML = `
-                                <h3>${mensagemSucesso}</h3>
-                                <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
-                            `;
-                            
-                            backToHomeFromSuccess.style.display = 'inline-block';
-                            backToScreen5Btn.style.display = 'none';
-                            
-                            publicationStarted = false;
-                            
-                            carregarCanais();
-                        }
-                    });
-                    
-                } else {
-                    throw new Error("Falha ao salvar canal no banco de dados");
-                }
-                
-            } catch (error) {
-                console.error("Erro na publicação:", error);
-                
-                if (versionCheckInterval) {
-                    clearInterval(versionCheckInterval);
-                    versionCheckInterval = null;
-                }
-                
-                const publishingStatus = document.getElementById('publishingStatus');
-                const processingMessage = document.getElementById('processingMessage');
-                const successMessage = document.getElementById('successMessage');
-                const serverResult = document.getElementById('serverResult');
-                const backToScreen5Btn = document.getElementById('backToScreen5');
-                const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
-                const retryPublish = document.getElementById('retryPublish');
-                
-                publishingStatus.style.display = 'none';
-                processingMessage.style.display = 'none';
-                successMessage.style.display = 'none';
-                
-                serverResult.innerHTML = `
-                    <h3>Erro ao publicar canal</h3>
-                    <p>${error.message}</p>
-                    <p><small>Tente novamente mais tarde.</small></p>
-                `;
-                serverResult.className = 'server-result server-error';
-                serverResult.style.display = 'block';
-                
-                backToScreen5Btn.style.display = 'inline-block';
-                retryPublish.style.display = 'inline-block';
-                
-                publicationStarted = false;
-                
-                if (error.message.includes("Já existe um canal com o nome")) {
-                    document.getElementById('nameDuplicateError').textContent = error.message;
-                    document.getElementById('nameDuplicateError').style.display = 'block';
-                }
+        }
+    }
+    // 2. Se é um canal novo
+    else if (!editingChannel) {
+        console.log("🆕 CANAL NOVO - Inicializando monetização...");
+        
+        // Inicializa estrutura vazia para novo canal
+        dadosNormalizados.monetization = {
+            adsTerraBanner: { enabled: false, code: '' },
+            adsTerraInterstitial: { enabled: false, code: '' },
+            pixDonations: { 
+                enabled: false, 
+                mpAccessToken: '',
+                mpPlatformUserId: '282224393'
+            },
+            paidCommercials: { 
+                enabled: false, 
+                pricePerSecond: 0.05, 
+                maxDuration: 90,
+                mpAccessToken: '',
+                mpPlatformUserId: '282224393'
+            }
+        };
+    }
+    
+    // 3. Verificar se dadosNormalizados.monetization existe (fallback final)
+    if (!dadosNormalizados.monetization) {
+        console.warn("❌ dadosNormalizados.monetization não definido! Inicializando estrutura vazia...");
+        dadosNormalizados.monetization = {
+            adsTerraBanner: { enabled: false, code: '' },
+            adsTerraInterstitial: { enabled: false, code: '' },
+            pixDonations: { enabled: false, mpAccessToken: '' },
+            paidCommercials: { enabled: false, mpAccessToken: '' }
+        };
+    }
+    
+    // Log para depuração
+    console.log("📊 Configurações de monetização que serão usadas:", dadosNormalizados.monetization);
+    console.log("📊 AdsTerra Banner habilitado?", dadosNormalizados.monetization?.adsTerraBanner?.enabled);
+    console.log("📊 PIX Donations habilitado?", dadosNormalizados.monetization?.pixDonations?.enabled);
+    
+    let GRADE = [];
+    if (dadosNormalizados.programmingMode === 'grade') {
+        const totalPrograms = dadosNormalizados.programs.length;
+        
+        if (totalPrograms === 0) {
+            for (let i = 0; i < totalSlots; i++) {
+                GRADE.push(0);
+            }
+        } else {
+            for (let i = 0; i < totalSlots; i++) {
+                GRADE.push(i % totalPrograms);
             }
         }
+    }
+    
+    // NOVA LÓGICA: Determinar data de estreia usando a função determinarDataEstreia
+    const releaseDate = determinarDataEstreia({
+        customReleaseDate: dadosNormalizados.customReleaseDate,
+        releaseDate: dadosNormalizados.releaseDate
+    });
+    
+    console.log(`Data de estreia determinada: ${releaseDate}`);
+    
+    const dadosParaEnvio = {
+        name: dadosNormalizados.name,
+        email: dadosNormalizados.email,
+        slogan: dadosNormalizados.slogan,
+        logo: dadosNormalizados.logo || DEFAULT_LOGO,
+        visibility: dadosNormalizados.visibility,
+        programmingMode: dadosNormalizados.programmingMode,
+        programas: dadosNormalizados.programs.map(program => ({
+            name: program.name,
+            videos: program.videos || []
+        })),
+        playlistVideos: dadosNormalizados.playlistVideos.map(video => ({
+            name: video.name,
+            url: video.url
+        })),
+        grade: GRADE,
+        comerciais: dadosNormalizados.commercials,
+        release: releaseDate,
+        showTime: dadosNormalizados.showTime,
+        enableRewind10: dadosNormalizados.enableRewind10,
+        enableRestart: dadosNormalizados.enableRestart,
+        enableLive: dadosNormalizados.enableLive,
+        enableDebug: dadosNormalizados.enableDebug,
+        enableCommercials: dadosNormalizados.enableCommercials,
+        commercialsPerBreak: dadosNormalizados.commercialsPerBreak,
+        commercialsOrder: dadosNormalizados.commercialsOrder,
+        isOffline: dadosNormalizados.isOffline || false,
+        isAdultContent: dadosNormalizados.isAdultContent || false,
+        socialMedia: dadosNormalizados.socialMedia,
+        customButton: dadosNormalizados.customButton,
+        version: dadosNormalizados.version,
+        monetization: dadosNormalizados.monetization || null // 🔥 GARANTE QUE MONETIZAÇÃO ESTÁ INCLUÍDA
+
+    };
+
+    try {
+        const publishingStatus = document.getElementById('publishingStatus');
+        const processingMessage = document.getElementById('processingMessage');
+        const successMessage = document.getElementById('successMessage');
+        const serverResult = document.getElementById('serverResult');
+        const authRequiredMessage = document.getElementById('authRequiredMessage');
+        const backToScreen5Btn = document.getElementById('backToScreen5');
+        const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
+        const retryPublish = document.getElementById('retryPublish');
+        
+        publishingStatus.style.display = 'block';
+        processingMessage.style.display = 'none';
+        successMessage.style.display = 'none';
+        serverResult.style.display = 'none';
+        backToScreen5Btn.style.display = 'none';
+        backToHomeFromSuccess.style.display = 'none';
+        retryPublish.style.display = 'none';
+        
+        document.querySelector('#publishingStatus .progress-bar').style.width = '30%';
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        publishingStatus.style.display = 'none';
+        processingMessage.style.display = 'block';
+        document.querySelector('#processingMessage .progress-bar').style.width = '60%';
+        
+        console.log("Enviando para publicação...");
+        const resultado = await publicarCanal(dadosNormalizados.name, dadosParaEnvio);
+        
+        tvData.url = resultado.url;
+        tvData.published = true;
+        
+        const channelId = await salvarCanalBancoDados(tvData, true);
+        
+        if (channelId) {
+            const versaoAtual = tvData.version;
+            
+            processingMessage.innerHTML = `
+                <div class="spinner"></div>
+                <h3>Verificando publicação...</h3>
+                <p>Confirmando que seu canal está disponível.</p>
+                <div class="progress-container">
+                    <div class="progress-bar" style="width: 80%;"></div>
+                </div>
+            `;
+            
+            const isNewChannel = !editingChannel;
+            const stopChecking = verificarDisponibilidadeCanal(resultado.url, versaoAtual, isNewChannel, (success, foundVersion) => {
+                if (success) {
+                    processingMessage.style.display = 'none';
+                    successMessage.style.display = 'block';
+                    
+                    let mensagemSucesso = '';
+                    if (isNewChannel) {
+                        mensagemSucesso = `Seu canal já está no ar!<br><small>O canal foi verificado e está disponível para seus espectadores.</small>`;
+                    } else {
+                        mensagemSucesso = `Canal Atualizado!<br><small>A nova versão do seu canal já está disponível para seus espectadores.</small>`;
+                    }
+                    
+                    successMessage.innerHTML = `
+                        <h3>${mensagemSucesso}</h3>
+                        <a href="${resultado.url}" class="channel-link" target="_blank">Abrir ${dadosNormalizados.name}</a>
+                    `;
+                    
+                    backToHomeFromSuccess.style.display = 'inline-block';
+                    backToScreen5Btn.style.display = 'none';
+                    
+                    publicationStarted = false;
+                    
+                    carregarCanais();
+                }
+            });
+            
+        } else {
+            throw new Error("Falha ao salvar canal no banco de dados");
+        }
+        
+    } catch (error) {
+        console.error("Erro na publicação:", error);
+        
+        if (versionCheckInterval) {
+            clearInterval(versionCheckInterval);
+            versionCheckInterval = null;
+        }
+        
+        const publishingStatus = document.getElementById('publishingStatus');
+        const processingMessage = document.getElementById('processingMessage');
+        const successMessage = document.getElementById('successMessage');
+        const serverResult = document.getElementById('serverResult');
+        const backToScreen5Btn = document.getElementById('backToScreen5');
+        const backToHomeFromSuccess = document.getElementById('backToHomeFromSuccess');
+        const retryPublish = document.getElementById('retryPublish');
+        
+        publishingStatus.style.display = 'none';
+        processingMessage.style.display = 'none';
+        successMessage.style.display = 'none';
+        
+        serverResult.innerHTML = `
+            <h3>Erro ao publicar canal</h3>
+            <p>${error.message}</p>
+            <p><small>Tente novamente mais tarde.</small></p>
+        `;
+        serverResult.className = 'server-result server-error';
+        serverResult.style.display = 'block';
+        
+        backToScreen5Btn.style.display = 'inline-block';
+        retryPublish.style.display = 'inline-block';
+        
+        publicationStarted = false;
+        
+        if (error.message.includes("Já existe um canal com o nome")) {
+            document.getElementById('nameDuplicateError').textContent = error.message;
+            document.getElementById('nameDuplicateError').style.display = 'block';
+        }
+    }
+}
 
         // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
 
