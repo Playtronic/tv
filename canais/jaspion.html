@@ -2999,18 +2999,15 @@ let donationSystem = {
     canCloseLightbox: true,
     
     init: function() {
-        console.log('🔧 Inicializando sistema de doação PIX para canal:', CHANNEL_ID);
+        console.log('Inicializando sistema de doação PIX...');
         
         // Botão de apoio
         const supportButton = document.getElementById('supportButton');
         if (supportButton) {
-            supportButton.addEventListener('click', () => {
-                console.log('🎯 Botão Apoiar clicado');
-                this.showDonationLightbox();
-            });
-            console.log('✅ Botão "Apoiar" encontrado e configurado');
+            supportButton.addEventListener('click', () => this.showDonationLightbox());
+            console.log('Botão "Apoiar" encontrado e configurado');
         } else {
-            console.log('⚠️ Botão "Apoiar" não encontrado');
+            console.log('Botão "Apoiar" não encontrado (pode ser normal se não houver monetização)');
         }
         
         // Configurar event listeners da lightbox
@@ -3059,7 +3056,7 @@ let donationSystem = {
             lightbox.style.display = 'flex';
             this.canCloseLightbox = true;
             this.resetDonationLightbox();
-            console.log('📱 Lightbox de doação aberta');
+            console.log('Lightbox de doação aberta');
         }
     },
     
@@ -3079,7 +3076,7 @@ let donationSystem = {
             }
             
             this.currentPaymentId = null;
-            console.log('📱 Lightbox de doação fechada');
+            console.log('Lightbox de doação fechada');
         }
     },
     
@@ -3101,22 +3098,15 @@ let donationSystem = {
     },
     
     generatePixPayment: async function() {
-        console.log('=== INICIANDO GERAÇÃO DE PIX ===');
-        console.log('📊 CHANNEL_ID:', CHANNEL_ID);
-        
         const amountInput = document.getElementById('donationAmount');
         const generatePixButton = document.getElementById('generatePixButton');
         const pixArea = document.getElementById('pixArea');
         const qrcodeContainer = document.getElementById('qrcodeContainer');
         const pixCode = document.getElementById('pixCode');
         
-        if (!amountInput || !generatePixButton) {
-            console.error('❌ Elementos do formulário não encontrados');
-            return;
-        }
+        if (!amountInput || !generatePixButton) return;
         
         const amount = parseFloat(amountInput.value);
-        console.log('💰 Valor solicitado:', amount);
         
         if (!amount || amount < 1.00) {
             alert('Por favor, insira um valor válido (mínimo R$ 1,00).');
@@ -3129,56 +3119,20 @@ let donationSystem = {
         this.canCloseLightbox = false;
         
         try {
-            console.log('📤 Enviando requisição para createPixPayment...');
-            console.log('🔗 URL: https://us-central1-playtronic-tv.cloudfunctions.net/createPixPayment');
-            
-            const requestBody = {
-                channelId: CHANNEL_ID,
-                amount: amount.toFixed(2),
-                paymentType: 'donation',
-                payerEmail: 'doador@email.com'
-            };
-            
-            console.log('📄 Request body:', JSON.stringify(requestBody));
-            
-            // FAZER A REQUISIÇÃO
             const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/createPixPayment', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
+                    'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify({
+                    channelId: CHANNEL_ID,
+                    amount: amount,
+                    paymentType: 'donation',
+                    payerEmail: currentUserChannel ? currentUserChannel.email : ''
+                })
             });
             
-            console.log('📨 Status da resposta:', response.status, response.statusText);
-            
-            // Verificar se a resposta é válida
-            if (!response.ok) {
-                console.error('❌ Erro HTTP:', response.status);
-                
-                // Tentar ler a resposta como texto primeiro
-                const errorText = await response.text();
-                console.error('❌ Conteúdo do erro:', errorText);
-                
-                if (response.status === 404) {
-                    throw new Error('Função createPixPayment não encontrada (404). Verifique o deploy.');
-                } else if (response.status === 405) {
-                    throw new Error('Método não permitido (405). A função existe mas não aceita POST.');
-                } else {
-                    throw new Error(`Erro ${response.status}: ${response.statusText} - ${errorText}`);
-                }
-            }
-            
-            // Tentar parsear como JSON
-            let result;
-            try {
-                result = await response.json();
-                console.log('✅ Resposta JSON do servidor:', result);
-            } catch (jsonError) {
-                console.error('❌ Erro ao parsear JSON:', jsonError);
-                throw new Error('Resposta inválida do servidor');
-            }
+            const result = await response.json();
             
             if (result.success) {
                 this.currentPaymentId = result.paymentId;
@@ -3192,21 +3146,17 @@ let donationSystem = {
                 
                 pixCode.value = result.qrCode || 'Código PIX gerado';
                 generatePixButton.textContent = 'PIX Gerado ✓';
-                
-                // Iniciar verificação de status
                 this.startPaymentStatusCheck();
                 
             } else {
-                const errorMsg = 'Erro ao gerar PIX: ' + (result.details || result.error || 'Tente novamente.');
-                console.error('❌', errorMsg);
-                alert(errorMsg);
+                alert('Erro ao gerar PIX: ' + (result.details || result.error || 'Tente novamente.'));
                 this.resetDonationLightbox();
                 this.canCloseLightbox = true;
             }
             
         } catch (error) {
-            console.error('❌ Erro completo ao gerar PIX:', error);
-            alert('Erro: ' + error.message);
+            console.error('Erro ao gerar PIX:', error);
+            alert('Erro de conexão. Tente novamente.');
             this.resetDonationLightbox();
             this.canCloseLightbox = true;
         }
