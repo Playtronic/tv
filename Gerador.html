@@ -2147,17 +2147,17 @@ function gerarHTMLdoCanal(dados) {
     }
     
     // Determinar data de estreia usando a nova função
-    const releaseDate = dados.release || determinarDataEstreia({
-        customReleaseDate: dados.customReleaseDate || false,
-        releaseDate: dados.release || ''
-    });
-    
-    // Gerar channelId
-    // 🔥 USAR O channelId DOS DADOS OU GERAR FALLBACK
-const channelIdFromData = dados.channelId || '';
-const CHANNEL_ID = channelIdFromData || dados.name.toLowerCase()
+const releaseDate = dados.release || determinarDataEstreia({
+    customReleaseDate: dados.customReleaseDate || false,
+    releaseDate: dados.release || ''
+});
+
+// 🔥 CORREÇÃO: Usar channelId dos dados OU gerar a partir do nome
+const channelId = dados.channelId || dados.name.toLowerCase()
     .replace(/[^a-z0-9]/g, '-')
     .replace(/-+/g, '-');
+    
+console.log("🔑 Channel ID para HTML:", channelId);
     
 console.log("📺 Channel ID no HTML gerado:", CHANNEL_ID);
 
@@ -2271,24 +2271,24 @@ console.log("📺 Channel ID no HTML gerado:", CHANNEL_ID);
 const donationSystemScript = `
 <script>
 // ==================== SISTEMA DE DOAÇÃO PIX ====================
+const CHANNEL_ID_FOR_PIX = "${channelId}";
+
 let donationSystem = {
     currentPaymentId: null,
     paymentCheckInterval: null,
     canCloseLightbox: true,
     
     init: function() {
-        console.log('Inicializando sistema de doação PIX...');
+        console.log('💰 Sistema de doação PIX inicializado para channel:', CHANNEL_ID_FOR_PIX);
         
-        // Botão de apoio
         const supportButton = document.getElementById('supportButton');
         if (supportButton) {
             supportButton.addEventListener('click', () => this.showDonationLightbox());
-            console.log('Botão "Apoiar" encontrado e configurado');
+            console.log('✅ Botão "Apoiar" configurado');
         } else {
-            console.log('Botão "Apoiar" não encontrado (pode ser normal se não houver monetização)');
+            console.log('⚠️ Botão "Apoiar" não encontrado');
         }
         
-        // Configurar event listeners da lightbox
         this.setupLightboxListeners();
     },
     
@@ -2391,26 +2391,28 @@ let donationSystem = {
             return;
         }
         
-        // Desabilitar botão durante a geração
         generatePixButton.disabled = true;
         generatePixButton.textContent = 'Gerando PIX...';
         this.canCloseLightbox = false;
         
         try {
+            console.log('💸 Enviando requisição PIX para channel:', CHANNEL_ID_FOR_PIX, 'valor:', amount);
+            
             const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/createPixPayment', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    channelId: CHANNEL_ID,
+                    channelId: CHANNEL_ID_FOR_PIX,
                     amount: amount,
                     paymentType: 'donation',
-                    payerEmail: currentUserChannel ? currentUserChannel.email : ''
+                    payerEmail: window.currentUserChannel ? window.currentUserChannel.email : ''
                 })
             });
             
             const result = await response.json();
+            console.log('📄 Resposta do PIX:', result);
             
             if (result.success) {
                 this.currentPaymentId = result.paymentId;
@@ -2433,7 +2435,7 @@ let donationSystem = {
             }
             
         } catch (error) {
-            console.error('Erro ao gerar PIX:', error);
+            console.error('❌ Erro ao gerar PIX:', error);
             alert('Erro de conexão. Tente novamente.');
             this.resetDonationLightbox();
             this.canCloseLightbox = true;
@@ -2527,7 +2529,6 @@ let donationSystem = {
     }
 };
 
-// Inicializar o sistema de doação após o carregamento da página
 document.addEventListener('DOMContentLoaded', function() {
     setTimeout(function() {
         if (typeof donationSystem !== 'undefined' && donationSystem.init) {
@@ -3940,6 +3941,8 @@ ${socialMediaHTML}
         const IS_OFFLINE = ${isOffline};
         const CHANNEL_VERSION = "${version}";
         const CHANNEL_ID = "${channelId}";
+
+        
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
         const firebaseConfig = {
