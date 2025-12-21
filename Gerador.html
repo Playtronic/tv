@@ -2066,190 +2066,202 @@ function determinarDataEstreia(dadosGerador) {
         }
 
         // Função para gerar HTML do canal (ATUALIZADA COM NOVA LÓGICA DE DATA)
-        function gerarHTMLdoCanal(dados) {
-            const isOffline = dados.isOffline || false;
-            const visibility = dados.visibility || 'brazil';
-            const isAdultContent = dados.isAdultContent || false;
-            const programmingMode = dados.programmingMode || 'grade';
-            const commercialsOrder = dados.commercialsOrder || 'sequential';
-  console.log("=== GERANDO HTML DO CANAL ===");
+function gerarHTMLdoCanal(dados) {
+    const isOffline = dados.isOffline || false;
+    const visibility = dados.visibility || 'brazil';
+    const isAdultContent = dados.isAdultContent || false;
+    const programmingMode = dados.programmingMode || 'grade';
+    const commercialsOrder = dados.commercialsOrder || 'sequential';
+    
+    console.log("=== GERANDO HTML DO CANAL ===");
     console.log("dados.customButton:", dados.customButton);
     console.log("dados.monetization:", dados.monetization);
     console.log("dados.monetization?.pixDonations:", dados.monetization?.pixDonations);
-            
-            // Gerar grade de programação (apenas para modo grade)
-            let GRADE = [];
-            let totalPrograms = 0;
-            
-            if (programmingMode === 'grade') {
-                totalPrograms = dados.programas.length;
-                
-                if (totalPrograms === 0) {
-                    for (let i = 0; i < totalSlots; i++) {
-                        GRADE.push(0);
-                    }
-                } else {
-                    for (let i = 0; i < totalSlots; i++) {
-                        GRADE.push(i % totalPrograms);
-                    }
-                }
-            }
-            
-            // Determinar data de estreia usando a nova função
-            const releaseDate = dados.release || determinarDataEstreia({
-    customReleaseDate: dados.customReleaseDate || false,
-    releaseDate: dados.release || ''
-});
-            
-            // Gerar channelId
-            const channelId = dados.name.toLowerCase()
-                .replace(/[^a-z0-9]/g, '-')
-                .replace(/-+/g, '-');
-            
-            const debugSection = (!isOffline && dados.enableDebug) ? `
-            <div class="debug-info">
-                <div class="program-item">
-                    <div class="program-label">Modo de Programação:</div>
-                    <div class="program-name" id="programmingModeDisplay">${programmingMode === 'grade' ? 'Grade' : 'Playlist'}</div>
-                </div>
-                <div class="program-item">
-                    <div class="program-label">Dias desde a estreia:</div>
-                    <div class="program-name" id="debugDays">-</div>
-                </div>
-                <div class="program-item">
-                    <div class="program-label">Número do programa:</div>
-                    <div class="program-name" id="debugProgram">-</div>
-                </div>
-                <div class="program-item">
-                    <div class="program-label">Espectadores online:</div>
-                    <div class="program-name" id="onlineViewers">0</div>
-                </div>
-                <div class="program-item">
-                    <div class="program-label">Nota do Canal:</div>
-                    <div class="program-name" id="channelRating">N/D</div>
-                </div>
-            </div>` : '';
-
-// 🔥 NOVO: Banner do AdsTerra (se configurado)
-let adsTerraBannerHTML = '';
-if (dados.monetization && dados.monetization.adsTerraBanner && 
-    dados.monetization.adsTerraBanner.enabled && 
-    dados.monetization.adsTerraBanner.code) {
     
-    adsTerraBannerHTML = `
-    <!-- 🔥 ADS TERRA BANNER -->
-    <div id="adsTerraBannerContainer" style="margin: 20px auto; max-width: 800px; text-align: center;">
-        <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px;">
-            <p style="font-size: 0.9rem; margin-bottom: 10px; opacity: 0.8;">Anúncio</p>
-            <div id="adsTerraBannerPlaceholder">
-                ${dados.monetization.adsTerraBanner.code}
-            </div>
-        </div>
-    </div>
-    `;
-}
+    // 🔥 VARIÁVEIS PARA BOTÕES DE MONETIZAÇÃO
+    const hasPixDonations = dados.monetization?.pixDonations?.enabled || false;
+    const hasCustomButton = dados.customButton?.text && dados.customButton?.url;
+    const customButton = dados.customButton || { text: '', url: '' };
+    
+    let supportButtonHTML = '';
+    let customButtonHTML = '';
+    
+    // 🔥 BOTÕES DE MONETIZAÇÃO - LÓGICA CORRIGIDA
+    if (!isOffline) {
+        // Botão de Apoiar (PIX)
+        if (hasPixDonations) {
+            supportButtonHTML = `
+            <div style="text-align: center; margin: 20px 0;">
+                <button id="supportButton" style="background: #2ecc71; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 1.1rem; cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); display: inline-flex; align-items: center; gap: 8px; margin: 5px;">
+                    ❤️ Apoiar
+                </button>`;
             
-            // Script de verificação de país
-            const countryCheckScript = visibility === 'brazil' ? `
-            <script>
-                function checkCountry() {
-                    const userLang = navigator.language || navigator.userLanguage;
-                    const isPortuguese = userLang.startsWith('pt');
-                    
-                    if (!isPortuguese) {
-                        document.querySelector('.video-wrapper').innerHTML = '<img src="${OFFLINE_IMAGE}" class="offline-image" alt="Canal fora do ar"><div class="offline-message"><h3>Canal Temporariamente Fora do Ar</h3><p style="font-size: 0.9rem;">Este canal está passando por manutenção.</p><p style="font-size: 0.9rem;">Tente novamente mais tarde.</p></div>';
-                        document.querySelector('.program-info').style.display = 'none';
-                        return false;
-                    }
-                    return true;
-                }
-                
-                document.addEventListener('DOMContentLoaded', function() {
-                    checkCountry();
-                });
-            <\/script>` : '';
-            
-            // Gerar lista de programas (modo grade)
-            const programasArray = dados.programas ? dados.programas.map((program, index) => ({
-                id: index,
-                name: program.name,
-                videos: program.videos || []
-            })) : [];
-            
-            // Gerar lista de vídeos da playlist (modo playlist)
-            const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
-                id: index,
-                name: video.name,
-                url: video.url
-            })) : [];
-            
-            // Gerar lista de comerciais
-            const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
-            
-            // Redes sociais
-            let socialMediaHTML = '';
-            const socialMedia = dados.socialMedia || {};
-            const hasSocialMedia = socialMedia.facebook || socialMedia.instagram || socialMedia.bluesky || socialMedia.tiktok || socialMedia.twitter;
-            
-            if (hasSocialMedia) {
-                socialMediaHTML = `
-                <div class="social-media-links" style="text-align: center; margin: 20px 0;">
-                    <h3 style="margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">Siga-nos nas redes sociais</h3>
-                    <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
-                        ${socialMedia.facebook ? `<a href="${socialMedia.facebook}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.facebook}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Facebook"></a>` : ''}
-                        ${socialMedia.instagram ? `<a href="${socialMedia.instagram}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.instagram}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Instagram"></a>` : ''}
-                        ${socialMedia.bluesky ? `<a href="${socialMedia.bluesky}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.bluesky}" style="width: 50px; height: 50px; border-radius: 8px;" alt="BlueSky"></a>` : ''}
-                        ${socialMedia.tiktok ? `<a href="${socialMedia.tiktok}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.tiktok}" style="width: 50px; height: 50px; border-radius: 8px;" alt="TikTok"></a>` : ''}
-                        ${socialMedia.twitter ? `<a href="${socialMedia.twitter}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.twitter}" style="width: 50px; height: 50px; border-radius: 8px;" alt="X (Twitter)"></a>` : ''}
-                    </div>
-                </div>`;
+            // Adiciona botão personalizado SE existir
+            if (hasCustomButton) {
+                supportButtonHTML += `
+                <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); margin: 5px;">
+                    ${customButton.text}
+                </a>`;
             }
-            // 🔥 CORREÇÃO: Renderização simplificada e direta
-if (!isOffline) {
-    // Botão de Apoiar (PIX)
-    if (hasPixDonations) {
-        supportButtonHTML = `
-        <div style="text-align: center; margin: 20px 0;">
-            <button id="supportButton" style="background: #2ecc71; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 1.1rem; cursor: pointer; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); display: inline-flex; align-items: center; gap: 8px; margin: 5px;">
-                ❤️ Apoiar
-            </button>`;
-        
-        // Adiciona botão personalizado SE existir
-        if (hasCustomButton) {
-            supportButtonHTML += `
-            <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3); margin: 5px;">
-                ${customButton.text}
-            </a>`;
+            
+            supportButtonHTML += `</div>`;
+        }
+        // Apenas botão personalizado (se não tem PIX)
+        else if (hasCustomButton) {
+            customButtonHTML = `
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
+                    ${customButton.text}
+                </a>
+            </div>`;
         }
         
-        supportButtonHTML += `</div>`;
+        // 🔥 LOG PARA DEPURAÇÃO
+        console.log("=== BOTÕES RENDERIZADOS ===");
+        console.log("hasPixDonations:", hasPixDonations);
+        console.log("hasCustomButton:", hasCustomButton);
+        console.log("customButton:", customButton);
+        console.log("supportButtonHTML:", supportButtonHTML ? "Sim" : "Não");
+        console.log("customButtonHTML:", customButtonHTML ? "Sim" : "Não");
     }
-    // Apenas botão personalizado (se não tem PIX)
-    else if (hasCustomButton) {
-        customButtonHTML = `
-        <div style="text-align: center; margin: 20px 0;">
-            <a href="${customButton.url}" target="_blank" style="display: inline-block; background: #3498db; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);">
-                ${customButton.text}
-            </a>
+    
+    // Resto do código da função permanece igual...
+    // Gerar grade de programação (apenas para modo grade)
+    let GRADE = [];
+    let totalPrograms = 0;
+    
+    if (programmingMode === 'grade') {
+        totalPrograms = dados.programas.length;
+        
+        if (totalPrograms === 0) {
+            for (let i = 0; i < totalSlots; i++) {
+                GRADE.push(0);
+            }
+        } else {
+            for (let i = 0; i < totalSlots; i++) {
+                GRADE.push(i % totalPrograms);
+            }
+        }
+    }
+    
+    // Determinar data de estreia usando a nova função
+    const releaseDate = dados.release || determinarDataEstreia({
+        customReleaseDate: dados.customReleaseDate || false,
+        releaseDate: dados.release || ''
+    });
+    
+    // Gerar channelId
+    const channelId = dados.name.toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-');
+    
+    const debugSection = (!isOffline && dados.enableDebug) ? `
+    <div class="debug-info">
+        <div class="program-item">
+            <div class="program-label">Modo de Programação:</div>
+            <div class="program-name" id="programmingModeDisplay">${programmingMode === 'grade' ? 'Grade' : 'Playlist'}</div>
+        </div>
+        <div class="program-item">
+            <div class="program-label">Dias desde a estreia:</div>
+            <div class="program-name" id="debugDays">-</div>
+        </div>
+        <div class="program-item">
+            <div class="program-label">Número do programa:</div>
+            <div class="program-name" id="debugProgram">-</div>
+        </div>
+        <div class="program-item">
+            <div class="program-label">Espectadores online:</div>
+            <div class="program-name" id="onlineViewers">0</div>
+        </div>
+        <div class="program-item">
+            <div class="program-label">Nota do Canal:</div>
+            <div class="program-name" id="channelRating">N/D</div>
+        </div>
+    </div>` : '';
+
+    // 🔥 NOVO: Banner do AdsTerra (se configurado)
+    let adsTerraBannerHTML = '';
+    if (dados.monetization && dados.monetization.adsTerraBanner && 
+        dados.monetization.adsTerraBanner.enabled && 
+        dados.monetization.adsTerraBanner.code) {
+        
+        adsTerraBannerHTML = `
+        <!-- 🔥 ADS TERRA BANNER -->
+        <div id="adsTerraBannerContainer" style="margin: 20px auto; max-width: 800px; text-align: center;">
+            <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px;">
+                <p style="font-size: 0.9rem; margin-bottom: 10px; opacity: 0.8;">Anúncio</p>
+                <div id="adsTerraBannerPlaceholder">
+                    ${dados.monetization.adsTerraBanner.code}
+                </div>
+            </div>
+        </div>
+        `;
+    }
+    
+    // Script de verificação de país
+    const countryCheckScript = visibility === 'brazil' ? `
+    <script>
+        function checkCountry() {
+            const userLang = navigator.language || navigator.userLanguage;
+            const isPortuguese = userLang.startsWith('pt');
+            
+            if (!isPortuguese) {
+                document.querySelector('.video-wrapper').innerHTML = '<img src="${OFFLINE_IMAGE}" class="offline-image" alt="Canal fora do ar"><div class="offline-message"><h3>Canal Temporariamente Fora do Ar</h3><p style="font-size: 0.9rem;">Este canal está passando por manutenção.</p><p style="font-size: 0.9rem;">Tente novamente mais tarde.</p></div>';
+                document.querySelector('.program-info').style.display = 'none';
+                return false;
+            }
+            return true;
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            checkCountry();
+        });
+    <\/script>` : '';
+    
+    // Gerar lista de programas (modo grade)
+    const programasArray = dados.programas ? dados.programas.map((program, index) => ({
+        id: index,
+        name: program.name,
+        videos: program.videos || []
+    })) : [];
+    
+    // Gerar lista de vídeos da playlist (modo playlist)
+    const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
+        id: index,
+        name: video.name,
+        url: video.url
+    })) : [];
+    
+    // Gerar lista de comerciais
+    const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
+    
+    // Redes sociais
+    let socialMediaHTML = '';
+    const socialMedia = dados.socialMedia || {};
+    const hasSocialMedia = socialMedia.facebook || socialMedia.instagram || socialMedia.bluesky || socialMedia.tiktok || socialMedia.twitter;
+    
+    if (hasSocialMedia) {
+        socialMediaHTML = `
+        <div class="social-media-links" style="text-align: center; margin: 20px 0;">
+            <h3 style="margin-bottom: 15px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">Siga-nos nas redes sociais</h3>
+            <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
+                ${socialMedia.facebook ? `<a href="${socialMedia.facebook}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.facebook}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Facebook"></a>` : ''}
+                ${socialMedia.instagram ? `<a href="${socialMedia.instagram}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.instagram}" style="width: 50px; height: 50px; border-radius: 8px;" alt="Instagram"></a>` : ''}
+                ${socialMedia.bluesky ? `<a href="${socialMedia.bluesky}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.bluesky}" style="width: 50px; height: 50px; border-radius: 8px;" alt="BlueSky"></a>` : ''}
+                ${socialMedia.tiktok ? `<a href="${socialMedia.tiktok}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.tiktok}" style="width: 50px; height: 50px; border-radius: 8px;" alt="TikTok"></a>` : ''}
+                ${socialMedia.twitter ? `<a href="${socialMedia.twitter}" target="_blank" style="text-decoration: none;"><img src="${SOCIAL_MEDIA_IMAGES.twitter}" style="width: 50px; height: 50px; border-radius: 8px;" alt="X (Twitter)"></a>` : ''}
+            </div>
         </div>`;
     }
     
-    // 🔥 LOG PARA DEPURAÇÃO
-    console.log("=== BOTÕES RENDERIZADOS ===");
-    console.log("hasPixDonations:", hasPixDonations);
-    console.log("hasCustomButton:", hasCustomButton);
-    console.log("customButton:", customButton);
-    console.log("supportButtonHTML length:", supportButtonHTML.length);
-    console.log("customButtonHTML length:", customButtonHTML.length);
-}
-            
-            // Versão do canal
-            const version = dados.version || '1.0.0.0';
-            const versionHTML = `
-                <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
-                    Versão ${version}
-                </div>
-            `;
+    // Versão do canal
+    const version = dados.version || '1.0.0.0';
+    const versionHTML = `
+        <div style="text-align: center; margin: 15px 0; font-size: 0.85rem; opacity: 0.6;">
+            Versão ${version}
+        </div>
+    `;
+
             
 // ==================== SISTEMA DE DOAÇÃO PIX ====================
 let donationSystem = {
