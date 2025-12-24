@@ -405,9 +405,9 @@
                     <label for="adsterraSmartlink">Habilitar Smartlink Adsterra</label>
                 </div>
                 
-               <div class="info-box">
-    <p><strong>Como funciona:</strong> Quando um espectador acessa seu canal, o conteúdo ficará bloqueado inicialmente. Para desbloquear, o espectador precisará clicar em um botão específico que abrirá uma nova aba com um anúncio. Após visualizar o anúncio, o conteúdo do seu canal será automaticamente liberado e poderá ser assistido normalmente na aba original.</p>
-</div>
+                <div class="info-box">
+                    <p><strong>Como funciona:</strong> Ao acessar seu canal, os espectadores encontrarão o conteúdo temporariamente bloqueado. Eles precisarão clicar em um botão para desbloqueá-lo, o que abrirá uma nova aba com um anúncio. Após visualizar o anúncio (geralmente por alguns segundos), o conteúdo do seu canal será liberado automaticamente e poderá ser assistido normalmente. Este sistema garante que você seja remunerado por cada visualização enquanto oferece uma experiência simples para seus espectadores.</p>
+                </div>
                 
                 <div id="adsterraSettings" style="display: none; margin-top: 15px;">
                     <div class="form-group">
@@ -425,7 +425,7 @@
                             <li>Configure as opções (recomendamos deixar as configurações padrão).</li>
                             <li>Copie o link gerado (começa com https://...).</li>
                             <li>Cole o link completo no campo acima.</li>
-                            <li>Clique em <strong>"Salvar Configurações"</strong> abaixo.</li>
+                            <li>Clique em <strong>"Salvar e Publicar"</strong> abaixo.</li>
                         </ol>
                         
                         <div class="tip-box">
@@ -468,7 +468,7 @@
                             <li>Faça login na sua conta do Mercado Pago.</li>
                             <li>Autorize a aplicação "Canais de TV Online".</li>
                             <li>O status mostrará "✅ Conectado ao Mercado Pago".</li>
-                            <li>Clique em <strong>"Salvar Configurações"</strong> abaixo.</li>
+                            <li>Clique em <strong>"Salvar e Publicar"</strong> abaixo.</li>
                         </ol>
                         
                         <div class="tip-box">
@@ -522,7 +522,7 @@
                             <li>Clique em <strong>"Conectar Mercado Pago"</strong>.</li>
                             <li>Faça login e autorize a aplicação.</li>
                             <li>O status mostrará "✅ Conectado ao Mercado Pago".</li>
-                            <li>Clique em <strong>"Salvar Configurações"</strong> abaixo.</li>
+                            <li>Clique em <strong>"Salvar e Publicar"</strong> abaixo.</li>
                         </ol>
                         
                         <div class="tip-box">
@@ -534,7 +534,7 @@
 
             <div class="navigation">
                 <button id="cancelBtn" class="secondary">← Voltar para Gerador</button>
-                <button id="saveBtn" disabled>Salvar Configurações</button>
+                <button id="saveBtn" disabled>Salvar e Publicar</button>
             </div>
         </div>
 
@@ -1040,28 +1040,30 @@
             setTimeout(() => checkForChanges(), 100);
         }
 
-        // 💾 SALVAR CONFIGURAÇÕES
+        // 💾 SALVAR CONFIGURAÇÕES E COMUNICAR COM GERADOR
         async function saveMonetization() {
             try {
+                // 🛡️ Verificar novamente o acesso antes de salvar
                 if (!currentUser || !channelId) {
                     throw new Error("Sessão expirada. Faça login novamente.");
                 }
 
                 await verifyChannelAccess(channelId);
 
-                // Validar configurações
+                // Validar configurações antes de salvar
                 const errors = validateMonetizationSettings();
                 if (errors.length > 0) {
                     const errorMessage = errors.join('<br>• ');
-                    showError(`❌ Erro de validação:<br>• ${errorMessage}`);
+                    showError(`❌ Erro de validação:<br>• ${errorMessage}<br><br>Por favor, corrija as configurações ou desabilite as opções.`);
                     return;
                 }
 
-                // Coletar dados
+                // Coletar dados do formulário
                 monetizationData.adsterraSmartlink.enabled = document.getElementById('adsterraSmartlink').checked;
                 monetizationData.adsterraSmartlink.url = document.getElementById('adsterraSmartlinkUrl').value.trim();
 
                 monetizationData.pixDonations.enabled = document.getElementById('pixDonations').checked;
+                // ✅ GARANTIR QUE O PLATFORM USER ID ESTEJA SEMPRE PRESENTE
                 if (!monetizationData.pixDonations.mpPlatformUserId) {
                     monetizationData.pixDonations.mpPlatformUserId = '282224393';
                 }
@@ -1069,33 +1071,58 @@
                 monetizationData.paidCommercials.enabled = document.getElementById('paidCommercials').checked;
                 monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
                 monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
+                // ✅ GARANTIR QUE O PLATFORM USER ID ESTEJA SEMPRE PRESENTE
                 if (!monetizationData.paidCommercials.mpPlatformUserId) {
                     monetizationData.paidCommercials.mpPlatformUserId = '282224393';
                 }
 
-                // Salvar no Firestore
-                await updateMonetizationData();
+                // Salvar na estrutura ANTIGA (para compatibilidade)
+                await db.collection('users').doc(currentUser.uid)
+                    .collection('channels').doc(channelId)
+                    .collection('monetization').doc('settings')
+                    .set(monetizationData, { merge: true });
 
-                // Criar flag para o Gerador processar
-                await db.collection('channels').doc(channelId)
-                    .collection('system').doc('monetization_update').set({
-                        needsUpdate: true,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        userId: currentUser.uid
-                    }, { merge: true });
+                // Salvar na NOVA estrutura (channels)
+                const channelRef = db.collection('channels').doc(channelId);
+                await channelRef.set({
+                    channelId: channelId,
+                    ownerId: currentUser.uid,
+                    name: document.getElementById('channelNameSpan').textContent,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
 
-                // Atualizar dados originais
+                // Salvar configurações de monetização com TODOS os campos necessários
+                await channelRef.collection('monetization').doc('settings').set({
+                    pixDonations: monetizationData.pixDonations,
+                    paidCommercials: monetizationData.paidCommercials,
+                    adsterraSmartlink: monetizationData.adsterraSmartlink,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                // 🔥 CHAVE DO SISTEMA: Criar flag para o Gerador processar
+                await channelRef.collection('system').doc('monetization_update').set({
+                    needsUpdate: true,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    userId: currentUser.uid
+                }, { merge: true });
+
+                // Atualizar dados originais para nova comparação
                 originalMonetizationData = JSON.parse(JSON.stringify(monetizationData));
                 
-                // Desabilitar botão salvar
+                // Desabilitar botão salvar após salvar
                 document.getElementById('saveBtn').disabled = true;
                 
-                showSuccess('✅ Configurações salvas com sucesso!');
+                showSuccess('✅ Configurações salvas! Redirecionando para o Gerador...');
+
+                // 📤 COMUNICAÇÃO COM GERADOR: Redirecionar com parâmetro específico
+                setTimeout(() => {
+                    window.location.href = `https://canaisdetv.online/Gerador?channelId=${channelId}&monetizationUpdated=true&source=monetizar`;
+                }, 2000);
 
             } catch (error) {
                 showError(`❌ Erro: ${error.message}`);
                 
-                if (error.message.includes('acesso') || error.message.includes('sessão')) {
+                if (error.message.includes('acesso') || error.message.includes('segurança') || error.message.includes('sessão')) {
                     setTimeout(() => {
                         window.location.href = 'https://canaisdetv.online/Gerador';
                     }, 3000);
