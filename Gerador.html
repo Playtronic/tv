@@ -6550,55 +6550,53 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
                                 statusClass = 'status-published';
                             }
                             
-const channelIdForFirebase = channel.id || channel.name.toLowerCase()
-    .replace(/[^a-z0-9]/g, '-')
-    .replace(/-+/g, '-');
+                            const channelIdForFirebase = channel.name.toLowerCase()
+                                .replace(/[^a-z0-9]/g, '-')
+                                .replace(/-+/g, '-');
                             
-                channelCard.innerHTML = `
-    <div data-channel-name="${channel.name}">
-        ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
-        <div class="channel-name-with-emoji">
-            <h3>${channel.name}</h3>
-        </div>
-        ${visibilityIcon}
-        ${adultIcon}
-        <p class="spectators">Espectadores: 0</p>
-        <div class="channel-status ${statusClass}">${statusText}</div>
-        <div class="channel-actions">
-        ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
-            `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
-        <button class="edit-channel" data-id="${channel.id}">Editar</button>
-        <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
-        <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
-            ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
-        </button>
-        <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
+                            channelCard.innerHTML = `
+    ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
+    <div class="channel-name-with-emoji">
+        <h3>${channel.name}</h3>
     </div>
-    </div>
+    ${visibilityIcon}
+    ${adultIcon}
+    <p class="spectators" id="spectators-${channel.id}">Espectadores: 0</p>
+    <div class="channel-status ${statusClass}">${statusText}</div>
+    <div class="channel-actions">
+    ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
+        `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
+    <button class="edit-channel" data-id="${channel.id}">Editar</button>
+    <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
+    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
+        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
+    </button>
+    <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
+</div>
 `;
                             channelsList.appendChild(channelCard);
                             if (!isOffline && isPublished) {
-                    // FORMA SIMPLES E DIRETA: usa o mesmo método da página do canal
-                    const channelId = channel.name.toLowerCase()
+                    // Usar o channelIdForFirebase do canal em vez de gerar
+                    const channelIdForFirebase = channel.channelIdForFirebase || channel.name.toLowerCase()
                         .replace(/[^a-z0-9]/g, '-')
                         .replace(/-+/g, '-');
                     
-                    console.log(`Buscando espectadores para: ${channel.name} (ID: ${channelId})`);
+                    const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
                     
-                    const onlineViewersRef = rtdb.ref('onlineUsers/' + channelId);
-                    
+                    // 🔥 LISTENER SIMPLIFICADO E FUNCIONAL
                     const listener = onlineViewersRef.on('value', (snapshot) => {
-                        const count = snapshot.exists() ? snapshot.numChildren() : 0;
-                        console.log(`${channel.name}: ${count} espectadores`);
+                        const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
                         
-                        // Atualiza o texto - busca pelo atributo data-channel-name
-                        const card = document.querySelector(`[data-channel-name="${channel.name}"]`);
-                        if (card) {
-                            const spectatorElement = card.querySelector('.spectators');
-                            if (spectatorElement) {
-                                spectatorElement.textContent = `Espectadores: ${count}`;
-                            }
+                        if (!spectatorsElement) return;
+                        
+                        if (!snapshot.exists()) {
+                            spectatorsElement.textContent = `Espectadores: 0`;
+                            return;
                         }
+                        
+                        // 🔥 CONTA TODOS - SIMPLES E DIRETO
+                        const count = snapshot.numChildren();
+                        spectatorsElement.textContent = `Espectadores: ${count}`;
                     });
                     
                     channelViewerListeners[channel.id] = {
@@ -7710,6 +7708,42 @@ console.log("Preenchendo formulário...");
             }
         }
 
+// ==================== FUNÇÃO DE MIGRAÇÃO ====================
+
+// 🔥 NOVA FUNÇÃO: Migrar canais antigos para adicionar channelIdForFirebase
+async function migrarChannelIdForFirebase() {
+    if (!currentUser) return;
+    
+    try {
+        const querySnapshot = await db.collection('users').doc(currentUser.uid)
+            .collection('channels')
+            .get();
+        
+        const batch = db.batch();
+        let updatedCount = 0;
+        
+        querySnapshot.forEach(doc => {
+            const data = doc.data();
+            if (!data.channelIdForFirebase) {
+                const channelIdForFirebase = data.name.toLowerCase()
+                    .replace(/[^a-z0-9]/g, '-')
+                    .replace(/-+/g, '-');
+                
+                batch.update(doc.ref, {
+                    channelIdForFirebase: channelIdForFirebase
+                });
+                updatedCount++;
+            }
+        });
+        
+        if (updatedCount > 0) {
+            await batch.commit();
+            console.log(`${updatedCount} canais migrados com channelIdForFirebase`);
+        }
+    } catch (error) {
+        console.error("Erro na migração:", error);
+    }
+}
 
         // ==================== OBSERVADOR DE AUTENTICAÇÃO ====================
         auth.onAuthStateChanged(async (user) => {
@@ -7720,6 +7754,8 @@ console.log("Preenchendo formulário...");
      if (user) {
         console.log("Usuário logado:", user.email);
         
+        // 🔥 MIGRAR CANAIS ANTIGOS (channelIdForFirebase)
+        await migrarChannelIdForFirebase();
         
         await carregarCanais();
         
