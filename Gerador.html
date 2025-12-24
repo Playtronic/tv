@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
@@ -1715,7 +1715,6 @@
             userId: '',
             createdAt: null,
             updatedAt: null,
-            channelIdForFirebase: '', 
             version: '1.0.0.0'
         };
         
@@ -1753,41 +1752,6 @@ function migrarCanaisAntigos(channelName) {
         .replace(/-+/g, '-');
     
     const viewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
-
-// 🔥 NOVA FUNÇÃO: Migrar canais antigos para adicionar channelIdForFirebase
-async function migrarChannelIdForFirebase() {
-    if (!currentUser) return;
-    
-    try {
-        const querySnapshot = await db.collection('users').doc(currentUser.uid)
-            .collection('channels')
-            .get();
-        
-        const batch = db.batch();
-        let updatedCount = 0;
-        
-        querySnapshot.forEach(doc => {
-            const data = doc.data();
-            if (!data.channelIdForFirebase) {
-                const channelIdForFirebase = data.name.toLowerCase()
-                    .replace(/[^a-z0-9]/g, '-')
-                    .replace(/-+/g, '-');
-                
-                batch.update(doc.ref, {
-                    channelIdForFirebase: channelIdForFirebase
-                });
-                updatedCount++;
-            }
-        });
-        
-        if (updatedCount > 0) {
-            await batch.commit();
-            console.log(`${updatedCount} canais migrados com channelIdForFirebase`);
-        }
-    } catch (error) {
-        console.error("Erro na migração:", error);
-    }
-}
     
     viewersRef.once('value').then(snapshot => {
         if (!snapshot.exists()) return;
@@ -2225,10 +2189,10 @@ function gerarHTMLdoCanal(dados, documentId) {
         releaseDate: dados.release || ''
     });
     
- const channelId = dados.channelIdForFirebase || documentId || dados.name.toLowerCase()
-        .replace(/[^a-z0-9]/g, '-')
-        .replace(/-+/g, '-');
-    const CHANNEL_ID = channelId;
+    const channelId = documentId || dados.name.toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-');
+const CHANNEL_ID = "${channelId}";
 
 // 🔥 NOVO: Adicionar log para debug
 console.log('=== PIX PAYMENT DEBUG ===');
@@ -6030,11 +5994,7 @@ async function carregarConfiguracoesMonetizacao(channelId) {
     published: channelData.published || false,
     createdAt: channelData.createdAt || null,
     updatedAt: channelData.updatedAt || null,
-
-   channelIdForFirebase: channelData.channelIdForFirebase || channelData.name.toLowerCase()
-            .replace(/[^a-z0-9]/g, '-')
-            .replace(/-+/g, '-'),
-
+    // 🔥 NOVO: Dados de monetização
     monetization: channelData.monetization || null,
     version: channelData.version || '1.0.0.0'
             };
@@ -6053,15 +6013,9 @@ async function carregarConfiguracoesMonetizacao(channelId) {
                 const userId = currentUser.uid;
                 const now = firebase.firestore.FieldValue.serverTimestamp();
                 
-                // Garantir que temos um channelIdForFirebase
-        if (!dadosNormalizados.channelIdForFirebase) {
-            dadosNormalizados.channelIdForFirebase = dadosNormalizados.name.toLowerCase()
-                .replace(/[^a-z0-9]/g, '-')
-                .replace(/-+/g, '-');
-        }
-        
-        if (!editingChannel || originalChannelName !== dadosNormalizados.name) {
-
+                const dadosNormalizados = normalizarDadosCanal(channelData);
+                
+                if (!editingChannel || originalChannelName !== dadosNormalizados.name) {
                     const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
                     if (canalExistente) {
                         throw new Error(`Já existe um canal com o nome "${dadosNormalizados.name}" para este usuário.`);
@@ -6550,9 +6504,11 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
                                 statusClass = 'status-published';
                             }
                             
-                            const channelIdForFirebase = channel.name.toLowerCase()
-                                .replace(/[^a-z0-9]/g, '-')
-                                .replace(/-+/g, '-');
+const channelIdForFirebase = channel.id || channel.name.toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-');
+    
+console.log(`Contagem espectadores: Canal ${channel.name}, ID: ${channelIdForFirebase}, Firestore ID: ${channel.id}`);
                             
                             channelCard.innerHTML = `
     ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
@@ -6576,8 +6532,7 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
 `;
                             channelsList.appendChild(channelCard);
                             if (!isOffline && isPublished) {
-                    // Usar o channelIdForFirebase do canal em vez de gerar
-                    const channelIdForFirebase = channel.channelIdForFirebase || channel.name.toLowerCase()
+                    const channelIdForFirebase = channel.name.toLowerCase()
                         .replace(/[^a-z0-9]/g, '-')
                         .replace(/-+/g, '-');
                     
@@ -7714,11 +7669,9 @@ console.log("Preenchendo formulário...");
     currentUser = user;
     
     updateAuthUI();
-     if (user) {
+    
+    if (user) {
         console.log("Usuário logado:", user.email);
-        
-        // 🔥 MIGRAR CANAIS ANTIGOS (channelIdForFirebase)
-        await migrarChannelIdForFirebase();
         
         await carregarCanais();
         
