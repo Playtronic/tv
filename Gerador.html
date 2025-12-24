@@ -6518,44 +6518,77 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
     <p class="spectators" id="spectators-${channel.id}">Espectadores: 0</p>
     <div class="channel-status ${statusClass}">${statusText}</div>
     <div class="channel-actions">
-    ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
-        `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
-    <button class="edit-channel" data-id="${channel.id}">Editar</button>
-    <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
-    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
-        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
-    </button>
-    <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
-</div>
+        ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
+            `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
+        <button class="edit-channel" data-id="${channel.id}">Editar</button>
+        <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
+        <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
+            ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
+        </button>
+        <!-- 🔥 BOTÃO DE LIMPEZA MANUAL -->
+        <button class="clean-viewers-btn" data-name="${channel.name}" style="background: #9b59b6; color: white; padding: 6px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; margin: 2px;">
+            🧹 Limpar
+        </button>
+        <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
+    </div>
 `;
-                            channelsList.appendChild(channelCard);
-                            if (!isOffline && isPublished) {
+                            channelsList.appendChild(channelCard);                
+
+if (!isOffline && isPublished) {
                     const channelIdForFirebase = channel.name.toLowerCase()
                         .replace(/[^a-z0-9]/g, '-')
                         .replace(/-+/g, '-');
                     
                     const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
                     
-                    // 🔥 LISTENER SIMPLIFICADO E FUNCIONAL
+                    // 🔥 PRIMEIRO: LIMPA ESPECTADORES FANTASMAS
+                    setTimeout(() => {
+                        limparEspectadoresFantasma(channel.name);
+                    }, 2000); // Aguarda 2 segundos antes de limpar
+                    
+                    // 🔥 LISTENER ATUALIZADO
                     const listener = onlineViewersRef.on('value', (snapshot) => {
                         const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
                         
                         if (!spectatorsElement) return;
                         
-                        if (!snapshot.exists()) {
+                        if (!snapshot || !snapshot.exists()) {
                             spectatorsElement.textContent = `Espectadores: 0`;
                             return;
                         }
                         
-                        // 🔥 CONTA TODOS - SIMPLES E DIRETO
-                        const count = snapshot.numChildren();
-                        spectatorsElement.textContent = `Espectadores: ${count}`;
+                        const viewers = snapshot.val();
+                        const now = Date.now();
+                        let activeCount = 0;
+                        
+                        // 🔥 CONTA APENAS ESPECTADORES "RECENTES" (< 2 minutos)
+                        if (viewers && typeof viewers === 'object') {
+                            Object.keys(viewers).forEach(viewerId => {
+                                const viewer = viewers[viewerId];
+                                if (viewer && viewer.timestamp) {
+                                    const age = now - viewer.timestamp;
+                                    if (age < 120000) { // 2 minutos = 120000ms
+                                        activeCount++;
+                                    }
+                                }
+                            });
+                        }
+                        
+                        spectatorsElement.textContent = `Espectadores: ${activeCount}`;
+                        
+                        // 🔥 DEBUG (remova depois de testar)
+                        console.log(`${channel.name}: ${activeCount} ativos de ${Object.keys(viewers || {}).length} totais`);
                     });
                     
                     channelViewerListeners[channel.id] = {
                         ref: onlineViewersRef,
                         listener: listener
                     };
+                    
+                    // 🔥 LIMPEZA PERIÓDICA A CADA 5 MINUTOS
+                    setInterval(() => {
+                        limparEspectadoresFantasma(channel.name);
+                    }, 300000); // 5 minutos
                 }
                             
                             const watchBtn = channelCard.querySelector('.watch-channel');
@@ -6595,12 +6628,28 @@ if (watchBtn) {
                                 });
                             }
                             
-                            if (deleteBtn) {
+    if (deleteBtn) {
                                 deleteBtn.addEventListener('click', function() {
                                     const channelId = this.getAttribute('data-id');
                                     deleteChannel(channelId);
                                 });
                             }
+// 🔥 BOTÃO LIMPAR ESPECTADORES
+                            const cleanViewersBtn = channelCard.querySelector('.clean-viewers-btn');
+                            if (cleanViewersBtn) {
+                                cleanViewersBtn.addEventListener('click', async function() {
+                                    const channelName = this.getAttribute('data-name');
+                                    if (confirm(`Limpar espectadores fantasmas de "${channelName}"?`)) {
+                                        const removals = await limparEspectadoresFantasma(channelName);
+                                        if (removals > 0) {
+                                            alert(`✅ ${removals} espectadores fantasmas removidos!`);
+                                        } else {
+                                            alert('ℹ️ Nenhum espectador fantasma encontrado.');
+                                        }
+                                    }
+                                });
+                            }
+
                         });
                     }
                 }
@@ -6656,6 +6705,65 @@ showScreen('screen6');
             } catch (error) {
                 console.error("Erro ao alternar estado do canal:", error);
                 alert("Erro ao modificar canal. Tente novamente.");
+            }
+        }
+        
+        // Alternar estado "fora do ar" do canal
+        async function toggleChannelOffline(channelId, isCurrentlyOffline) {
+            // ... código existente ...
+        }
+        
+
+        // FUNÇÃO PARA LIMPAR ESPECTADORES FANTASMAS
+        async function limparEspectadoresFantasma(channelName) {
+            try {
+                const channelIdForFirebase = channelName.toLowerCase()
+                    .replace(/[^a-z0-9]/g, '-')
+                    .replace(/-+/g, '-');
+                
+                const viewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
+                
+                const snapshot = await viewersRef.once('value');
+                
+                if (!snapshot.exists()) {
+                    return 0; // Nada para limpar
+                }
+                
+                const viewers = snapshot.val();
+                const now = Date.now();
+                let removals = 0;
+                const updates = {};
+                
+                // Verifica cada espectador
+                Object.keys(viewers).forEach(viewerId => {
+                    const viewer = viewers[viewerId];
+                    
+                    // 🔥 REGRA SIMPLES: Se o timestamp é muito antigo (> 5 minutos), remove
+                    if (viewer && viewer.timestamp) {
+                        const age = now - viewer.timestamp;
+                        if (age > 300000) { // 5 minutos = 300000ms
+                            updates[viewerId] = null; // Marca para remoção
+                            removals++;
+                        }
+                    }
+                    // Se nem timestamp tem, remove também
+                    else {
+                        updates[viewerId] = null;
+                        removals++;
+                    }
+                });
+                
+                // Aplica as remoções se houver
+                if (removals > 0) {
+                    await viewersRef.update(updates);
+                    console.log(`✅ Limpos ${removals} espectadores fantasmas de ${channelName}`);
+                }
+                
+                return removals;
+                
+            } catch (error) {
+                console.log(`⚠️ Não foi possível limpar espectadores de ${channelName}:`, error.message);
+                return 0;
             }
         }
         
