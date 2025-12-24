@@ -6568,58 +6568,86 @@ console.log(`Contagem espectadores: Canal ${channel.name}, ID: ${channelIdForFir
     </button>
     <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
 </div>
-`;
-                            channelsList.appendChild(channelCard);
-                            if (!isOffline && isPublished) {
-    // 🔥 USAR A MESMA LÓGICA DO CANAL PUBLICADO
-    let channelIdForFirebase;
+`;if (!isOffline && isPublished) {
+    // 🔥 SOLUÇÃO DEFINITIVA: Tentar AMBOS os caminhos
+    const firestoreId = channel.id; // ID do Firestore
+    const nomeExtraidoUrl = channel.url ? channel.url.split('/').pop().replace('.html', '') : null;
+    const nomeProcessado = channel.name.toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-');
     
-    if (channel.url) {
-        // Extrai o nome do arquivo da URL
-        const urlParts = channel.url.split('/');
-        const fileName = urlParts[urlParts.length - 1];
-        if (fileName && fileName.endsWith('.html')) {
-            channelIdForFirebase = fileName.replace('.html', '');
-        } else {
-            // Fallback: usar o nome processado
-            channelIdForFirebase = channel.name.toLowerCase()
-                .replace(/[^a-z0-9]/g, '-')
-                .replace(/-+/g, '-');
+    console.log(`[DEBUG] Canal: ${channel.name}`);
+    console.log(`[DEBUG] Firestore ID: ${firestoreId}`);
+    console.log(`[DEBUG] Nome extraído da URL: ${nomeExtraidoUrl}`);
+    console.log(`[DEBUG] Nome processado: ${nomeProcessado}`);
+    
+    // Função para tentar um caminho
+    const tentarCaminho = async (caminho) => {
+        const ref = rtdb.ref('onlineUsers/' + caminho);
+        const snapshot = await ref.once('value');
+        if (snapshot.exists()) {
+            console.log(`[DEBUG] ✅ Encontrado em ${caminho}: ${snapshot.numChildren()} espectadores`);
+            return { ref, count: snapshot.numChildren() };
         }
-    } else {
-        // Se não tem URL, usar o nome processado
-        channelIdForFirebase = channel.name.toLowerCase()
-            .replace(/[^a-z0-9]/g, '-')
-            .replace(/-+/g, '-');
+        return null;
+    };
+    
+    let onlineViewersRef = null;
+    let caminhoUsado = null;
+    
+    // TENTAR NA ORDEM: 1. Firestore ID, 2. Nome extraído da URL, 3. Nome processado
+    const caminhosParaTentar = [];
+    
+    // 1. Firestore ID (SEMPRE tentar primeiro)
+    caminhosParaTentar.push(firestoreId);
+    
+    // 2. Nome extraído da URL (se diferente do ID)
+    if (nomeExtraidoUrl && nomeExtraidoUrl !== firestoreId) {
+        caminhosParaTentar.push(nomeExtraidoUrl);
     }
     
-    // 🔥 ADICIONE ESTE CÓDIGO PARA DEPURAÇÃO
-    console.log(`=== DEBUG ESPECTADORES ===`);
-    console.log(`Nome do canal: ${channel.name}`);
-    console.log(`ID do Firestore: ${channel.id}`);
-    console.log(`URL do canal: ${channel.url}`);
-    console.log(`ID calculado para Firebase: ${channelIdForFirebase}`);
-    console.log(`Caminho no RTDB: onlineUsers/${channelIdForFirebase}`);
+    // 3. Nome processado (se diferente dos anteriores)
+    if (nomeProcessado && !caminhosParaTentar.includes(nomeProcessado)) {
+        caminhosParaTentar.push(nomeProcessado);
+    }
     
-    // Testar leitura imediata
-    const testRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
-    testRef.once('value').then(snapshot => {
-        if (snapshot.exists()) {
-            console.log(`✅ Dados encontrados no RTDB!`);
-            console.log(`Espectadores:`, snapshot.val());
-            console.log(`Contagem:`, snapshot.numChildren());
-        } else {
-            console.log(`❌ Nenhum dado encontrado no caminho onlineUsers/${channelIdForFirebase}`);
-            
-            // Verificar todos os caminhos disponíveis para debug
-            rtdb.ref('onlineUsers').once('value').then(allSnapshot => {
-                console.log(`Todos os caminhos em onlineUsers:`, allSnapshot.val() ? Object.keys(allSnapshot.val()) : 'Nenhum');
-            });
+    console.log(`[DEBUG] Caminhos a tentar: ${caminhosParaTentar.join(', ')}`);
+    
+    // Tentar cada caminho até encontrar
+    for (const caminho of caminhosParaTentar) {
+        const resultado = await tentarCaminho(caminho);
+        if (resultado) {
+            onlineViewersRef = resultado.ref;
+            caminhoUsado = caminho;
+            break;
         }
-    });
+    }
     
-    const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
-    
+    if (onlineViewersRef) {
+        console.log(`[DEBUG] ✅ Usando caminho: ${caminhoUsado} para ${channel.name}`);
+        
+        const listener = onlineViewersRef.on('value', (snapshot) => {
+            const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
+            if (!spectatorsElement) return;
+            
+            if (!snapshot.exists()) {
+                spectatorsElement.textContent = `Espectadores: 0`;
+                return;
+            }
+            
+            const count = snapshot.numChildren();
+            spectatorsElement.textContent = `Espectadores: ${count}`;
+            console.log(`[LISTENER] Canal ${channel.name}: ${count} espectadores`);
+        });
+        
+        channelViewerListeners[channel.id] = {
+            ref: onlineViewersRef,
+            listener: listener
+        };
+    } else {
+        console.log(`[DEBUG] ❌ Nenhum caminho funcionou para ${channel.name}`);
+    }
+}
     // 🔥 LISTENER SIMPLIFICADO E FUNCIONAL
     const listener = onlineViewersRef.on('value', (snapshot) => {
         const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
