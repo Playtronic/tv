@@ -2653,6 +2653,47 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     });
                 }
+
+                
+                // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
+                function cleanupInactiveViewers() {
+                    if (!CHANNEL_ID) return;
+                    
+                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+                    
+                    viewersRef.once('value').then(snapshot => {
+                        if (!snapshot.exists()) return;
+                        
+                        const viewers = snapshot.val();
+                        const now = Date.now();
+                        const updates = {};
+                        
+                        Object.keys(viewers).forEach(key => {
+                            const viewer = viewers[key];
+                            if (viewer && viewer.lastHeartbeat) {
+                                const timeDiff = now - viewer.lastHeartbeat;
+                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
+                                    updates[key] = null;
+                                }
+                            } else if (viewer && viewer.timestamp) {
+                                const timeDiff = now - viewer.timestamp;
+                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
+                                    updates[key] = null;
+                                }
+                            }
+                        });
+                        
+                        if (Object.keys(updates).length > 0) {
+                            viewersRef.update(updates)
+                                .then(() => console.log('Espectadores inativos removidos'))
+                                .catch(err => console.log('Não foi possível limpar espectadores'));
+                        }
+                    });
+                }
+                
+                // 🔥 EXECUTA LIMPEZA PERIÓDICA
+                setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
+                setTimeout(cleanupInactiveViewers, 10000);   // Primeira limpeza após 10s
                 
                 function loadUserVote() {
                     if (!currentUserChannel || !userVotesRef) {
@@ -4218,35 +4259,87 @@ ${supportButtonHTML}${customButtonHTML}
         
         // Inicializar Firebase para contagem de espectadores
         function inicializarContagemEspectadores() {
+            if (!CHANNEL_ID) {
+                console.error('Channel ID não definido para contagem de espectadores');
+                return;
+            }
+            
             viewerSessionId = 'viewer_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             
             onlineViewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
             viewerRef = database.ref('onlineUsers/' + CHANNEL_ID + '/' + viewerSessionId);
             
-            viewerRef.set({
+            // 🔥 SISTEMA CORRIGIDO DE HEARTBEAT
+            const viewerData = {
                 timestamp: Date.now(),
-                userAgent: navigator.userAgent,
-                isActive: true
-            }).then(() => {
-                viewerRef.onDisconnect().remove();
-                
-                onlineViewersRef.on('value', (snapshot) => {
-                    const count = snapshot.numChildren();
-                    if (onlineViewersElement) {
-                        onlineViewersElement.textContent = count;
-                    }
-                });
-            }).catch(error => {
-                console.error('Erro ao registrar espectador:', error);
-            });
+                lastHeartbeat: Date.now(), // 🔥 NOVO CAMPO
+                userAgent: navigator.userAgent.substring(0, 100),
+                isActive: true,
+                sessionStart: Date.now()
+            };
             
-            setInterval(() => {
-                if (viewerRef) {
-                    viewerRef.update({
-                        timestamp: Date.now()
+            // Registra o espectador
+            viewerRef.set(viewerData)
+                .then(() => {
+                    console.log('Espectador registrado:', viewerSessionId);
+                    
+                    // 🔥 HEARTBEAT A CADA 10 SEGUNDOS (não 30)
+                    const heartbeatInterval = setInterval(() => {
+                        if (viewerRef) {
+                            viewerRef.update({
+                                lastHeartbeat: Date.now(),
+                                timestamp: Date.now()
+                            }).catch(err => {
+                                console.log('Heartbeat falhou, limpando...');
+                                clearInterval(heartbeatInterval);
+                            });
+                        }
+                    }, 10000); // 🔥 10 SEGUNDOS
+                    
+                    // 🔥 REMOVE AO FECHAR A ABA
+                    window.addEventListener('beforeunload', function() {
+                        if (viewerRef) {
+                            viewerRef.remove().catch(() => {});
+                        }
+                        clearInterval(heartbeatInterval);
                     });
-                }
-            }, 30000);
+                    
+                    // Remove no disconnect
+                    viewerRef.onDisconnect().remove();
+                    
+                    // 🔥 MONITORA APENAS ESPECTADORES ATIVOS
+                    onlineViewersRef.on('value', (snapshot) => {
+                        if (!snapshot.exists()) {
+                            if (onlineViewersElement) {
+                                onlineViewersElement.textContent = '0';
+                            }
+                            return;
+                        }
+                        
+                        const viewers = snapshot.val();
+                        const now = Date.now();
+                        let activeCount = 0;
+                        
+                        // Conta apenas espectadores com heartbeat recente
+                        Object.keys(viewers).forEach(key => {
+                            const viewer = viewers[key];
+                            if (viewer && viewer.lastHeartbeat) {
+                                const timeDiff = now - viewer.lastHeartbeat;
+                                if (timeDiff < 45000) { // 🔥 45 segundos (com margem)
+                                    activeCount++;
+                                }
+                            }
+                        });
+                        
+                        if (onlineViewersElement) {
+                            onlineViewersElement.textContent = activeCount;
+                        }
+                    });
+                    
+                })
+                .catch(error => {
+                    console.error('Erro ao registrar espectador:', error);
+                });
         }
         
         // ==================== FUNÇÕES PRINCIPAIS ====================
@@ -6407,12 +6500,34 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
                             if (!isOffline && isPublished) {
                                 const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
                                 const listener = onlineViewersRef.on('value', (snapshot) => {
-                                    const count = snapshot.numChildren();
-                                    const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
-                                    if (spectatorsElement) {
-                                        spectatorsElement.textContent = `Espectadores: ${count}`;
-                                    }
-                                });
+                    if (!snapshot.exists()) {
+                        const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
+                        if (spectatorsElement) {
+                            spectatorsElement.textContent = `Espectadores: 0`;
+                        }
+                        return;
+                    }
+                    
+                    const viewers = snapshot.val();
+                    const now = Date.now();
+                    let activeCount = 0;
+                    
+                    // 🔥 CONTA APENAS ATIVOS
+                    Object.keys(viewers).forEach(key => {
+                        const viewer = viewers[key];
+                        if (viewer && viewer.lastHeartbeat) {
+                            const timeDiff = now - viewer.lastHeartbeat;
+                            if (timeDiff < 60000) { // 🔥 60 segundos
+                                activeCount++;
+                            }
+                        }
+                    });
+                    
+                    const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
+                    if (spectatorsElement) {
+                        spectatorsElement.textContent = `Espectadores: ${activeCount}`;
+                    }
+                });
                                 
                                 channelViewerListeners[channel.id] = {
                                     ref: onlineViewersRef,
