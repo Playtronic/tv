@@ -1745,6 +1745,39 @@ function formatarDataLocal(date) {
         // Objeto para armazenar os listeners de espectadores
         let channelViewerListeners = {};
 
+// 🔥 FUNÇÃO PARA MIGRAR CANAIS ANTIGOS (adiciona lastHeartbeat)
+function migrarCanaisAntigos(channelName) {
+    const channelIdForFirebase = channelName.toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-');
+    
+    const viewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        let needsMigration = false;
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            // Se tem timestamp mas NÃO tem lastHeartbeat → precisa migrar
+            if (viewer && viewer.timestamp && !viewer.lastHeartbeat) {
+                updates[`${key}/lastHeartbeat`] = viewer.timestamp;
+                needsMigration = true;
+            }
+        });
+        
+        if (needsMigration) {
+            viewersRef.update(updates)
+                .then(() => console.log(`Migração realizada para ${channelName}`))
+                .catch(err => console.log('Migração não necessária ou sem permissão'));
+        }
+    });
+}
+
         // ==================== FUNÇÕES GLOBAIS ====================
 
         // Função para mostrar uma tela específica
@@ -6496,10 +6529,17 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
 </div>
 `;
                             channelsList.appendChild(channelCard);
-                            
                             if (!isOffline && isPublished) {
-                                const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
-                                const listener = onlineViewersRef.on('value', (snapshot) => {
+                    const channelIdForFirebase = channel.name.toLowerCase()
+                        .replace(/[^a-z0-9]/g, '-')
+                        .replace(/-+/g, '-');
+                    
+                    const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
+                    
+                    // 🔥 MIGRA CANAIS ANTIGOS (se necessário)
+                    setTimeout(() => migrarCanaisAntigos(channel.name), 3000);
+                    
+                    const listener = onlineViewersRef.on('value', (snapshot) => {
                     if (!snapshot.exists()) {
                         const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
                         if (spectatorsElement) {
@@ -6512,12 +6552,21 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
                     const now = Date.now();
                     let activeCount = 0;
                     
-                    // 🔥 CONTA APENAS ATIVOS
+                    // 🔥 COMPATIBILIDADE: funciona com canais NOVOS e ANTIGOS
                     Object.keys(viewers).forEach(key => {
                         const viewer = viewers[key];
+                        
+                        // 1. PRIMEIRO tenta usar lastHeartbeat (canais NOVOS)
                         if (viewer && viewer.lastHeartbeat) {
                             const timeDiff = now - viewer.lastHeartbeat;
-                            if (timeDiff < 60000) { // 🔥 60 segundos
+                            if (timeDiff < 90000) { // 🔥 90 segundos para dar margem
+                                activeCount++;
+                            }
+                        }
+                        // 2. SE NÃO, usa timestamp (canais ANTIGOS)
+                        else if (viewer && viewer.timestamp) {
+                            const timeDiff = now - viewer.timestamp;
+                            if (timeDiff < 120000) { // 🔥 2 minutos para canais antigos
                                 activeCount++;
                             }
                         }
