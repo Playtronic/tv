@@ -6528,36 +6528,54 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
     <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
 </div>
 `;
-                            channelsList.appendChild(channelCard);
-                            if (!isOffline && isPublished) {
+                            channelsList.appendChild(channelCard);// Na função carregarCanais(), dentro do loop que cria os cards dos canais:
+if (!isOffline && isPublished) {
     const channelIdForFirebase = channel.name.toLowerCase()
         .replace(/[^a-z0-9]/g, '-')
         .replace(/-+/g, '-');
     
     const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
-
-                    
-                    // 🔥 LISTENER SIMPLIFICADO E FUNCIONAL
-                    const listener = onlineViewersRef.on('value', (snapshot) => {
-                        const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
-                        
-                        if (!spectatorsElement) return;
-                        
-                        if (!snapshot.exists()) {
-                            spectatorsElement.textContent = `Espectadores: 0`;
-                            return;
-                        }
-                        
-                        // 🔥 CONTA TODOS - SIMPLES E DIRETO
-                        const count = snapshot.numChildren();
-                        spectatorsElement.textContent = `Espectadores: ${count}`;
-                    });
-                    
-                    channelViewerListeners[channel.id] = {
-                        ref: onlineViewersRef,
-                        listener: listener
-                    };
+    
+    // 🔥 LISTENER CORRIGIDO - CONTAGEM DE ESPECTADORES ATIVOS
+    const listener = onlineViewersRef.on('value', (snapshot) => {
+        const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
+        
+        if (!spectatorsElement) return;
+        
+        if (!snapshot.exists()) {
+            spectatorsElement.textContent = `Espectadores: 0`;
+            return;
+        }
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        let activeCount = 0;
+        
+        // Conta apenas espectadores com heartbeat recente (últimos 45 segundos)
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff < 45000) { // 🔥 45 segundos
+                    activeCount++;
                 }
+            } else if (viewer && viewer.timestamp) {
+                // Fallback para viewers antigos sem lastHeartbeat
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff < 60000) { // 🔥 1 minuto (para compatibilidade)
+                    activeCount++;
+                }
+            }
+        });
+        
+        spectatorsElement.textContent = `Espectadores: ${activeCount}`;
+    });
+    
+    channelViewerListeners[channel.id] = {
+        ref: onlineViewersRef,
+        listener: listener
+    };
+}
                             
                             const watchBtn = channelCard.querySelector('.watch-channel');
                             const editBtn = channelCard.querySelector('.edit-channel');
