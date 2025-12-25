@@ -927,28 +927,41 @@
             opacity: 0.8;
             margin-top: 5px;
             text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
-        }
-        
-        /* BANDEIRA DO BRASIL E ÍCONE DO MUNDO */
-        .visibility-icon {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            width: 25px;
-            height: 25px;
-            object-fit: contain;
-            cursor: help;
-            z-index: 1;
-        }
-        /* ÍCONE DE CONTEÚDO ADULTO */
-.adult-content-icon {
+        }/* BANDEIRA DO BRASIL E ÍCONE DO MUNDO */
+.visibility-icon {
     position: absolute;
     top: 10px;
+    left: 10px;
     width: 25px;
     height: 25px;
     object-fit: contain;
     cursor: help;
     z-index: 1;
+}
+
+/* ÍCONE DE CONTEÚDO ADULTO */
+.adult-content-icon {
+    position: absolute;
+    top: 10px;
+    left: 45px; /* 10px (bandeira) + 35px (espaçamento) */
+    width: 25px;
+    height: 25px;
+    object-fit: contain;
+    cursor: help;
+    z-index: 1;
+}
+
+/* ÍCONE DE MONETIZAÇÃO */
+.monetization-icon {
+    position: absolute;
+    top: 10px;
+    width: 25px;
+    height: 25px;
+    object-fit: cover; /* Mudei de contain para cover para melhor redimensionamento */
+    cursor: help;
+    z-index: 1;
+    image-rendering: -webkit-optimize-contrast; /* Melhora qualidade do redimensionamento */
+    image-rendering: crisp-edges;
 }
 
 /* ÍCONE DE MONETIZAÇÃO */
@@ -6944,7 +6957,6 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
 
                             // Verificação de monetização (executada depois)
                             if (channel.id) {
-                                // Função auto-executável para não poluir o escopo
                                 (function(channelId, channelName, hasAdultContent) {
                                     setTimeout(async () => {
                                         try {
@@ -6952,17 +6964,31 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
                                             if (hasMonetization) {
                                                 console.log(`✅ ${channelName} tem monetização ativa`);
                                                 
-                                                // Calcular posição
-                                                let leftPos = 45; // Sem 18+
-                                                if (hasAdultContent) {
-                                                    leftPos = 80; // Com 18+
-                                                }
+                                                // ORDEM CORRETA: Bandeira(10px) → 18+(45px) → Moeda(80px)
+                                                // Se não tem 18+: Moeda vai para 45px (ao lado da bandeira)
+                                                let leftPos = hasAdultContent ? 80 : 45;
                                                 
-                                                // Adicionar ícone
                                                 const card = document.querySelector(`[data-channel="${channelId}"]`);
                                                 if (card) {
-                                                    const iconHTML = `<img src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp" class="monetization-icon" title="Canal monetizado" style="left: ${leftPos}px; width: 25px; height: 25px;">`;
-                                                    card.insertAdjacentHTML('beforeend', iconHTML);
+                                                    // Verificar se já existe o ícone
+                                                    const existingIcon = card.querySelector('.monetization-icon');
+                                                    if (!existingIcon) {
+                                                        // Criar a imagem com pré-carregamento
+                                                        const img = new Image();
+                                                        img.onload = function() {
+                                                            // Quando a imagem carregar, adicionar ao DOM
+                                                            const iconHTML = `<img src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp" class="monetization-icon" title="Canal monetizado" style="left: ${leftPos}px;">`;
+                                                            card.insertAdjacentHTML('beforeend', iconHTML);
+                                                        };
+                                                        img.onerror = function() {
+                                                            console.error(`❌ Falha ao carregar imagem da moeda para ${channelName}`);
+                                                            // Tentar com fallback se a imagem .webp falhar
+                                                            const fallbackHTML = `<div class="monetization-icon" title="Canal monetizado" style="left: ${leftPos}px; background: gold; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: black; font-size: 12px;">R$</div>`;
+                                                            card.insertAdjacentHTML('beforeend', fallbackHTML);
+                                                        };
+                                                        // Iniciar carregamento
+                                                        img.src = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp";
+                                                    }
                                                 }
                                             }
                                         } catch (error) {
