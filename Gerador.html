@@ -2586,14 +2586,25 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 <\/script>
 `;
-
-    // ==================== SISTEMA DE SINCRONIZAÇÃO AUTOMÁTICA ====================
+    // ==================== SISTEMA DE SINCRONIZAÇÃO SUTIL ====================
     const syncSystemScript = `
     <script>
         let syncCheckInterval = null;
         let lastValidTime = 0;
-        let consecutiveSyncErrors = 0;
+        let cumulativeDrift = 0;
         let isManualSeeking = false;
+        let microAdjustments = 0;
+
+        // Configurações ajustáveis
+        const SYNC_CONFIG = {
+            checkInterval: 3000,           // Verificar a cada 3 segundos (mais frequente)
+            maxDiffAllowed: 0.5,           // Tolerância de apenas 0.5 segundos (mais sensível)
+            minSamples: 3,                 // Mínimo de amostras para considerar dessincronização
+            microSeekAmount: 0.1,          // Ajuste micro (100ms) - quase imperceptível
+            maxCumulativeDrift: 1.5,       // Máximo drift acumulado antes de correção
+            speedAdjustment: 0.001,        // Ajuste mínimo de velocidade (0.1%)
+            notifyUser: false              // Não mostrar notificação (é irritante mesmo)
+        };
 
         function initSyncSystem() {
             if (syncCheckInterval) {
@@ -2601,12 +2612,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             lastValidTime = 0;
-            consecutiveSyncErrors = 0;
+            cumulativeDrift = 0;
+            microAdjustments = 0;
             
-            // Verificar sincronização a cada 10 segundos
-            syncCheckInterval = setInterval(checkAndFixSync, 10000);
+            syncCheckInterval = setInterval(checkAndFixSync, SYNC_CONFIG.checkInterval);
             
-            console.log('🔧 Sistema de sincronização inicializado');
+            console.log('🔧 Sistema de sincronização sutil inicializado');
         }
 
         function checkAndFixSync() {
@@ -2615,123 +2626,136 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            // Verificar se estamos em intervalo comercial (não sincronizar comerciais)
+            // Não sincronizar comerciais
             if (currentState === 'commercial') {
                 return;
             }
             
-            let currentTime, duration;
+            let currentTime, duration, playbackRate;
             
             // Obter tempo atual baseado no tipo de player
             if (isYoutubeVideo && youtubePlayer && playerReady) {
                 try {
                     currentTime = youtubePlayer.getCurrentTime();
                     duration = youtubePlayer.getDuration();
+                    playbackRate = 1.0; // YouTube não expõe playback rate via API
                 } catch (e) {
-                    return; // Player do YouTube não está pronto
+                    return;
                 }
             } else if (videoElement && videoElement.readyState >= 2) {
                 currentTime = videoElement.currentTime;
                 duration = videoElement.duration;
+                playbackRate = videoElement.playbackRate || 1.0;
             } else {
-                return; // Player não está pronto
+                return;
             }
             
             // Calcular tempo esperado baseado no modo de programação
             const expectedTime = calculateExpectedTime(duration);
-            
             if (expectedTime === null) return;
             
             // Calcular diferença
-            const diff = Math.abs(currentTime - expectedTime);
+            const diff = expectedTime - currentTime;
+            const absDiff = Math.abs(diff);
             
-            // Se a diferença for maior que 15 segundos, temos dessincronização
-            if (diff > 15) {
-                consecutiveSyncErrors++;
-                console.warn('⚠️ Dessincronização detectada: ' + diff.toFixed(1) + 's (erro ' + consecutiveSyncErrors + ')');
+            // Atualizar drift acumulado (com filtro para ignorar pequenas variações)
+            if (absDiff > 0.05) { // Ignorar diferenças menores que 50ms
+                cumulativeDrift += diff;
                 
-                // Se tivemos 2 ou mais erros consecutivos, corrigir
-                if (consecutiveSyncErrors >= 2) {
-                    fixSync(expectedTime, currentTime);
-                    consecutiveSyncErrors = 0;
+                // Se o drift acumulado ultrapassar o limite, fazer correção micro
+                if (Math.abs(cumulativeDrift) > SYNC_CONFIG.maxCumulativeDrift) {
+                    subtleSyncFix(cumulativeDrift, currentTime, duration, playbackRate);
+                    cumulativeDrift = 0; // Resetar após correção
                 }
-            } else {
-                consecutiveSyncErrors = 0;
-                lastValidTime = currentTime;
+            }
+            
+            lastValidTime = currentTime;
+        }
+
+        function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+            console.log('🔧 Drift acumulado: ' + drift.toFixed(2) + 's');
+            
+            // Estratégia 1: Ajuste de velocidade (apenas para HTML5, se suportado)
+            if (!isYoutubeVideo && videoElement && videoElement.playbackRate !== undefined) {
+                const newRate = playbackRate + (Math.sign(drift) * SYNC_CONFIG.speedAdjustment);
+                
+                // Limitar ajuste entre 0.9x e 1.1x
+                const clampedRate = Math.max(0.9, Math.min(1.1, newRate));
+                
+                if (Math.abs(clampedRate - playbackRate) > 0.001) {
+                    videoElement.playbackRate = clampedRate;
+                    console.log('🎚️ Ajuste sutil de velocidade: ' + playbackRate.toFixed(3) + ' → ' + clampedRate.toFixed(3));
+                    
+                    // Restaurar velocidade normal após alguns segundos
+                    setTimeout(() => {
+                        if (videoElement && !isManualSeeking) {
+                            videoElement.playbackRate = 1.0;
+                            console.log('🎚️ Velocidade restaurada para 1.0');
+                        }
+                    }, 5000);
+                    
+                    return;
+                }
+            }
+            
+            // Estratégia 2: Micro-seek imperceptível
+            const adjustment = Math.sign(drift) * SYNC_CONFIG.microSeekAmount;
+            const newTime = currentTime + adjustment;
+            
+            // Garantir que não saia dos limites do vídeo
+            if (newTime >= 0 && newTime < duration - 1) {
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    youtubePlayer.seekTo(newTime, true);
+                } else if (videoElement) {
+                    videoElement.currentTime = newTime;
+                }
+                
+                microAdjustments++;
+                console.log('🎯 Micro-ajuste: ' + adjustment.toFixed(2) + 's (total: ' + microAdjustments + ')');
             }
         }
 
         function calculateExpectedTime(duration) {
-            if (PROGRAMMING_MODE === 'grade') {
-                // Modo Grade: calcular baseado no slot atual
-                const percentualSlot = calcularPercentualSlot();
-                return percentualSlot * duration;
-            } else {
-                // Modo Playlist: calcular baseado no tempo desde o início do slot
-                const percentualSlot = calcularPercentualSlot();
-                return percentualSlot * duration;
-            }
+            if (!duration || duration <= 0) return null;
+            
+            // Usar percentual do slot atual, mas com suavização
+            const percentualSlot = calcularPercentualSlot();
+            
+            // Evitar extremos (primeiro e último segundo)
+            const minTime = 1;
+            const maxTime = duration - 1;
+            
+            let expectedTime = percentualSlot * duration;
+            expectedTime = Math.max(minTime, Math.min(maxTime, expectedTime));
+            
+            return expectedTime;
         }
 
-        function fixSync(expectedTime, currentTime) {
-            console.log('🔄 Corrigindo sincronização: ' + currentTime.toFixed(1) + 's → ' + expectedTime.toFixed(1) + 's');
+        // Sistema de "refresh imperceptível" que você sugeriu
+        function imperceptibleRefresh() {
+            if (isYoutubeVideo || !videoElement || videoElement.paused) return;
             
-            // Suavizar a correção (ajustar gradualmente se a diferença for muito grande)
-            const diff = expectedTime - currentTime;
-            const adjustedTime = diff > 60 ? currentTime + (diff / 2) : expectedTime;
+            const currentTime = videoElement.currentTime;
+            const wasPlaying = !videoElement.paused;
             
-            // Aplicar correção
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(adjustedTime, true);
-                console.log('✅ YouTube sincronizado para ' + adjustedTime.toFixed(1) + 's');
-            } else if (videoElement) {
-                videoElement.currentTime = adjustedTime;
-                console.log('✅ Vídeo HTML5 sincronizado para ' + adjustedTime.toFixed(1) + 's');
+            // Técnica: pausar/play com offset mínimo
+            if (wasPlaying) {
+                videoElement.pause();
+                
+                setTimeout(() => {
+                    if (videoElement) {
+                        // Adicionar 10ms (imperceptível)
+                        videoElement.currentTime = currentTime + 0.01;
+                        videoElement.play().catch(e => {
+                            // Se falhar, tenta muted
+                            videoElement.muted = true;
+                            videoElement.play();
+                        });
+                        
+                        console.log('🔄 Refresh imperceptível aplicado (+10ms)');
+                    }
+                }, 50);
             }
-            
-            // Atualizar último tempo válido
-            lastValidTime = adjustedTime;
-            
-            // Mostrar notificação visual para o usuário (opcional)
-            showSyncNotification(diff);
-        }
-
-        function showSyncNotification(diff) {
-            // Criar ou atualizar notificação de sincronização
-            let notification = document.getElementById('syncNotification');
-            
-            if (!notification) {
-                notification = document.createElement('div');
-                notification.id = 'syncNotification';
-                notification.style.cssText = 
-                    'position: absolute;' +
-                    'top: 50px;' +
-                    'left: 50%;' +
-                    'transform: translateX(-50%);' +
-                    'background: rgba(0, 0, 0, 0.8);' +
-                    'color: white;' +
-                    'padding: 8px 16px;' +
-                    'border-radius: 20px;' +
-                    'font-size: 14px;' +
-                    'z-index: 10000;' +
-                    'display: flex;' +
-                    'align-items: center;' +
-                    'gap: 8px;' +
-                    'animation: fadeInOut 3s ease;';
-                document.querySelector('.video-wrapper').appendChild(notification);
-            }
-            
-            const direction = diff > 0 ? 'adiantado' : 'atrasado';
-            notification.innerHTML = 
-                '<span>🔧 Sincronização automática aplicada (' + Math.abs(diff).toFixed(0) + 's ' + direction + ')</span>';
-            
-            // Remover após 3 segundos
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.style.animation = 'fadeOut 0.5s ease';
-                    setTimeout(() => notification.parentNode.removeChild(notification), 500);
-                }
-            }, 3000);
         }
 
         // Detectar quando o usuário está fazendo seek manualmente
@@ -2739,11 +2763,12 @@ document.addEventListener('DOMContentLoaded', function() {
             if (videoElement) {
                 videoElement.addEventListener('seeking', () => {
                     isManualSeeking = true;
-                    setTimeout(() => { isManualSeeking = false; }, 5000);
+                    cumulativeDrift = 0; // Resetar drift ao fazer seek manual
+                    setTimeout(() => { isManualSeeking = false; }, 3000);
                 });
                 
                 videoElement.addEventListener('seeked', () => {
-                    setTimeout(() => { isManualSeeking = false; }, 3000);
+                    setTimeout(() => { isManualSeeking = false; }, 2000);
                 });
             }
         }
@@ -2752,7 +2777,14 @@ document.addEventListener('DOMContentLoaded', function() {
         function setupSyncOnPlay() {
             if (videoElement) {
                 videoElement.addEventListener('playing', () => {
-                    setTimeout(initSyncSystem, 3000); // Iniciar após 3 segundos de reprodução
+                    setTimeout(initSyncSystem, 2000);
+                    
+                    // Aplicar refresh imperceptível a cada 2 minutos (preventivo)
+                    setInterval(() => {
+                        if (!isManualSeeking && currentState !== 'commercial') {
+                            imperceptibleRefresh();
+                        }
+                    }, 120000);
                 });
                 
                 videoElement.addEventListener('pause', () => {
@@ -2771,25 +2803,86 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        // Adicionar CSS para animações
+        // Sistema de monitoramento de desempenho
+        function setupPerformanceMonitor() {
+            let lastUpdate = Date.now();
+            let frameCount = 0;
+            
+            function checkDroppedFrames() {
+                const now = Date.now();
+                const elapsed = now - lastUpdate;
+                
+                if (elapsed > 1000) { // A cada segundo
+                    const expectedFrames = elapsed / 16.67; // 60 FPS
+                    const frameLoss = Math.max(0, expectedFrames - frameCount);
+                    
+                    if (frameLoss > 5) { // Perdeu mais de 5 frames
+                        console.warn('⚠️ Perda de frames: ' + frameLoss.toFixed(0) + ' frames');
+                        // Aplicar correção preventiva
+                        if (!isManualSeeking) {
+                            imperceptibleRefresh();
+                        }
+                    }
+                    
+                    lastUpdate = now;
+                    frameCount = 0;
+                }
+                
+                frameCount++;
+                requestAnimationFrame(checkDroppedFrames);
+            }
+            
+            if (document.hidden !== undefined) {
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden) {
+                        // Quando a aba volta ao foco, verificar sincronia
+                        setTimeout(() => {
+                            if (userStartedPlayback && !isManualSeeking) {
+                                imperceptibleRefresh();
+                            }
+                        }, 1000);
+                    }
+                });
+            }
+            
+            requestAnimationFrame(checkDroppedFrames);
+        }
+
+        // Adicionar CSS para possíveis indicadores visuais sutis
         const syncStyles = document.createElement('style');
         syncStyles.textContent = 
-            '@keyframes fadeInOut {' +
-            '    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }' +
-            '    15% { opacity: 1; transform: translateX(-50%) translateY(0); }' +
-            '    85% { opacity: 1; transform: translateX(-50%) translateY(0); }' +
-            '    100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }' +
+            '/* Indicador visual sutil (opcional) */' +
+            '.sync-indicator {' +
+            '    position: absolute;' +
+            '    top: 60px;' +
+            '    left: 50%;' +
+            '    transform: translateX(-50%);' +
+            '    width: 30px;' +
+            '    height: 3px;' +
+            '    background: rgba(46, 204, 113, 0.3);' +
+            '    border-radius: 2px;' +
+            '    z-index: 9999;' +
+            '    opacity: 0;' +
+            '    transition: opacity 0.3s, width 0.3s;' +
             '}' +
             '' +
-            '@keyframes fadeOut {' +
-            '    from { opacity: 1; }' +
-            '    to { opacity: 0; }' +
+            '.sync-indicator.active {' +
+            '    opacity: 1;' +
+            '    width: 40px;' +
+            '    background: rgba(46, 204, 113, 0.6);' +
+            '    animation: pulse 1s ease;' +
+            '}' +
+            '' +
+            '@keyframes pulse {' +
+            '    0% { opacity: 0.3; }' +
+            '    50% { opacity: 0.6; }' +
+            '    100% { opacity: 0.3; }' +
             '}';
         document.head.appendChild(syncStyles);
     <\/script>
     `;
 
-            // ============= SISTEMA DE AUTENTICAÇÃO PARA O CANAL =============
+    // ============= SISTEMA DE AUTENTICAÇÃO PARA O CANAL =============
             const authHTML = `
             <!-- Botão de login para o canal -->
             <button id="loginButtonChannel" class="login-button-channel" style="position: fixed; top: 20px; right: 20px; background: #e67e22; border: none; color: white; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: all 0.3s; z-index: 1000; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);">
