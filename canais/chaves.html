@@ -14,7 +14,7 @@
     <script src="https://www.youtube.com/iframe_api"></script>
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.5">
+    <meta name="version" content="1.0.0.6">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -894,7 +894,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.5
+            Versão 1.0.0.6
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1493,7 +1493,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-12-24";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.5";
+        const CHANNEL_VERSION = "1.0.0.6";
         const CHANNEL_ID = "7hVs0Z0yNxojvhcsxKzU";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -1814,6 +1814,91 @@ if (slotIndex === currentPlayingSlot) {
         }
         
             // ==================== FUNÇÕES PRINCIPAIS ====================
+
+// ==================== SISTEMA DE SINCRONIZAÇÃO ====================
+let syncChecker = null;
+let lastVideoTime = 0;
+let syncAttempts = 0;
+
+function startSyncCheck() {
+    if (syncChecker) clearInterval(syncChecker);
+    if (isYoutubeVideo) return;
+    
+    lastVideoTime = videoElement ? videoElement.currentTime : 0;
+    syncAttempts = 0;
+    
+    syncChecker = setInterval(() => {
+        if (!videoElement || videoElement.paused || videoElement.ended || isYoutubeVideo) {
+            return;
+        }
+        
+        const currentTime = videoElement.currentTime;
+        const timeDiff = currentTime - lastVideoTime;
+        
+        // Se o vídeo não está avançando (travou)
+        if (timeDiff < 0.1 && lastVideoTime > 0) {
+            syncAttempts++;
+            
+            if (syncAttempts >= 3) { // 6 segundos travado
+                console.log('🔄 Vídeo travado, tentando corrigir...');
+                softResync();
+                syncAttempts = 0;
+            }
+        } else {
+            syncAttempts = 0;
+            lastVideoTime = currentTime;
+        }
+        
+        // Correção preventiva a cada 10 minutos
+        if (currentTime > 0 && Math.floor(currentTime) % 600 === 0) {
+            console.log('⚡ Correção preventiva de sync');
+            videoElement.currentTime = currentTime;
+        }
+    }, 2000);
+}
+
+function softResync() {
+    if (!videoElement || isYoutubeVideo) return;
+    
+    const savedTime = videoElement.currentTime;
+    const wasPlaying = !videoElement.paused;
+    
+    // Método 1: Micro-seek simples
+    videoElement.currentTime = savedTime + 0.001;
+    
+    // Método 2: Se não funcionar, pausa e play
+    setTimeout(() => {
+        if (Math.abs(videoElement.currentTime - savedTime) < 0.1) {
+            if (wasPlaying) {
+                videoElement.pause();
+                setTimeout(() => {
+                    videoElement.currentTime = savedTime;
+                    videoElement.play().catch(e => {
+                        console.log('Erro no play após resync:', e);
+                    });
+                }, 50);
+            }
+        }
+    }, 1000);
+}
+
+function stopSyncCheck() {
+    if (syncChecker) {
+        clearInterval(syncChecker);
+        syncChecker = null;
+    }
+}
+
+// Iniciar quando o vídeo começar
+if (videoElement) {
+    videoElement.addEventListener('playing', startSyncCheck);
+    videoElement.addEventListener('pause', stopSyncCheck);
+    videoElement.addEventListener('ended', stopSyncCheck);
+    videoElement.addEventListener('seeking', () => {
+        lastVideoTime = videoElement.currentTime;
+        syncAttempts = 0;
+    });
+}
     
     // ==================== SINCRONIZADOR AUTOMÁTICO ====================
     let sincronizadorAtivo = false;
@@ -2206,10 +2291,8 @@ function atualizarIconeVolume(volume) {
         }
         isLoadingVideo = true;
         
-        // 🔥 PARAR SINCRONIZADOR ANTIGO
-        if (typeof resetSincronizador === 'function') {
-            resetSincronizador();
-        }
+        // Parar verificador de sync anterior
+stopSyncCheck();
         
         // Esconder player do YouTube se estiver visível
         if (youtubeContainer) {
@@ -2239,18 +2322,9 @@ function atualizarIconeVolume(volume) {
             videoElement.src = '';
         }
         
-        // 🔥 CONFIGURAÇÕES QUE PREVINEM DESSINCRONIA
-        videoElement.preload = 'auto';
-        videoElement.crossOrigin = 'anonymous'; // Importante para sincronia
-        videoElement.playsInline = true;
-        videoElement.disablePictureInPicture = true;
-        videoElement.autoplay = autoplay;
-        
-        // Configurações de performance
-        videoElement.playsInline = true;
-        videoElement.muted = false;
-        videoElement.defaultMuted = false;
-        videoElement.volume = 1.0;
+        // Configurações básicas
+videoElement.preload = 'auto';
+videoElement.playsInline = true;
         
         // Resetar mensagem de loading apenas se não for comercial
         if (loadingMessage && currentState !== 'commercial') {
@@ -2974,6 +3048,48 @@ setInterval(ocultarControlesYouTube, 1000);
                 timeDisplay.textContent = `${horas}:${minutos}`;
             }
         }    
+
+// ==================== OTIMIZAÇÃO PARA VÍDEOS PROBLEMÁTICOS ====================
+function setupVideoOptimizations() {
+    if (!videoElement) return;
+    
+    // Evitar buffering excessivo
+    videoElement.addEventListener('waiting', () => {
+        console.log('⏳ Vídeo em buffering...');
+    });
+    
+    videoElement.addEventListener('stalled', () => {
+        console.log('⚠️ Conexão com vídeo interrompida');
+        setTimeout(() => {
+            if (videoElement.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+                console.log('🔁 Tentando recuperar vídeo...');
+                const currentSrc = videoElement.src;
+                videoElement.src = '';
+                videoElement.src = currentSrc;
+                videoElement.load();
+            }
+        }, 3000);
+    });
+    
+    // Detectar problemas de decode
+    videoElement.addEventListener('error', (e) => {
+        console.error('Erro no vídeo:', videoElement.error);
+        if (videoElement.error && videoElement.error.code === 3) { // MEDIA_ERR_DECODE
+            console.log('🔄 Problema de decode, tentando próximo vídeo...');
+            setTimeout(() => {
+                if (currentState === 'program') {
+                    const proximoSlot = getNextSlot();
+                    reproduzirPrograma(proximoSlot, 0);
+                }
+            }, 2000);
+        }
+    });
+}
+
+// Chamar quando o player inicializar
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(setupVideoOptimizations, 1000);
+});
 
 function verificarFimDoVideo() {
     console.log('=== FIM DO VÍDEO DETECTADO ===');
