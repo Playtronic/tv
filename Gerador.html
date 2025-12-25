@@ -4382,7 +4382,95 @@ ${supportButtonHTML}${customButtonHTML}
                 });
         }
         
-        // ==================== FUNÇÕES PRINCIPAIS ====================
+            // ==================== FUNÇÕES PRINCIPAIS ====================
+    
+    // ==================== SINCRONIZADOR AUTOMÁTICO ====================
+    let sincronizadorAtivo = false;
+    let ultimoTempoValido = 0;
+    let checksSemProgresso = 0;
+    let sincronizadorInterval = null;
+    
+    function iniciarSincronizador() {
+        if (sincronizadorAtivo || isYoutubeVideo) return;
+        
+        if (!videoElement) return;
+        
+        console.log('🔧 Iniciando sincronizador de áudio/vídeo...');
+        sincronizadorAtivo = true;
+        ultimoTempoValido = videoElement.currentTime;
+        checksSemProgresso = 0;
+        
+        if (sincronizadorInterval) {
+            clearInterval(sincronizadorInterval);
+        }
+        
+        sincronizadorInterval = setInterval(() => {
+            if (!videoElement || videoElement.paused || videoElement.ended || isYoutubeVideo) {
+                return;
+            }
+            
+            const tempoAtual = videoElement.currentTime;
+            const diferenca = Math.abs(tempoAtual - ultimoTempoValido);
+            
+            // Detecta se o vídeo está travado
+            if (diferenca < 0.01) {
+                checksSemProgresso++;
+                
+                if (checksSemProgresso >= 5) { // 10 segundos travado
+                    console.log('⚠️ Vídeo travado detectado, tentando micro-seek...');
+                    const novoTime = tempoAtual + 0.1;
+                    
+                    // Tenta um micro-seek para destravar
+                    videoElement.currentTime = novoTime;
+                    checksSemProgresso = 0;
+                }
+            } else {
+                checksSemProgresso = 0;
+                ultimoTempoValido = tempoAtual;
+            }
+            
+            // Reset periódico preventivo a cada 15 minutos
+            if (tempoAtual > 900 && Math.floor(tempoAtual) % 900 === 0) { // 900s = 15min
+                console.log('🔄 Reset preventivo de sincronia...');
+                const tempoAtualSalvo = videoElement.currentTime;
+                videoElement.pause();
+                
+                setTimeout(() => {
+                    videoElement.currentTime = tempoAtualSalvo;
+                    videoElement.play().catch(() => {
+                        videoElement.muted = true;
+                        videoElement.play();
+                    });
+                }, 100);
+            }
+        }, 2000); // Verificar a cada 2 segundos
+    }
+    
+    function pararSincronizador() {
+        if (sincronizadorInterval) {
+            clearInterval(sincronizadorInterval);
+            sincronizadorInterval = null;
+        }
+        sincronizadorAtivo = false;
+    }
+    
+    // Iniciar sincronizador quando o vídeo começar
+    if (videoElement) {
+        videoElement.addEventListener('playing', iniciarSincronizador);
+        videoElement.addEventListener('pause', pararSincronizador);
+        videoElement.addEventListener('ended', pararSincronizador);
+    }
+    
+    // Reset de sincronia quando mudar de vídeo
+    function resetSincronizador() {
+        checksSemProgresso = 0;
+        ultimoTempoValido = 0;
+        if (sincronizadorInterval) {
+            clearInterval(sincronizadorInterval);
+            sincronizadorInterval = null;
+        }
+        sincronizadorAtivo = false;
+    }
         // Calcular percentual decorrido do slot atual (COM LOGS) - VERSÃO EM SEGUNDOS
 function calcularPercentualSlot() {
     const agora = new Date();
@@ -4679,41 +4767,79 @@ function atualizarIconeVolume(volume) {
 }
 
 
-          function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-    // Evitar múltiplos carregamentos simultâneos
-    if (isLoadingVideo) {
-        console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-        return;
-    }
-    isLoadingVideo = true;
-
-    // Esconder player do YouTube se estiver visível
-    if (youtubeContainer) {
-        youtubeContainer.style.display = 'none';
-        if (youtubePlayer) {
-            youtubePlayer.stopVideo();
+              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+        // Evitar múltiplos carregamentos simultâneos
+        if (isLoadingVideo) {
+            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
+            return;
         }
-    }
-    isYoutubeVideo = false;
-    
-    // Limpar container do YouTube se existir
-    if (youtubeContainer) {
-        youtubeContainer.style.display = 'none';
-        youtubeContainer.innerHTML = '';
-    }
-    
-    // Verificar se temos elemento de vídeo
-    if (!videoElement) {
-        console.error('Elemento de vídeo não encontrado');
-        isLoadingVideo = false; // Resetar flag
-        return;
-    }
-    
-    // Parar qualquer vídeo atual ANTES de carregar novo
-    if (videoElement.src) {
-        videoElement.pause();
-        videoElement.src = '';
-    }
+        isLoadingVideo = true;
+        
+        // 🔥 PARAR SINCRONIZADOR ANTIGO
+        if (typeof resetSincronizador === 'function') {
+            resetSincronizador();
+        }
+        
+        // Esconder player do YouTube se estiver visível
+        if (youtubeContainer) {
+            youtubeContainer.style.display = 'none';
+            if (youtubePlayer) {
+                youtubePlayer.stopVideo();
+            }
+        }
+        isYoutubeVideo = false;
+        
+        // Limpar container do YouTube se existir
+        if (youtubeContainer) {
+            youtubeContainer.style.display = 'none';
+            youtubeContainer.innerHTML = '';
+        }
+        
+        // Verificar se temos elemento de vídeo
+        if (!videoElement) {
+            console.error('Elemento de vídeo não encontrado');
+            isLoadingVideo = false; // Resetar flag
+            return;
+        }
+        
+        // Parar qualquer vídeo atual ANTES de carregar novo
+        if (videoElement.src) {
+            videoElement.pause();
+            videoElement.src = '';
+        }
+        
+        // 🔥 CONFIGURAÇÕES QUE PREVINEM DESSINCRONIA
+        videoElement.preload = 'auto';
+        videoElement.crossOrigin = 'anonymous'; // Importante para sincronia
+        videoElement.playsInline = true;
+        videoElement.disablePictureInPicture = true;
+        videoElement.autoplay = autoplay;
+        
+        // Configurações de performance
+        videoElement.playsInline = true;
+        videoElement.muted = false;
+        videoElement.defaultMuted = false;
+        videoElement.volume = 1.0;
+        
+        // Resetar mensagem de loading apenas se não for comercial
+        if (loadingMessage && currentState !== 'commercial') {
+            loadingMessage.style.display = 'block';
+        }
+
+        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
+        if (loadingMessage && currentState !== 'commercial') {
+            loadingMessage.style.display = 'block';
+        }
+        
+        // Remover event listeners antigos para evitar duplicação
+        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
+        videoElement.removeEventListener('canplay', handleCanPlay);
+        
+        // Configurar nova URL
+        videoElement.style.display = 'block';
+        videoElement.src = url;
+        
+        // ... continue com o resto do código existente ...
             // Resetar mensagem de loading apenas se não for comercial
         if (loadingMessage && currentState !== 'commercial') {
             loadingMessage.style.display = 'block';
