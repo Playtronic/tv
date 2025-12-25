@@ -952,6 +952,21 @@
             cursor: help;
             z-index: 1;
         }
+
+
+        /* ÍCONE DE MONETIZAÇÃO */
+
+        .monetization-icon {
+            position: absolute;
+            top: 10px;
+            left: 80px;
+            width: 25px;
+            height: 25px;
+            object-fit: contain;
+            cursor: help;
+            z-index: 1;
+
+        }
         
         .channel-name-with-emoji {
             display: flex;
@@ -6251,6 +6266,61 @@ console.log('📌 HTML gerado com ID do documento:', currentChannelId);
                 return false;
             }
         }
+// ==================== FUNÇÕES DE VERIFICAÇÃO DE MONETIZAÇÃO ====================
+
+// 🔥 NOVA FUNÇÃO: Verificar se canal tem monetização ativa
+async function hasActiveMonetization(channelId) {
+    if (!currentUser || !channelId) return false;
+    
+    try {
+        console.log(`Verificando monetização para canal: ${channelId}`);
+        
+        // Primeiro tenta na nova estrutura (coleção 'channels')
+        const channelMonetizationRef = db.collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const channelMonetizationDoc = await channelMonetizationRef.get();
+        
+        if (channelMonetizationDoc.exists) {
+            const data = channelMonetizationDoc.data();
+            // Verifica se qualquer tipo de monetização está ativa
+            const hasActive = 
+                (data.adsTerraBanner && data.adsTerraBanner.enabled) ||
+                (data.adsTerraInterstitial && data.adsTerraInterstitial.enabled) ||
+                (data.pixDonations && data.pixDonations.enabled) ||
+                (data.paidCommercials && data.paidCommercials.enabled);
+            
+            console.log(`Monetização encontrada (nova estrutura): ${hasActive ? 'ATIVA' : 'INATIVA'}`);
+            return hasActive;
+        }
+        
+        // Se não encontrou, tenta na estrutura antiga (coleção 'users')
+        const userMonetizationRef = db.collection('users').doc(currentUser.uid)
+            .collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const userMonetizationDoc = await userMonetizationRef.get();
+        
+        if (userMonetizationDoc.exists) {
+            const data = userMonetizationDoc.data();
+            const hasActive = 
+                (data.adsTerraBanner && data.adsTerraBanner.enabled) ||
+                (data.adsTerraInterstitial && data.adsTerraInterstitial.enabled) ||
+                (data.pixDonations && data.pixDonations.enabled) ||
+                (data.paidCommercials && data.paidCommercials.enabled);
+            
+            console.log(`Monetização encontrada (estrutura antiga): ${hasActive ? 'ATIVA' : 'INATIVA'}`);
+            return hasActive;
+        }
+        
+        console.log(`Nenhuma configuração de monetização encontrada para: ${channelId}`);
+        return false;
+        
+    } catch (error) {
+        console.error("Erro ao verificar monetização:", error);
+        return false;
+    }
+}
+
+
 
         // ==================== FUNÇÕES DO BANCO DE DADOS ====================
 
@@ -6842,7 +6912,15 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
                 const canaisBancoDados = await carregarCanaisBancoDados();
                 console.log(`${canaisBancoDados.length} canais carregados do banco de dados`);
                 
-                channels = canaisBancoDados;
+                // Verificar monetização para cada canal
+                const canaisComMonetizacao = await Promise.all(
+                    canaisBancoDados.map(async (channel) => {
+                        const temMonetizacao = await hasActiveMonetization(channel.id);
+                        return { ...channel, temMonetizacao };
+                    })
+                );
+                
+                channels = canaisComMonetizacao;
                 
                 if (channels.length === 0) {
                     if (emptyState) emptyState.style.display = 'block';
@@ -6877,6 +6955,11 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
                             if (isAdultContent) {
                                 adultIcon = `<img src="${ADULT_ICON}" class="adult-content-icon" title="Este canal transmite conteúdo adulto (18+)" style="width: 25px; height: 25px;">`;
                             }
+
+                    let monetizationIcon = '';
+                    if (channel.temMonetizacao) {
+                        monetizationIcon = `<img src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp" class="monetization-icon" title="Canal monetizado">`;
+                    }
                             
                             let statusText = '';
                             let statusClass = '';
@@ -6902,14 +6985,15 @@ console.log('🔥 Nome formatado:', channelIdForFirebase);
 console.log('🔥 URL do canal:', channel.url);
 console.log('---');
 
-                            channelCard.innerHTML = `
-    ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
-    <div class="channel-name-with-emoji">
-        <h3>${channel.name}</h3>
-    </div>
-    ${visibilityIcon}
-    ${adultIcon}
-
+                    channelCard.innerHTML = `
+                        ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
+                        <div class="channel-name-with-emoji">
+                            <h3>${channel.name}</h3>
+                        </div>
+                        ${visibilityIcon}
+                        ${adultIcon}
+                        ${monetizationIcon}
+                        
 <p class="spectators" id="spectators-${channel.id}">
     <span style="display:inline-block; width:8px; height:8px; background:#ff4444; border-radius:50%; margin-right:5px; animation:pulse 1.5s infinite;"></span>
     <span class="spectator-count">0</span> espectadores online
