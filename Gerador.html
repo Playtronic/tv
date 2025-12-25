@@ -4111,7 +4111,12 @@ ${supportButtonHTML}${customButtonHTML}
         let usedCommercials = [];
         let availableCommercials = [];
 
-            // ELEMENTOS DO PLAYER
+        // VARIÁVEIS PARA YOUTUBE API
+        let youtubePlayer = null;
+        let isYoutubeVideo = false;
+        let playerReady = false;
+        
+        // ELEMENTOS DO PLAYER
         let videoElement = null;
         let youtubeContainer = null;
         let autoplayOverlay = null;
@@ -4135,63 +4140,9 @@ ${supportButtonHTML}${customButtonHTML}
         let loadingMessage = null;
         let likeDislikeContainer = null;
 
-        // ==================== CORREÇÃO LEVE DE SINCRONIA ====================
-        // Esta função será chamada quando o videoElement for inicializado
-        function setupSyncCorrection() {
-            if (!videoElement || IS_OFFLINE) return;
-            
-            console.log('🔧 Configurando correção leve de sincronia...');
-            
-            let lastBufferCheck = 0;
-            
-            // Monitora buffer periodicamente
-            videoElement.addEventListener('timeupdate', function() {
-                const now = Date.now();
-                // Verifica apenas a cada 60 segundos
-                if (now - lastBufferCheck > 60000) {
-                    lastBufferCheck = now;
-                    
-                    if (videoElement.buffered.length > 0) {
-                        const bufferEnd = videoElement.buffered.end(videoElement.buffered.length - 1);
-                        const bufferAhead = bufferEnd - videoElement.currentTime;
-                        
-                        // Buffer muito baixo pode causar desync
-                        if (bufferAhead < 3) {
-                            console.log('📦 Buffer baixo: ' + bufferAhead.toFixed(1) + 's');
-                        }
-                    }
-                }
-            });
-            
-            // Recupera vídeos que travam
-            videoElement.addEventListener('stalled', function() {
-                console.log('⚠️ Vídeo travou');
-                setTimeout(() => {
-                    if (videoElement.paused && !videoElement.ended && currentState === 'program') {
-                        videoElement.play().catch(e => {
-                            console.log('Tentando com mute...');
-                            videoElement.muted = true;
-                            videoElement.play();
-                        });
-                    }
-                }, 1500);
-            });
-            
-            // Lida com erros de decode
-            videoElement.addEventListener('error', function() {
-                if (videoElement.error && videoElement.error.code === 3) {
-                    console.log('🔧 Erro de decode - pulando para próximo');
-                    setTimeout(() => {
-                        if (currentState === 'program') {
-                            const proximoSlot = getNextSlot();
-                            reproduzirPrograma(proximoSlot, 0);
-                        }
-                    }, 2000);
-                }
-            });
-        }
-        
 
+
+        
         // ==================== SISTEMA DE AUTENTICAÇÃO ====================
         
         // Atualizar UI de autenticação
@@ -4433,6 +4384,178 @@ ${supportButtonHTML}${customButtonHTML}
         
             // ==================== FUNÇÕES PRINCIPAIS ====================
 
+// ==================== SISTEMA DE SINCRONIZAÇÃO ====================
+let syncChecker = null;
+let lastVideoTime = 0;
+let syncAttempts = 0;
+
+function startSyncCheck() {
+    if (syncChecker) clearInterval(syncChecker);
+    if (isYoutubeVideo) return;
+    
+    lastVideoTime = videoElement ? videoElement.currentTime : 0;
+    syncAttempts = 0;
+    
+    syncChecker = setInterval(() => {
+        if (!videoElement || videoElement.paused || videoElement.ended || isYoutubeVideo) {
+            return;
+        }
+        
+        const currentTime = videoElement.currentTime;
+        const timeDiff = currentTime - lastVideoTime;
+        
+        // Se o vídeo não está avançando (travou)
+        if (timeDiff < 0.1 && lastVideoTime > 0) {
+            syncAttempts++;
+            
+            if (syncAttempts >= 3) { // 6 segundos travado
+                console.log('🔄 Vídeo travado, tentando corrigir...');
+                softResync();
+                syncAttempts = 0;
+            }
+        } else {
+            syncAttempts = 0;
+            lastVideoTime = currentTime;
+        }
+        
+        // Correção preventiva a cada 10 minutos
+        if (currentTime > 0 && Math.floor(currentTime) % 600 === 0) {
+            console.log('⚡ Correção preventiva de sync');
+            videoElement.currentTime = currentTime;
+        }
+    }, 2000);
+}
+
+function softResync() {
+    if (!videoElement || isYoutubeVideo) return;
+    
+    const savedTime = videoElement.currentTime;
+    const wasPlaying = !videoElement.paused;
+    
+    // Método 1: Micro-seek simples
+    videoElement.currentTime = savedTime + 0.001;
+    
+    // Método 2: Se não funcionar, pausa e play
+    setTimeout(() => {
+        if (Math.abs(videoElement.currentTime - savedTime) < 0.1) {
+            if (wasPlaying) {
+                videoElement.pause();
+                setTimeout(() => {
+                    videoElement.currentTime = savedTime;
+                    videoElement.play().catch(e => {
+                        console.log('Erro no play após resync:', e);
+                    });
+                }, 50);
+            }
+        }
+    }, 1000);
+}
+
+function stopSyncCheck() {
+    if (syncChecker) {
+        clearInterval(syncChecker);
+        syncChecker = null;
+    }
+}
+
+// Iniciar quando o vídeo começar
+if (videoElement) {
+    videoElement.addEventListener('playing', startSyncCheck);
+    videoElement.addEventListener('pause', stopSyncCheck);
+    videoElement.addEventListener('ended', stopSyncCheck);
+    videoElement.addEventListener('seeking', () => {
+        lastVideoTime = videoElement.currentTime;
+        syncAttempts = 0;
+    });
+}
+    
+    // ==================== SINCRONIZADOR AUTOMÁTICO ====================
+    let sincronizadorAtivo = false;
+    let ultimoTempoValido = 0;
+    let checksSemProgresso = 0;
+    let sincronizadorInterval = null;
+    
+    function iniciarSincronizador() {
+        if (sincronizadorAtivo || isYoutubeVideo) return;
+        
+        if (!videoElement) return;
+        
+        console.log('🔧 Iniciando sincronizador de áudio/vídeo...');
+        sincronizadorAtivo = true;
+        ultimoTempoValido = videoElement.currentTime;
+        checksSemProgresso = 0;
+        
+        if (sincronizadorInterval) {
+            clearInterval(sincronizadorInterval);
+        }
+        
+        sincronizadorInterval = setInterval(() => {
+            if (!videoElement || videoElement.paused || videoElement.ended || isYoutubeVideo) {
+                return;
+            }
+            
+            const tempoAtual = videoElement.currentTime;
+            const diferenca = Math.abs(tempoAtual - ultimoTempoValido);
+            
+            // Detecta se o vídeo está travado
+            if (diferenca < 0.01) {
+                checksSemProgresso++;
+                
+                if (checksSemProgresso >= 5) { // 10 segundos travado
+                    console.log('⚠️ Vídeo travado detectado, tentando micro-seek...');
+                    const novoTime = tempoAtual + 0.1;
+                    
+                    // Tenta um micro-seek para destravar
+                    videoElement.currentTime = novoTime;
+                    checksSemProgresso = 0;
+                }
+            } else {
+                checksSemProgresso = 0;
+                ultimoTempoValido = tempoAtual;
+            }
+            
+            // Reset periódico preventivo a cada 15 minutos
+            if (tempoAtual > 900 && Math.floor(tempoAtual) % 900 === 0) { // 900s = 15min
+                console.log('🔄 Reset preventivo de sincronia...');
+                const tempoAtualSalvo = videoElement.currentTime;
+                videoElement.pause();
+                
+                setTimeout(() => {
+                    videoElement.currentTime = tempoAtualSalvo;
+                    videoElement.play().catch(() => {
+                        videoElement.muted = true;
+                        videoElement.play();
+                    });
+                }, 100);
+            }
+        }, 2000); // Verificar a cada 2 segundos
+    }
+    
+    function pararSincronizador() {
+        if (sincronizadorInterval) {
+            clearInterval(sincronizadorInterval);
+            sincronizadorInterval = null;
+        }
+        sincronizadorAtivo = false;
+    }
+    
+    // Iniciar sincronizador quando o vídeo começar
+    if (videoElement) {
+        videoElement.addEventListener('playing', iniciarSincronizador);
+        videoElement.addEventListener('pause', pararSincronizador);
+        videoElement.addEventListener('ended', pararSincronizador);
+    }
+    
+    // Reset de sincronia quando mudar de vídeo
+    function resetSincronizador() {
+        checksSemProgresso = 0;
+        ultimoTempoValido = 0;
+        if (sincronizadorInterval) {
+            clearInterval(sincronizadorInterval);
+            sincronizadorInterval = null;
+        }
+        sincronizadorAtivo = false;
+    }
         // Calcular percentual decorrido do slot atual (COM LOGS) - VERSÃO EM SEGUNDOS
 function calcularPercentualSlot() {
     const agora = new Date();
@@ -4737,6 +4860,8 @@ function atualizarIconeVolume(volume) {
         }
         isLoadingVideo = true;
         
+        // Parar verificador de sync anterior
+stopSyncCheck();
         
         // Esconder player do YouTube se estiver visível
         if (youtubeContainer) {
@@ -5493,7 +5618,47 @@ setInterval(ocultarControlesYouTube, 1000);
             }
         }    
 
+// ==================== OTIMIZAÇÃO PARA VÍDEOS PROBLEMÁTICOS ====================
+function setupVideoOptimizations() {
+    if (!videoElement) return;
+    
+    // Evitar buffering excessivo
+    videoElement.addEventListener('waiting', () => {
+        console.log('⏳ Vídeo em buffering...');
+    });
+    
+    videoElement.addEventListener('stalled', () => {
+        console.log('⚠️ Conexão com vídeo interrompida');
+        setTimeout(() => {
+            if (videoElement.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+                console.log('🔁 Tentando recuperar vídeo...');
+                const currentSrc = videoElement.src;
+                videoElement.src = '';
+                videoElement.src = currentSrc;
+                videoElement.load();
+            }
+        }, 3000);
+    });
+    
+    // Detectar problemas de decode
+    videoElement.addEventListener('error', (e) => {
+        console.error('Erro no vídeo:', videoElement.error);
+        if (videoElement.error && videoElement.error.code === 3) { // MEDIA_ERR_DECODE
+            console.log('🔄 Problema de decode, tentando próximo vídeo...');
+            setTimeout(() => {
+                if (currentState === 'program') {
+                    const proximoSlot = getNextSlot();
+                    reproduzirPrograma(proximoSlot, 0);
+                }
+            }, 2000);
+        }
+    });
+}
 
+// Chamar quando o player inicializar
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(setupVideoOptimizations, 1000);
+});
 
 function verificarFimDoVideo() {
     console.log('=== FIM DO VÍDEO DETECTADO ===');
@@ -5681,9 +5846,6 @@ function verificarFimDoVideo() {
             
             if (PROGRAMMING_MODE === 'grade') {
                 setInterval(verificarMudancaDeDia, 60000);
-            }
-         if (typeof setupSyncCorrection === 'function') {
-                setupSyncCorrection();
             }
         }
         document.addEventListener('DOMContentLoaded', function() {
