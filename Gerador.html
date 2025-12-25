@@ -1,4 +1,4 @@
-
+ <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
@@ -929,38 +929,29 @@
             text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
         }
         
- /* BANDEIRA DO BRASIL E ÍCONE DO MUNDO */
-.visibility-icon {
-    position: absolute;
-    top: 10px;
-    width: 25px;
-    height: 25px;
-    object-fit: contain;
-    cursor: help;
-    z-index: 1;
-}
-
-/* ÍCONE DE CONTEÚDO ADULTO */
-.adult-content-icon {
-    position: absolute;
-    top: 10px;
-    width: 25px;
-    height: 25px;
-    object-fit: contain;
-    cursor: help;
-    z-index: 1;
-}
-
-/* ÍCONE DE MONETIZAÇÃO */
-.monetization-icon {
-    position: absolute;
-    top: 10px;
-    width: 25px;
-    height: 25px;
-    object-fit: contain;
-    cursor: help;
-    z-index: 1;
-}
+        /* BANDEIRA DO BRASIL E ÍCONE DO MUNDO */
+        .visibility-icon {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 25px;
+            height: 25px;
+            object-fit: contain;
+            cursor: help;
+            z-index: 1;
+        }
+        
+        /* ÍCONE DE CONTEÚDO ADULTO */
+        .adult-content-icon {
+            position: absolute;
+            top: 10px;
+            left: 45px;
+            width: 25px;
+            height: 25px;
+            object-fit: contain;
+            cursor: help;
+            z-index: 1;
+        }
         
         .channel-name-with-emoji {
             display: flex;
@@ -971,6 +962,29 @@
             position: relative;
             min-height: 40px;
         }
+
+/* ÍCONE DE MONETIZAÇÃO */
+.monetization-icon {
+    position: absolute;
+    top: 10px;
+    left: 80px;
+    width: 25px;
+    height: 25px;
+    object-fit: contain;
+    cursor: help;
+    z-index: 1;
+}
+
+/* Container dos ícones no card do canal */
+.channel-icons-container {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    display: flex;
+    gap: 5px;
+    z-index: 1;
+}
+
         
         /* COMERCIAIS */
         .commercial-settings {
@@ -1760,6 +1774,58 @@ function formatarDataLocal(date) {
 
         // Objeto para armazenar os listeners de espectadores
         let channelViewerListeners = {};
+
+// 🔥 NOVA FUNÇÃO: Verificar se canal tem monetização ativa
+async function getMonetizationStatus(channelId) {
+    if (!currentUser || !channelId) return false;
+    
+    try {
+        console.log(`Verificando monetização para canal: ${channelId}`);
+        
+        // Primeiro tenta na nova estrutura (coleção 'channels')
+        const channelMonetizationRef = db.collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const channelMonetizationDoc = await channelMonetizationRef.get();
+        
+        if (channelMonetizationDoc.exists) {
+            const data = channelMonetizationDoc.data();
+            // Verifica se qualquer tipo de monetização está ativa
+            const hasActive = 
+                (data.adsTerraBanner && data.adsTerraBanner.enabled) ||
+                (data.adsTerraInterstitial && data.adsTerraInterstitial.enabled) ||
+                (data.pixDonations && data.pixDonations.enabled) ||
+                (data.paidCommercials && data.paidCommercials.enabled);
+            
+            console.log(`Monetização encontrada (nova estrutura): ${hasActive ? 'ATIVA' : 'INATIVA'}`);
+            return hasActive;
+        }
+        
+        // Se não encontrou, tenta na estrutura antiga (coleção 'users')
+        const userMonetizationRef = db.collection('users').doc(currentUser.uid)
+            .collection('channels').doc(channelId)
+            .collection('monetization').doc('settings');
+        const userMonetizationDoc = await userMonetizationRef.get();
+        
+        if (userMonetizationDoc.exists) {
+            const data = userMonetizationDoc.data();
+            const hasActive = 
+                (data.adsTerraBanner && data.adsTerraBanner.enabled) ||
+                (data.adsTerraInterstitial && data.adsTerraInterstitial.enabled) ||
+                (data.pixDonations && data.pixDonations.enabled) ||
+                (data.paidCommercials && data.paidCommercials.enabled);
+            
+            console.log(`Monetização encontrada (estrutura antiga): ${hasActive ? 'ATIVA' : 'INATIVA'}`);
+            return hasActive;
+        }
+        
+        console.log(`Nenhuma configuração de monetização encontrada para: ${channelId}`);
+        return false;
+        
+    } catch (error) {
+        console.error("Erro ao verificar monetização:", error);
+        return false;
+    }
+}
 
 // 🔥 FUNÇÃO PARA MIGRAR CANAIS ANTIGOS (adiciona lastHeartbeat)
 function migrarCanaisAntigos(channelName) {
@@ -6885,118 +6951,193 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
 
         // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
 
-
+        // Função para carregar todos os canais (ATUALIZADA COM MONETIZAÇÃO)
 async function carregarCanais() {
-    // Função auxiliar para calcular posição dos ícones
-    function calcularPosicaoIcones(hasAdult, hasMonetization, index) {
-        // Bandeira sempre em 10px
-        if (index === 0) return '10px';
-        
-        // Se for o segundo ícone (18+ ou monetização)
-        if (index === 1) {
-            return '45px'; // Bandeira (10px + 25px) + 10px de margem
-        }
-        
-        // Se for o terceiro ícone (só aparece se tiver ambos)
-        if (index === 2) {
-            return '80px'; // Bandeira + 18+ + 10px de margem
-        }
-        
-        return '10px';
-    }
-    
     try {
         console.log("Carregando canais do banco de dados...");
-
+        
+        const channelsList = document.getElementById('channelsList');
+        const emptyState = document.getElementById('emptyState');
+        
+        channels = [];
+        if (channelsList) channelsList.innerHTML = '';
+        
+        // Limpar listeners antigos de espectadores
+        for (let channelId in channelViewerListeners) {
+            if (channelViewerListeners[channelId]) {
+                channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
+            }
+        }
+        channelViewerListeners = {};
+        
+        const canaisBancoDados = await carregarCanaisBancoDados();
+        console.log(`${canaisBancoDados.length} canais carregados do banco de dados`);
+        
+        channels = canaisBancoDados;
+        
+        if (channels.length === 0) {
+            if (emptyState) emptyState.style.display = 'block';
+            if (channelsList) channelsList.style.display = 'none';
+        } else {
+            if (emptyState) emptyState.style.display = 'none';
+            if (channelsList) {
+                channelsList.style.display = 'grid';
                 
-                const channelsList = document.getElementById('channelsList');
-                const emptyState = document.getElementById('emptyState');
-                
-                channels = [];
-                if (channelsList) channelsList.innerHTML = '';
-                
-                for (let channelId in channelViewerListeners) {
-                    if (channelViewerListeners[channelId]) {
-                        channelViewerListeners[channelId].ref.off('value', channelViewerListeners[channelId].listener);
+                // Processar cada canal de forma assíncrona
+                for (let channel of channels) {
+                    // Verificar status de monetização para cada canal
+                    const hasMonetization = await getMonetizationStatus(channel.id);
+                    
+                    const channelCard = await criarCardCanal(channel, hasMonetization);
+                    channelsList.appendChild(channelCard);
+                    
+                    // Configurar contagem de espectadores se o canal estiver online e publicado
+                    if (!channel.isOffline && channel.published) {
+                        configurarContadorEspectadores(channel);
                     }
                 }
-                channelViewerListeners = {};
-                
-                const canaisBancoDados = await carregarCanaisBancoDados();
-                console.log(`${canaisBancoDados.length} canais carregados do banco de dados`);
-                
-                // Verificar monetização para cada canal
-                const canaisComMonetizacao = await Promise.all(
-                    canaisBancoDados.map(async (channel) => {
-                        const temMonetizacao = await hasActiveMonetization(channel.id);
-                        return { ...channel, temMonetizacao };
-                    })
-                );
-                
-                channels = canaisComMonetizacao;
-                
-                if (channels.length === 0) {
-                    if (emptyState) emptyState.style.display = 'block';
-                    if (channelsList) channelsList.style.display = 'none';
-                } else {
-                    if (emptyState) emptyState.style.display = 'none';
-                    if (channelsList) {
-                        channelsList.style.display = 'grid';
-                        
-                        channels.forEach(channel => {
-                            const channelCard = document.createElement('div');
-                            channelCard.className = 'channel-card';
-                            
-                            const nomeArquivo = channel.name.toLowerCase()
-                                .replace(/[^a-z0-9]/g, '-')
-                                .replace(/-+/g, '-') + '.html';
-                            const urlCanal = channel.url || `https://canaisdetv.online/canais/${nomeArquivo}`;
-                            
-                            const isOffline = channel.isOffline || false;
-                            const visibility = channel.visibility || 'brazil';
-                            const isPublished = channel.published || false;
-                            const isAdultContent = channel.isAdultContent || false;
-                                                    visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil" style="width: 25px; height: 25px;">`;
+            }
+        }
+        
+        console.log(`Total de ${channels.length} canais exibidos`);
+    } catch (error) {
+        console.error("Erro ao carregar canais:", error);
+        const emptyState = document.getElementById('emptyState');
+        const channelsList = document.getElementById('channelsList');
+        if (emptyState) emptyState.style.display = 'block';
+        if (channelsList) channelsList.style.display = 'none';
+    }
+}
 
-                            
-  const channelIdForFirebase = channel.id;
+// 🔥 NOVA FUNÇÃO: Criar card do canal com ícones de monetização
+async function criarCardCanal(channel, hasMonetization) {
+    const channelCard = document.createElement('div');
+    channelCard.className = 'channel-card';
+    
+    const nomeArquivo = channel.name.toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-') + '.html';
+    const urlCanal = channel.url || `https://canaisdetv.online/canais/${nomeArquivo}`;
+    
+    const isOffline = channel.isOffline || false;
+    const visibility = channel.visibility || 'brazil';
+    const isPublished = channel.published || false;
+    const isAdultContent = channel.isAdultContent || false;
+    
+    // Ícone de visibilidade (Brasil/Mundo)
+    let visibilityIcon = '';
+    if (visibility === 'brazil') {
+        visibilityIcon = `<img src="${BRAZIL_FLAG}" class="visibility-icon" title="Seu canal está visível somente no Brasil">`;
+    } else {
+        visibilityIcon = `<img src="${WORLD_ICON}" class="visibility-icon" title="Seu canal está visível no mundo todo">`;
+    }
+    
+    // Ícone de conteúdo adulto (18+)
+    let adultIcon = '';
+    if (isAdultContent) {
+        adultIcon = `<img src="${ADULT_ICON}" class="adult-content-icon" title="Este canal transmite conteúdo adulto (18+)">`;
+    }
+    
+    // 🔥 ÍCONE DE MONETIZAÇÃO (se houver monetização ativa)
+    let monetizationIcon = '';
+    if (hasMonetization) {
+        monetizationIcon = `<img src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp" 
+                              class="monetization-icon" title="Canal monetizado">`;
+    }
+    
+    let statusText = '';
+    let statusClass = '';
+    if (isOffline) {
+        statusText = 'Fora do ar';
+        statusClass = 'status-offline';
+    } else if (!isPublished) {
+        statusText = 'Não publicado';
+        statusClass = 'status-unpublished';
+    } else {
+        statusText = 'Publicado';
+        statusClass = 'status-published';
+    }
+    
+    channelCard.innerHTML = `
+        ${channel.logo && channel.logo !== DEFAULT_LOGO ? 
+            `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : 
+            `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
+        
+        <div class="channel-name-with-emoji">
+            <h3>${channel.name}</h3>
+            ${visibilityIcon}
+            ${adultIcon}
+            ${monetizationIcon}
+        </div>
+        
+        <p class="spectators" id="spectators-${channel.id}">
+            <span style="display:inline-block; width:8px; height:8px; background:#ff4444; border-radius:50%; margin-right:5px; animation:pulse 1.5s infinite;"></span>
+            <span class="spectator-count">0</span> espectadores online
+        </p>
+        
+        <div class="channel-status ${statusClass}">${statusText}</div>
+        
+        <div class="channel-actions">
+            ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
+                `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
+            <button class="edit-channel" data-id="${channel.id}">Editar</button>
+            <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
+            <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
+                ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
+            </button>
+            <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
+        </div>
+    `;
+    
+    // Adicionar event listeners aos botões
+    const watchBtn = channelCard.querySelector('.watch-channel');
+    const editBtn = channelCard.querySelector('.edit-channel');
+    const monetizeBtn = channelCard.querySelector('.monetize-channel');
+    const toggleBtn = channelCard.querySelector('.toggle-offline-channel');
+    const deleteBtn = channelCard.querySelector('.delete-channel');
+    
+    if (watchBtn) {
+        watchBtn.addEventListener('click', function() {
+            const channelUrl = this.getAttribute('data-url');
+            window.open(channelUrl, '_blank');
+        });
+    }
+    
+    if (editBtn) {
+        editBtn.addEventListener('click', function() {
+            const channelId = this.getAttribute('data-id');
+            editChannel(channelId);
+        });
+    }
+    
+    if (monetizeBtn) {
+        monetizeBtn.addEventListener('click', function() {
+            const channelId = this.getAttribute('data-id');
+            window.location.href = `monetizar.html?channelId=${channelId}`;
+        });
+    }
+    
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function() {
+            const channelId = this.getAttribute('data-id');
+            const isOffline = this.getAttribute('data-offline') === 'true';
+            toggleChannelOffline(channelId, isOffline);
+        });
+    }
+    
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', function() {
+            const channelId = this.getAttribute('data-id');
+            deleteChannel(channelId);
+        });
+    }
+    
+    return channelCard;
+}
 
-
-
-// 🔥🔍 ADICIONE ESTAS 5 LINHAS AQUI:
-console.log('🔥 DEBUG - CANAL:', channel.name);
-console.log('🔥 ID Firestore:', channel.id);
-console.log('🔥 Nome formatado:', channelIdForFirebase);
-console.log('🔥 URL do canal:', channel.url);
-console.log('---');
-
-                    channelCard.innerHTML = `
-                        ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
-                        <div class="channel-name-with-emoji">
-                            <h3>${channel.name}</h3>
-                        </div>                        
-${iconesHTML}
-                        
-<p class="spectators" id="spectators-${channel.id}">
-    <span style="display:inline-block; width:8px; height:8px; background:#ff4444; border-radius:50%; margin-right:5px; animation:pulse 1.5s infinite;"></span>
-    <span class="spectator-count">0</span> espectadores online
-</p>
-    <div class="channel-status ${statusClass}">${statusText}</div>
-    <div class="channel-actions">
-    ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
-        `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
-    <button class="edit-channel" data-id="${channel.id}">Editar</button>
-    <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
-    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
-        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
-    </button>
-    <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
-</div>
-`;
-                            channelsList.appendChild(channelCard);// Na função carregarCanais(), dentro do loop que cria os cards dos canais:
-if (!isOffline && isPublished) {
-    // 🔥 AGORA USAR O ID DO FIRESTORE (não o nome formatado)
-    const channelIdForFirebase = channel.id;  // ← MUDEI AQUI!
+// 🔥 NOVA FUNÇÃO: Configurar contador de espectadores para um canal
+function configurarContadorEspectadores(channel) {
+    const channelIdForFirebase = channel.id;
     
     console.log('🔥 Monitorando: onlineUsers/' + channelIdForFirebase);
     console.log('🔥 Nome do canal:', channel.name);
@@ -7004,7 +7145,6 @@ if (!isOffline && isPublished) {
     const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
     
     const listener = onlineViewersRef.on('value', (snapshot) => {
-        // 🔥 USAR O ID DO FIRESTORE NO HTML TAMBÉM
         const spectatorsElement = document.getElementById(`spectators-${channelIdForFirebase}`);
         
         if (!spectatorsElement) {
@@ -7015,7 +7155,7 @@ if (!isOffline && isPublished) {
         if (!snapshot.exists()) {
             const countElement = spectatorsElement.querySelector('.spectator-count');
             if (countElement) {
-                countElement.textContent = '0';
+                countElement.textContent = '0'; 
             }
             console.log('📭 Nenhum espectador para:', channelIdForFirebase);
             return;
@@ -7037,64 +7177,6 @@ if (!isOffline && isPublished) {
         listener: listener
     };
 }
-
-                            
-                            const watchBtn = channelCard.querySelector('.watch-channel');
-                            const editBtn = channelCard.querySelector('.edit-channel');
-                            const toggleBtn = channelCard.querySelector('.toggle-offline-channel');
-                            const deleteBtn = channelCard.querySelector('.delete-channel');
-                            
-                            // Botão Monetizar 
-const monetizeBtn = channelCard.querySelector('.monetize-channel');
-if (monetizeBtn) {
-    monetizeBtn.addEventListener('click', function() {
-        const channelId = this.getAttribute('data-id');
-        window.location.href = `monetizar.html?channelId=${channelId}`;
-    });
-}
-
-if (watchBtn) {
-
-                                watchBtn.addEventListener('click', function() {
-                                    const channelUrl = this.getAttribute('data-url');
-                                    window.open(channelUrl, '_blank');
-                                });
-                            }
-                            
-                            if (editBtn) {
-                                editBtn.addEventListener('click', function() {
-                                    const channelId = this.getAttribute('data-id');
-                                    editChannel(channelId);
-                                });
-                            }
-                            
-                            if (toggleBtn) {
-                                toggleBtn.addEventListener('click', function() {
-                                    const channelId = this.getAttribute('data-id');
-                                    const isOffline = this.getAttribute('data-offline') === 'true';
-                                    toggleChannelOffline(channelId, isOffline);
-                                });
-                            }
-                            
-                            if (deleteBtn) {
-                                deleteBtn.addEventListener('click', function() {
-                                    const channelId = this.getAttribute('data-id');
-                                    deleteChannel(channelId);
-                                });
-                            }
-                        });
-                    }
-                }
-                
-                console.log(`Total de ${channels.length} canais exibidos`);
-            } catch (error) {
-                console.error("Erro ao carregar canais:", error);
-                const emptyState = document.getElementById('emptyState');
-                const channelsList = document.getElementById('channelsList');
-                if (emptyState) emptyState.style.display = 'block';
-                if (channelsList) channelsList.style.display = 'none';
-            }
-        }
 
         // Alternar estado "fora do ar" do canal
         async function toggleChannelOffline(channelId, isCurrentlyOffline) {
