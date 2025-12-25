@@ -6275,58 +6275,96 @@ console.log('📌 HTML gerado com ID do documento:', currentChannelId);
         }
 // ==================== FUNÇÕES DE VERIFICAÇÃO DE MONETIZAÇÃO ====================
 
-// 🔥 NOVA FUNÇÃO: Verificar se canal tem monetização ativa
+// 🔥 FUNÇÃO ATUALIZADA: Verificar se canal tem monetização ativa (SEMPRE busca atual)
 async function hasActiveMonetization(channelId) {
-    if (!currentUser || !channelId) return false;
+    // VALIDAÇÕES INICIAIS
+    if (!currentUser) {
+        console.log('❌ hasActiveMonetization: Usuário não está logado');
+        return false;
+    }
+    
+    if (!channelId) {
+        console.log('❌ hasActiveMonetization: channelId não fornecido');
+        return false;
+    }
+    
+    console.log(`🔍 hasActiveMonetization: Verificando ATUALMENTE para canal: ${channelId}`);
     
     try {
-        console.log(`Verificando monetização para canal: ${channelId}`);
-        
-        // Primeiro tenta na nova estrutura (coleção 'channels')
+        // PRIMEIRO: Tentar nova estrutura (coleção 'channels')
+        console.log(`📊 Tentando coleção 'channels' para: ${channelId}`);
         const channelMonetizationRef = db.collection('channels').doc(channelId)
             .collection('monetization').doc('settings');
+        
         const channelMonetizationDoc = await channelMonetizationRef.get();
         
         if (channelMonetizationDoc.exists) {
             const data = channelMonetizationDoc.data();
-            // Verifica se qualquer tipo de monetização está ativa
-            const hasActive = 
-                (data.adsTerraBanner && data.adsTerraBanner.enabled) ||
-                (data.adsTerraInterstitial && data.adsTerraInterstitial.enabled) ||
-                (data.pixDonations && data.pixDonations.enabled) ||
-                (data.paidCommercials && data.paidCommercials.enabled);
+            console.log('📄 Dados encontrados na coleção "channels":', data);
             
-            console.log(`Monetização encontrada (nova estrutura): ${hasActive ? 'ATIVA' : 'INATIVA'}`);
+            // VERIFICAÇÃO DETALHADA DE CADA TIPO
+            const adsTerraBannerActive = data.adsTerraBanner && data.adsTerraBanner.enabled === true;
+            const adsTerraInterstitialActive = data.adsTerraInterstitial && data.adsTerraInterstitial.enabled === true;
+            const pixDonationsActive = data.pixDonations && data.pixDonations.enabled === true;
+            const paidCommercialsActive = data.paidCommercials && data.paidCommercials.enabled === true;
+            
+            console.log(`🔍 Detalhamento:
+  - AdsTerra Banner: ${adsTerraBannerActive ? 'ATIVO' : 'inativo'}
+  - AdsTerra Interstitial: ${adsTerraInterstitialActive ? 'ATIVO' : 'inativo'}
+  - Pix Donations: ${pixDonationsActive ? 'ATIVO' : 'inativo'}
+  - Paid Commercials: ${paidCommercialsActive ? 'ATIVO' : 'inativo'}`);
+            
+            const hasActive = adsTerraBannerActive || adsTerraInterstitialActive || 
+                             pixDonationsActive || paidCommercialsActive;
+            
+            console.log(`✅ Resultado final (channels): ${hasActive ? 'MONETIZAÇÃO ATIVA' : 'SEM MONETIZAÇÃO ATIVA'}`);
             return hasActive;
         }
         
-        // Se não encontrou, tenta na estrutura antiga (coleção 'users')
+        // SEGUNDO: Tentar estrutura antiga (coleção 'users')
+        console.log(`📊 Tentando coleção 'users' para: ${channelId}`);
         const userMonetizationRef = db.collection('users').doc(currentUser.uid)
             .collection('channels').doc(channelId)
             .collection('monetization').doc('settings');
+        
         const userMonetizationDoc = await userMonetizationRef.get();
         
         if (userMonetizationDoc.exists) {
             const data = userMonetizationDoc.data();
-            const hasActive = 
-                (data.adsTerraBanner && data.adsTerraBanner.enabled) ||
-                (data.adsTerraInterstitial && data.adsTerraInterstitial.enabled) ||
-                (data.pixDonations && data.pixDonations.enabled) ||
-                (data.paidCommercials && data.paidCommercials.enabled);
+            console.log('📄 Dados encontrados na coleção "users":', data);
             
-            console.log(`Monetização encontrada (estrutura antiga): ${hasActive ? 'ATIVA' : 'INATIVA'}`);
+            const adsTerraBannerActive = data.adsTerraBanner && data.adsTerraBanner.enabled === true;
+            const adsTerraInterstitialActive = data.adsTerraInterstitial && data.adsTerraInterstitial.enabled === true;
+            const pixDonationsActive = data.pixDonations && data.pixDonations.enabled === true;
+            const paidCommercialsActive = data.paidCommercials && data.paidCommercials.enabled === true;
+            
+            console.log(`🔍 Detalhamento (users):
+  - AdsTerra Banner: ${adsTerraBannerActive ? 'ATIVO' : 'inativo'}
+  - AdsTerra Interstitial: ${adsTerraInterstitialActive ? 'ATIVO' : 'inativo'}
+  - Pix Donations: ${pixDonationsActive ? 'ATIVO' : 'inativo'}
+  - Paid Commercials: ${paidCommercialsActive ? 'ATIVO' : 'inativo'}`);
+            
+            const hasActive = adsTerraBannerActive || adsTerraInterstitialActive || 
+                             pixDonationsActive || paidCommercialsActive;
+            
+            console.log(`✅ Resultado final (users): ${hasActive ? 'MONETIZAÇÃO ATIVA' : 'SEM MONETIZAÇÃO ATIVA'}`);
             return hasActive;
         }
         
-        console.log(`Nenhuma configuração de monetização encontrada para: ${channelId}`);
+        // NENHUMA CONFIGURAÇÃO ENCONTRADA
+        console.log(`📭 NENHUMA configuração de monetização encontrada para: ${channelId}`);
+        console.log(`📭 Caminhos verificados:
+  1. channels/${channelId}/monetization/settings
+  2. users/${currentUser.uid}/channels/${channelId}/monetization/settings`);
+        
         return false;
         
     } catch (error) {
-        console.error("Erro ao verificar monetização:", error);
+        console.error(`❌ ERRO CRÍTICO em hasActiveMonetization para ${channelId}:`, error);
+        console.error('Stack trace:', error.stack);
         return false;
     }
 }
-
 
 
         // ==================== FUNÇÕES DO BANCO DE DADOS ====================
@@ -6901,13 +6939,21 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
         // Função para carregar todos os canais
         async function carregarCanais() {
             try {
-                console.log("Carregando canais do banco de dados...");
+                console.log("🔄 Carregando canais do banco de dados...");
                 
                 const channelsList = document.getElementById('channelsList');
                 const emptyState = document.getElementById('emptyState');
                 
                 channels = [];
                 if (channelsList) channelsList.innerHTML = '';
+                
+                // 🔥🔥🔥 PASSO 3: REMOVER TODOS OS ÍCONES DE MONETIZAÇÃO EXISTENTES
+                // Isso garante que não fiquem ícones cacheados/velhos
+                const allMonetizationIcons = document.querySelectorAll('.monetization-icon');
+                console.log(`🗑️ Removendo ${allMonetizationIcons.length} ícones de monetização antigos`);
+                allMonetizationIcons.forEach(icon => {
+                    icon.remove();
+                });
                 
                 for (let channelId in channelViewerListeners) {
                     if (channelViewerListeners[channelId]) {
@@ -6955,47 +7001,57 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
                                 adultIcon = `<img src="${ADULT_ICON}" class="adult-content-icon" title="Este canal transmite conteúdo adulto (18+)" style="width: 25px; height: 25px;">`;
                             }
 
-                            // Verificação de monetização (executada depois)
+                            // Verificação de monetização - SEMPRE verificar quando carrega
                             if (channel.id) {
-                                (function(channelId, channelName, hasAdultContent) {
-                                    setTimeout(async () => {
-                                        try {
-                                            const hasMonetization = await hasActiveMonetization(channelId);
-                                            if (hasMonetization) {
-                                                console.log(`✅ ${channelName} tem monetização ativa`);
-                                                
-                                                // ORDEM CORRETA: Bandeira(10px) → 18+(45px) → Moeda(80px)
-                                                // Se não tem 18+: Moeda vai para 45px (ao lado da bandeira)
-                                                let leftPos = hasAdultContent ? 80 : 45;
-                                                
-                                                const card = document.querySelector(`[data-channel="${channelId}"]`);
-                                                if (card) {
-                                                    // Verificar se já existe o ícone
-                                                    const existingIcon = card.querySelector('.monetization-icon');
-                                                    if (!existingIcon) {
-                                                        // Criar a imagem com pré-carregamento
-                                                        const img = new Image();
-                                                        img.onload = function() {
-                                                            // Quando a imagem carregar, adicionar ao DOM
-                                                            const iconHTML = `<img src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp" class="monetization-icon" title="Canal monetizado" style="left: ${leftPos}px;">`;
-                                                            card.insertAdjacentHTML('beforeend', iconHTML);
-                                                        };
-                                                        img.onerror = function() {
-                                                            console.error(`❌ Falha ao carregar imagem da moeda para ${channelName}`);
-                                                            // Tentar com fallback se a imagem .webp falhar
-                                                            const fallbackHTML = `<div class="monetization-icon" title="Canal monetizado" style="left: ${leftPos}px; background: gold; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: black; font-size: 12px;">R$</div>`;
-                                                            card.insertAdjacentHTML('beforeend', fallbackHTML);
-                                                        };
-                                                        // Iniciar carregamento
-                                                        img.src = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp";
-                                                    }
-                                                }
-                                            }
-                                        } catch (error) {
-                                            console.log(`Erro ao verificar monetização para ${channelName}:`, error);
+                                // Função para verificar e gerenciar ícone de monetização
+                                const checkAndUpdateMonetizationIcon = async (channelId, channelName, hasAdultContent) => {
+                                    try {
+                                        const hasMonetization = await hasActiveMonetization(channelId);
+                                        console.log(`🔍 ${channelName} - Monetização ativa: ${hasMonetization}`);
+                                        
+                                        const card = document.querySelector(`[data-channel="${channelId}"]`);
+                                        if (!card) return;
+                                        
+                                        // Remover ícone existente se houver
+                                        const existingIcon = card.querySelector('.monetization-icon');
+                                        if (existingIcon) {
+                                            existingIcon.remove();
                                         }
-                                    }, 100);
-                                })(channel.id, channel.name, isAdultContent);
+                                        
+                                        // Se tem monetização ativa, ADICIONAR o ícone
+                                        if (hasMonetization) {
+                                            console.log(`✅ ${channelName} - ADICIONANDO ícone de monetização`);
+                                            
+                                            // ORDEM CORRETA: Bandeira(10px) → 18+(45px) → Moeda(80px)
+                                            // Se não tem 18+: Moeda vai para 45px (ao lado da bandeira)
+                                            let leftPos = hasAdultContent ? 80 : 45;
+                                            
+                                            // Criar a imagem com pré-carregamento
+                                            const img = new Image();
+                                            img.onload = function() {
+                                                // Quando a imagem carregar, adicionar ao DOM
+                                                const iconHTML = `<img src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp" class="monetization-icon" title="Canal monetizado" style="left: ${leftPos}px;">`;
+                                                card.insertAdjacentHTML('beforeend', iconHTML);
+                                            };
+                                            img.onerror = function() {
+                                                console.error(`❌ Falha ao carregar imagem da moeda para ${channelName}`);
+                                                // Fallback
+                                                const fallbackHTML = `<div class="monetization-icon" title="Canal monetizado" style="left: ${leftPos}px; background: gold; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: black; font-size: 12px;">R$</div>`;
+                                                card.insertAdjacentHTML('beforeend', fallbackHTML);
+                                            };
+                                            img.src = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/moeda.webp";
+                                        } else {
+                                            console.log(`❌ ${channelName} - REMOVENDO ícone de monetização (desativada)`);
+                                        }
+                                    } catch (error) {
+                                        console.error(`Erro ao verificar monetização para ${channelName}:`, error);
+                                    }
+                                };
+                                
+                                // Executar verificação com pequeno delay
+                                setTimeout(() => {
+                                    checkAndUpdateMonetizationIcon(channel.id, channel.name, isAdultContent);
+                                }, 50);
                             }
                             
                             // 🔥 VERIFICAÇÃO DE MONETIZAÇÃO
