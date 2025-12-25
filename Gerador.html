@@ -6522,10 +6522,13 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
     </div>
     ${visibilityIcon}
     ${adultIcon}
-    <p class="spectators" id="spectators-${channel.id}">
+
+<p class="spectators" id="spectators-${channelIdForFirebase}">
+
         <span style="display:inline-block; width:8px; height:8px; background:#ff4444; border-radius:50%; margin-right:5px; animation:pulse 1.5s infinite;"></span>
         <span class="spectator-count">0</span> espectadores online
-    </p>
+     <span class="spectator-count">0</span> espectadores online
+</p>
     <div class="channel-status ${statusClass}">${statusText}</div>
     <div class="channel-actions">
     ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
@@ -6540,17 +6543,24 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
 `;
                             channelsList.appendChild(channelCard);// Na função carregarCanais(), dentro do loop que cria os cards dos canais:
 if (!isOffline && isPublished) {
+    // 🔥 USAR O MESMO ID DO CANAL GERADO
+    // O canal gerado usa o nome formatado, não o ID do Firestore!
     const channelIdForFirebase = channel.name.toLowerCase()
         .replace(/[^a-z0-9]/g, '-')
         .replace(/-+/g, '-');
     
+    console.log('🔥 Firebase path: onlineUsers/' + channelIdForFirebase);
+    
     const onlineViewersRef = rtdb.ref('onlineUsers/' + channelIdForFirebase);
     
-    // 🔥 LISTENER CORRIGIDO - CONTAGEM DE ESPECTADORES ATIVOS
     const listener = onlineViewersRef.on('value', (snapshot) => {
-        const spectatorsElement = document.getElementById(`spectators-${channel.id}`);
+        const spectatorsElement = document.getElementById(`spectators-${channelIdForFirebase}`);
+
         
-        if (!spectatorsElement) return;
+        if (!spectatorsElement) {
+            console.log('❌ Elemento não encontrado: spectators-' + channel.id);
+            return;
+        }
         
         if (!snapshot.exists()) {
             if (spectatorsElement.querySelector('.spectator-count')) {
@@ -6558,6 +6568,7 @@ if (!isOffline && isPublished) {
             } else {
                 spectatorsElement.textContent = `Espectadores: 0`;
             }
+            console.log('📭 Nenhum espectador no Firebase para:', channelIdForFirebase);
             return;
         }
         
@@ -6565,28 +6576,34 @@ if (!isOffline && isPublished) {
         const now = Date.now();
         let activeCount = 0;
         
-        // Conta apenas espectadores com heartbeat recente (últimos 45 segundos)
-        Object.keys(viewers).forEach(key => {
-            const viewer = viewers[key];
-            if (viewer && viewer.lastHeartbeat) {
-                const timeDiff = now - viewer.lastHeartbeat;
-                if (timeDiff < 45000) { // 🔥 45 segundos
-                    activeCount++;
-                }
-            } else if (viewer && viewer.timestamp) {
-                // Fallback para viewers antigos sem lastHeartbeat
-                const timeDiff = now - viewer.timestamp;
-                if (timeDiff < 60000) { // 🔥 1 minuto (para compatibilidade)
-                    activeCount++;
-                }
-            }
-        });
+        // Conta TODOS os espectadores (sem filtrar por tempo para teste)
+        const totalCount = Object.keys(viewers).length;
+        
+        console.log('📊 Total de espectadores no Firebase:', totalCount, 'para', channelIdForFirebase);
+        console.log('👥 Viewers:', viewers);
+        
+        // Mostra o total primeiro para teste
+        activeCount = totalCount;
         
         if (spectatorsElement.querySelector('.spectator-count')) {
             spectatorsElement.querySelector('.spectator-count').textContent = activeCount;
         } else {
             spectatorsElement.textContent = `Espectadores: ${activeCount}`;
         }
+        
+        // 🔥 MIGRAÇÃO: Adiciona lastHeartbeat se não existir
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.timestamp && !viewer.lastHeartbeat) {
+                onlineViewersRef.child(key).update({
+                    lastHeartbeat: viewer.timestamp
+                }).then(() => {
+                    console.log('✅ Migração de lastHeartbeat para', key);
+                }).catch(err => {
+                    console.log('⚠️ Não foi possível migrar', key);
+                });
+            }
+        });
     });
     
     channelViewerListeners[channel.id] = {
