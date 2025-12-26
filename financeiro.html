@@ -1,55 +1,1790 @@
-// Cloud Function: transferToChannel
-const axios = require('axios');
-const admin = require('firebase-admin');
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Admin - Canais TV Online</title>
+    <link rel="icon" href="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/favicon.png" type="image/png">
 
-exports.transferToChannel = functions.https.onRequest(async (req, res) => {
-    try {
-        const { channelUserId, amount, idempotencyKey, adminEmail } = req.body;
-        
-        // Buscar token do canal no Firestore
-        const channelDoc = await admin.firestore()
-            .collection('channels')
-            .where('pixDonations.mpUserId', '==', channelUserId)
-            .limit(1)
-            .get();
-        
-        if (channelDoc.empty) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Canal não encontrado' 
-            });
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        
-        const channelData = channelDoc.docs[0].data();
-        const channelToken = channelData.pixDonations.mpAccessToken;
-        
-        // Fazer transferência via Mercado Pago API
-        const transferResponse = await axios({
-            method: 'post',
-            url: 'https://api.mercadopago.com/v1/transfers',
-            headers: {
-                'Authorization': `Bearer ${channelToken}`,
-                'Content-Type': 'application/json',
-                'X-Idempotency-Key': idempotencyKey
-            },
-            data: {
-                amount: parseFloat(amount),
-                user_id: channelUserId.toString()
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
+            color: white;
+            min-height: 100vh;
+        }
+
+        /* Header e Navegação */
+        .header {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #fdbb2d;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo {
+            width: 50px;
+            height: 50px;
+            border-radius: 10px;
+            object-fit: cover;
+        }
+
+        .admin-title {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #fdbb2d;
+        }
+
+        .admin-subtitle {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #fdbb2d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #000;
+        }
+
+        .logout-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: #c0392b;
+            transform: translateY(-2px);
+        }
+
+        /* Container Principal */
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        /* Cards de Resumo - APENAS PAGOS */
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: translateY(-5px);
+        }
+
+        .card-title {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .card-value {
+            font-size: 2.2rem;
+            font-weight: bold;
+            color: #fdbb2d;
+            margin-bottom: 5px;
+        }
+
+        .card-change {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .card-change.positive {
+            color: #2ecc71;
+        }
+
+        .card-change.negative {
+            color: #e74c3c;
+        }
+
+        /* Filtros */
+        .filters-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .filters-title {
+            font-size: 1.4rem;
+            color: #fdbb2d;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filter-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        .filter-input, .filter-select {
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            color: #333;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .filter-input:focus, .filter-select:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px #fdbb2d;
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .filter-btn.primary {
+            background: #fdbb2d;
+            color: #000;
+        }
+
+        .filter-btn.primary:hover {
+            background: #ffcc44;
+            transform: translateY(-2px);
+        }
+
+        .filter-btn.secondary {
+            background: #4a5568;
+            color: white;
+        }
+
+        .filter-btn.secondary:hover {
+            background: #2d3748;
+            transform: translateY(-2px);
+        }
+
+        /* Tabela de Pagamentos */
+        .payments-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 1.4rem;
+            color: #fdbb2d;
+        }
+
+        .export-btn {
+            background: #2ecc71;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .export-btn:hover {
+            background: #27ae60;
+            transform: translateY(-2px);
+        }
+
+        /* Tabela */
+        .table-container {
+            overflow-x: auto;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .payments-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1000px;
+        }
+
+        .payments-table thead {
+            background: rgba(253, 187, 45, 0.2);
+        }
+
+        .payments-table th {
+            padding: 15px;
+            text-align: left;
+            font-weight: bold;
+            color: #fdbb2d;
+            border-bottom: 2px solid rgba(253, 187, 45, 0.3);
+        }
+
+        .payments-table td {
+            padding: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .payments-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* Badges de Status - DIFERENCIAR APROVADOS vs PENDENTES */
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            text-align: center;
+            display: inline-block;
+        }
+
+        .status-approved {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+            border: 1px solid rgba(46, 204, 113, 0.3);
+        }
+
+        .status-received {
+            background: rgba(52, 152, 219, 0.2);
+            color: #3498db;
+            border: 1px solid rgba(52, 152, 219, 0.3);
+        }
+
+        .status-pending {
+            background: rgba(241, 196, 15, 0.2);
+            color: #f1c40f;
+            border: 1px solid rgba(241, 196, 15, 0.3);
+        }
+
+        .status-cancelled {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
+
+        .status-expired {
+            background: rgba(149, 165, 166, 0.2);
+            color: #95a5a6;
+            border: 1px solid rgba(149, 165, 166, 0.3);
+        }
+
+        /* Ações */
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: none;
+            font-size: 0.85rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .action-btn.view {
+            background: rgba(52, 152, 219, 0.2);
+            color: #3498db;
+            border: 1px solid rgba(52, 152, 219, 0.3);
+        }
+
+        .action-btn.view:hover {
+            background: rgba(52, 152, 219, 0.3);
+        }
+
+        .action-btn.transfer {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+            border: 1px solid rgba(46, 204, 113, 0.3);
+        }
+
+        .action-btn.transfer:hover {
+            background: rgba(46, 204, 113, 0.3);
+        }
+
+        .action-btn.cancel {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
+
+        .action-btn.cancel:hover {
+            background: rgba(231, 76, 60, 0.3);
+        }
+
+        /* Paginação */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .page-btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .page-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            color: #fdbb2d;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 5px;
+        }
+
+        .modal-body {
+            margin-bottom: 20px;
+        }
+
+        .modal-field {
+            margin-bottom: 15px;
+        }
+
+        .field-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        .field-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #fdbb2d;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        /* Mensagens - BACKGROUND ESCURO PARA TEXTOS VERMELHOS */
+        .alert-message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.6);
+        }
+
+        .alert-success {
+            border: 1px solid rgba(46, 204, 113, 0.5);
+            color: #2ecc71;
+        }
+
+        .alert-error {
+            border: 1px solid rgba(231, 76, 60, 0.5);
+            color: #e74c3c;
+        }
+
+        .alert-warning {
+            border: 1px solid rgba(241, 196, 15, 0.5);
+            color: #f1c40f;
+        }
+
+        .alert-info {
+            border: 1px solid rgba(52, 152, 219, 0.5);
+            color: #3498db;
+        }
+
+        .alert-close {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 0 5px;
+        }
+
+        /* Notas com fundo escuro */
+        .warning-note {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(241, 196, 15, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            color: #f1c40f;
+        }
+
+        .error-note {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            color: #e74c3c;
+        }
+
+        /* Loading */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #fdbb2d;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsividade */
+        @media (max-width: 768px) {
+            .header {
+                padding: 15px 20px;
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
             }
+
+            .dashboard-container {
+                padding: 0 15px;
+            }
+
+            .filters-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+
+            .payments-table {
+                font-size: 0.9rem;
+            }
+
+            .payments-table th,
+            .payments-table td {
+                padding: 10px 8px;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+            }
+        }
+
+        /* Sugestões de pesquisa */
+        .suggestions-container {
+            position: relative;
+        }
+
+        .suggestions-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 0 0 8px 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            display: none;
+        }
+
+        .suggestion-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .suggestion-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Progress bar para transferências */
+        .transfer-progress {
+            display: none;
+            margin: 10px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 10px;
+            background: linear-gradient(90deg, #2ecc71, #27ae60);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            text-align: center;
+            font-size: 0.9rem;
+            margin-top: 5px;
+            color: #2ecc71;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="logo-container">
+            <img src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png" alt="Logo" class="logo">
+            <div>
+                <div class="admin-title">Dashboard Admin</div>
+                <div class="admin-subtitle">Sistema de Pagamentos - Canais TV Online</div>
+            </div>
+        </div>
+        <div class="user-info">
+            <div class="user-avatar" id="userAvatar">AD</div>
+            <div>
+                <div id="userName">Administrador</div>
+                <div id="userEmail" style="font-size: 0.85rem; opacity: 0.8;">carregando...</div>
+            </div>
+            <button class="logout-btn" id="logoutBtn">Sair</button>
+        </div>
+    </header>
+
+    <!-- Dashboard Container -->
+    <div class="dashboard-container">
+        <!-- Cards de Resumo - APENAS PAGOS -->
+        <div class="summary-cards">
+            <div class="card">
+                <div class="card-title">Total Recebido</div>
+                <div class="card-value" id="totalReceived">R$ 0,00</div>
+                <div class="card-change positive" id="totalChange">Pagamentos confirmados</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Sua Comissão (8%)</div>
+                <div class="card-value" id="platformCommission">R$ 0,00</div>
+                <div class="card-change positive" id="commissionChange">Do total recebido</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Devido aos Canais (92%)</div>
+                <div class="card-value" id="dueToChannels">R$ 0,00</div>
+                <div class="card-change negative" id="dueChange">0 pendentes de repasse</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Pagamentos Recebidos</div>
+                <div class="card-value" id="totalPayments">0</div>
+                <div class="card-change positive" id="paymentsChange">Pagamentos confirmados</div>
+            </div>
+        </div>
+
+        <!-- Filtros -->
+        <div class="filters-section">
+            <div class="filters-title">🔍 Filtros de Busca</div>
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label class="filter-label">Data Inicial</label>
+                    <input type="date" class="filter-input" id="startDate">
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Data Final</label>
+                    <input type="date" class="filter-input" id="endDate">
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Status do Pagamento</label>
+                    <select class="filter-select" id="statusFilter">
+                        <option value="approved" selected>Aprovados (Padrão)</option>
+                        <option value="pending">Pendentes</option>
+                        <option value="cancelled">Cancelados</option>
+                        <option value="expired">Expirados</option>
+                        <option value="all">Todos os Status</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Nome do Canal</label>
+                    <div class="suggestions-container">
+                        <input type="text" class="filter-input" id="channelSearch" placeholder="Digite para buscar...">
+                        <div class="suggestions-list" id="channelSuggestions"></div>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">ID do Pagamento</label>
+                    <input type="text" class="filter-input" id="paymentIdFilter" placeholder="Ex: payment_123456">
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Email do Doador</label>
+                    <input type="text" class="filter-input" id="payerEmailFilter" placeholder="Ex: doador@email.com">
+                </div>
+            </div>
+
+            <div class="filter-buttons">
+                <button class="filter-btn primary" id="applyFilters">Aplicar Filtros</button>
+                <button class="filter-btn secondary" id="resetFilters">Limpar Filtros</button>
+                <button class="filter-btn secondary" id="refreshData">🔄 Atualizar</button>
+            </div>
+        </div>
+
+        <!-- Mensagens -->
+        <div class="alert-message" id="alertMessage"></div>
+
+        <!-- Tabela de Pagamentos -->
+        <div class="payments-section">
+            <div class="section-header">
+                <div class="section-title">📋 Histórico de Pagamentos</div>
+                <div>
+                    <span id="tableStatusInfo" style="font-size: 0.9rem; opacity: 0.8; margin-right: 15px;">
+                        Mostrando: <span id="showingCount">0</span> de <span id="totalCount">0</span> pagamentos
+                    </span>
+                    <button class="export-btn" id="exportBtn">📥 Exportar CSV</button>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <table class="payments-table">
+                    <thead>
+                        <tr>
+                            <th>ID Pagamento</th>
+                            <th>Data</th>
+                            <th>Canal</th>
+                            <th>Valor Total</th>
+                            <th>Sua Parte (8%)</th>
+                            <th>Devido (92%)</th>
+                            <th>Status Pagamento</th>
+                            <th>Status Repasse</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="paymentsTableBody">
+                        <!-- Dados serão carregados dinamicamente -->
+                        <tr>
+                            <td colspan="9" style="text-align: center; padding: 40px;">
+                                Carregando dados...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Paginação -->
+            <div class="pagination">
+                <button class="page-btn" id="prevPage" disabled>← Anterior</button>
+                <div class="page-info" id="pageInfo">Página 1 de 1</div>
+                <button class="page-btn" id="nextPage" disabled>Próxima →</button>
+            </div>
+        </div>
+
+        <!-- Resumo Financeiro -->
+        <div class="filters-section">
+            <div class="filters-title">📊 Resumo Financeiro</div>
+            <div id="financialSummary">
+                <!-- Resumo será carregado dinamicamente -->
+                <div style="text-align: center; padding: 20px;">
+                    Selecione filtros para ver o resumo
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Detalhes -->
+    <div class="modal-overlay" id="paymentModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Detalhes do Pagamento</div>
+                <button class="modal-close" id="closeModal">×</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Conteúdo será carregado dinamicamente -->
+            </div>
+            <div class="modal-footer">
+                <button class="filter-btn secondary" id="closeModalBtn">Fechar</button>
+                <button class="filter-btn primary" id="transferNowBtn" style="display: none;">💰 Transferir Agora</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <script>
+        // 🔥 CONFIGURAÇÃO DO FIREBASE
+        const firebaseConfig = {
+            apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
+            authDomain: "playtronic-tv.firebaseapp.com",
+            projectId: "playtronic-tv",
+            storageBucket: "playtronic-tv.firebasestorage.app",
+            messagingSenderId: "272337341020",
+            appId: "1:272337341020:web:a30d949985fd614b5c7499",
+            measurementId: "G-1QRKY0NN0W"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // 🔐 EMAILS AUTORIZADOS
+        const AUTHORIZED_EMAILS = [
+            'playtronicpublisher@mail.com',
+            'playtronic@mail.com', 
+            'frenimattos@mail.com'
+        ];
+
+        // 📊 DADOS DO DASHBOARD
+        let currentUser = null;
+        let allPayments = [];
+        let filteredPayments = [];
+        let channels = [];
+        let currentPage = 1;
+        const itemsPerPage = 15;
+        let selectedChannelId = '';
+
+        // 🛡️ VERIFICAR ACESSO
+        function checkAuthorization(user) {
+            if (!user || !user.email) {
+                return false;
+            }
+            
+            const userEmail = user.email.toLowerCase();
+            return AUTHORIZED_EMAILS.includes(userEmail);
+        }
+
+        // 🔴 REDIRECIONAR USUÁRIOS NÃO AUTORIZADOS
+        function redirectUnauthorized() {
+            window.location.href = 'https://canaisdetv.online/Gerador';
+        }
+
+        // 👤 ATUALIZAR INFO DO USUÁRIO
+        function updateUserInfo(user) {
+            document.getElementById('userName').textContent = user.displayName || 'Administrador';
+            document.getElementById('userEmail').textContent = user.email;
+            
+            // Inicializar avatar
+            const avatar = document.getElementById('userAvatar');
+            if (user.displayName) {
+                const initials = user.displayName.split(' ').map(n => n[0]).join('').toUpperCase();
+                avatar.textContent = initials.substring(0, 2);
+            }
+        }
+
+        // 📊 CARREGAR DADOS DO DASHBOARD
+        async function loadDashboardData() {
+            showLoading();
+            
+            try {
+                // Carregar TODOS os pagamentos do Firestore
+                const paymentsSnapshot = await db.collection('payment_history')
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                
+                allPayments = [];
+                paymentsSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    allPayments.push({
+                        id: doc.id,
+                        ...data,
+                        createdAt: data.createdAt?.toDate() || new Date(),
+                        // Garantir que temos os campos necessários
+                        status: data.status || 'unknown',
+                        transferStatus: data.transferStatus || 'pending'
+                    });
+                });
+                
+                // Carregar canais
+                const channelsSnapshot = await db.collection('channels').get();
+                channels = [];
+                channelsSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    channels.push({
+                        id: doc.id,
+                        name: data.name || `Canal ${doc.id.substring(0, 8)}...`,
+                        ...data
+                    });
+                });
+                
+                // Aplicar filtros iniciais (apenas aprovados por padrão)
+                applyFilters();
+                
+                // Atualizar resumo
+                updateSummary();
+                updateFinancialSummary();
+                
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Erro ao carregar dados:', error);
+                showAlert('Erro ao carregar dados do dashboard', 'error');
+                hideLoading();
+            }
+        }
+
+        // 🔍 BUSCAR CANAIS POR NOME
+        function searchChannels(searchTerm) {
+            if (!searchTerm || searchTerm.length < 2) {
+                document.getElementById('channelSuggestions').innerHTML = '';
+                document.getElementById('channelSuggestions').style.display = 'none';
+                selectedChannelId = '';
+                return;
+            }
+            
+            const term = searchTerm.toLowerCase();
+            const filtered = channels.filter(channel => 
+                channel.name.toLowerCase().includes(term) ||
+                channel.id.toLowerCase().includes(term)
+            ).slice(0, 10); // Limitar a 10 sugestões
+            
+            const suggestionsList = document.getElementById('channelSuggestions');
+            suggestionsList.innerHTML = '';
+            
+            if (filtered.length > 0) {
+                filtered.forEach(channel => {
+                    const div = document.createElement('div');
+                    div.className = 'suggestion-item';
+                    div.textContent = channel.name;
+                    div.onclick = () => {
+                        document.getElementById('channelSearch').value = channel.name;
+                        selectedChannelId = channel.id;
+                        suggestionsList.style.display = 'none';
+                        applyFilters();
+                    };
+                    suggestionsList.appendChild(div);
+                });
+                suggestionsList.style.display = 'block';
+            } else {
+                suggestionsList.style.display = 'none';
+            }
+        }
+
+        // 🎯 APLICAR FILTROS
+        function applyFilters() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const statusFilter = document.getElementById('statusFilter').value;
+            const paymentId = document.getElementById('paymentIdFilter').value.toLowerCase();
+            const payerEmail = document.getElementById('payerEmailFilter').value.toLowerCase();
+            
+            filteredPayments = allPayments.filter(payment => {
+                // Filtro por data
+                if (startDate) {
+                    const paymentDate = payment.createdAt.toISOString().split('T')[0];
+                    if (paymentDate < startDate) return false;
+                }
+                
+                if (endDate) {
+                    const paymentDate = payment.createdAt.toISOString().split('T')[0];
+                    if (paymentDate > endDate) return false;
+                }
+                
+                // Filtro por status
+                if (statusFilter !== 'all' && payment.status !== statusFilter) {
+                    return false;
+                }
+                
+                // Filtro por canal (se selecionado)
+                if (selectedChannelId && payment.channelId !== selectedChannelId) {
+                    return false;
+                }
+                
+                // Filtro por ID do pagamento
+                if (paymentId) {
+                    const paymentIdMatch = payment.id.toLowerCase().includes(paymentId) ||
+                                          (payment.paymentId && payment.paymentId.toLowerCase().includes(paymentId)) ||
+                                          (payment.mpPaymentId && payment.mpPaymentId.toLowerCase().includes(paymentId));
+                    if (!paymentIdMatch) return false;
+                }
+                
+                // Filtro por email do doador
+                if (payerEmail) {
+                    const hasPayerEmail = payment.payerEmail && 
+                                         payment.payerEmail.toLowerCase().includes(payerEmail);
+                    const hasMetadataEmail = payment.metadata && 
+                                            payment.metadata.payerEmail &&
+                                            payment.metadata.payerEmail.toLowerCase().includes(payerEmail);
+                    if (!hasPayerEmail && !hasMetadataEmail) return false;
+                }
+                
+                return true;
+            });
+            
+            // Resetar para página 1
+            currentPage = 1;
+            
+            // Atualizar interface
+            updatePaymentsTable();
+            updatePagination();
+            updateFinancialSummary();
+            updateCounters();
+        }
+
+        // 📊 ATUALIZAR CONTADORES
+        function updateCounters() {
+            const showing = filteredPayments.length;
+            const total = allPayments.length;
+            
+            document.getElementById('showingCount').textContent = showing;
+            document.getElementById('totalCount').textContent = total;
+        }
+
+        // 📋 ATUALIZAR TABELA DE PAGAMENTOS
+        function updatePaymentsTable() {
+            const tbody = document.getElementById('paymentsTableBody');
+            
+            if (filteredPayments.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" style="text-align: center; padding: 40px;">
+                            Nenhum pagamento encontrado com os filtros aplicados.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            // Calcular índices para paginação
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const pagePayments = filteredPayments.slice(startIndex, endIndex);
+            
+            let html = '';
+            
+            pagePayments.forEach(payment => {
+                const channel = channels.find(c => c.id === payment.channelId);
+                const channelName = channel?.name || `Canal ${payment.channelId?.substring(0, 8)}...`;
+                
+                // Formatar datas
+                const date = payment.createdAt.toLocaleDateString('pt-BR');
+                const time = payment.createdAt.toLocaleTimeString('pt-BR', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+                
+                // Determinar status badge
+                let statusBadge = '';
+                let transferBadge = '';
+                
+                switch(payment.status) {
+                    case 'pending':
+                        statusBadge = '<span class="status-badge status-pending">⏳ Pendente</span>';
+                        break;
+                    case 'received':
+                    case 'approved':
+                        statusBadge = '<span class="status-badge status-approved">✅ Recebido</span>';
+                        break;
+                    case 'cancelled':
+                        statusBadge = '<span class="status-badge status-cancelled">❌ Cancelado</span>';
+                        break;
+                    case 'expired':
+                        statusBadge = '<span class="status-badge status-expired">⌛ Expirado</span>';
+                        break;
+                    default:
+                        statusBadge = `<span class="status-badge status-pending">${payment.status || 'Desconhecido'}</span>`;
+                }
+                
+                // Status do repasse
+                if (payment.transferStatus === 'paid') {
+                    transferBadge = '<span class="status-badge status-approved">✅ Repassado</span>';
+                } else {
+                    transferBadge = '<span class="status-badge status-pending">⏳ Pendente</span>';
+                }
+                
+                // Calcular valores
+                const totalAmount = payment.amount || 0;
+                const platformAmount = payment.split?.platform || (totalAmount * 0.08);
+                const channelAmount = payment.split?.channel || (totalAmount * 0.92);
+                
+                // Determinar se o botão "Transferir" deve aparecer
+                const canTransfer = (payment.status === 'received' || payment.status === 'approved') && 
+                                   payment.transferStatus !== 'paid' &&
+                                   payment.channelUserId && 
+                                   channelAmount > 0;
+                
+                html += `
+                    <tr>
+                        <td>
+                            <strong>${payment.paymentId || payment.id.replace('payment_', '')}</strong><br>
+                            <small style="opacity: 0.7;">${payment.payerEmail || payment.metadata?.payerEmail || 'Email não informado'}</small>
+                        </td>
+                        <td>
+                            ${date}<br>
+                            <small style="opacity: 0.7;">${time}</small>
+                        </td>
+                        <td>${channelName}</td>
+                        <td><strong>R$ ${totalAmount.toFixed(2)}</strong></td>
+                        <td>R$ ${platformAmount.toFixed(2)}</td>
+                        <td>R$ ${channelAmount.toFixed(2)}</td>
+                        <td>${statusBadge}</td>
+                        <td>${transferBadge}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="action-btn view" onclick="viewPaymentDetails('${payment.id}')">
+                                    👁️ Detalhes
+                                </button>
+                                ${canTransfer ? `
+                                    <button class="action-btn transfer" onclick="transferPayment('${payment.id}')">
+                                        💰 Transferir
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tbody.innerHTML = html;
+        }
+
+        // 🔢 ATUALIZAR PAGINAÇÃO
+        function updatePagination() {
+            const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
+            
+            document.getElementById('prevPage').disabled = currentPage === 1;
+            document.getElementById('nextPage').disabled = currentPage === totalPages || totalPages === 0;
+            document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
+        }
+
+        // 📈 ATUALIZAR RESUMO (APENAS PAGAMENTOS APROVADOS)
+        function updateSummary() {
+            // Filtrar apenas pagamentos aprovados
+            const approvedPayments = allPayments.filter(p => 
+                p.status === 'approved' || p.status === 'received'
+            );
+            
+            if (approvedPayments.length === 0) {
+                document.getElementById('totalReceived').textContent = 'R$ 0,00';
+                document.getElementById('platformCommission').textContent = 'R$ 0,00';
+                document.getElementById('dueToChannels').textContent = 'R$ 0,00';
+                document.getElementById('totalPayments').textContent = '0';
+                return;
+            }
+            
+            // Totais gerais APENAS de pagamentos aprovados
+            const totalReceived = approvedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+            const totalPlatform = approvedPayments.reduce((sum, p) => {
+                if (p.split?.platform) return sum + p.split.platform;
+                return sum + ((p.amount || 0) * 0.08);
+            }, 0);
+            
+            // Pagamentos aprovados que ainda não foram repassados
+            const pendingTransfers = approvedPayments.filter(p => 
+                p.transferStatus !== 'paid'
+            );
+            const totalPending = pendingTransfers.reduce((sum, p) => {
+                if (p.split?.channel) return sum + p.split.channel;
+                return sum + ((p.amount || 0) * 0.92);
+            }, 0);
+            
+            // Atualizar cards
+            document.getElementById('totalReceived').textContent = `R$ ${totalReceived.toFixed(2)}`;
+            document.getElementById('platformCommission').textContent = `R$ ${totalPlatform.toFixed(2)}`;
+            document.getElementById('dueToChannels').textContent = `R$ ${totalPending.toFixed(2)}`;
+            document.getElementById('totalPayments').textContent = approvedPayments.length;
+            
+            // Textos explicativos
+            document.getElementById('dueChange').textContent = `${pendingTransfers.length} pendentes de repasse`;
+        }
+
+        // 📊 ATUALIZAR RESUMO FINANCEIRO
+        function updateFinancialSummary() {
+            const container = document.getElementById('financialSummary');
+            
+            // Calcular estatísticas dos pagamentos filtrados
+            const approvedCount = filteredPayments.filter(p => p.status === 'approved' || p.status === 'received').length;
+            const pendingCount = filteredPayments.filter(p => p.status === 'pending').length;
+            const cancelledCount = filteredPayments.filter(p => p.status === 'cancelled').length;
+            const expiredCount = filteredPayments.filter(p => p.status === 'expired').length;
+            
+            const totalAmount = filteredPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+            const paidTransfers = filteredPayments.filter(p => p.transferStatus === 'paid').length;
+            
+            const html = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                    <div style="background: rgba(46, 204, 113, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(46, 204, 113, 0.3);">
+                        <div style="font-size: 0.9rem; opacity: 0.9;">Aprovados</div>
+                        <div style="font-size: 1.5rem; font-weight: bold; color: #2ecc71;">
+                            ${approvedCount}
+                        </div>
+                    </div>
+                    <div style="background: rgba(241, 196, 15, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(241, 196, 15, 0.3);">
+                        <div style="font-size: 0.9rem; opacity: 0.9;">Pendentes</div>
+                        <div style="font-size: 1.5rem; font-weight: bold; color: #f1c40f;">
+                            ${pendingCount}
+                        </div>
+                    </div>
+                    <div style="background: rgba(231, 76, 60, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(231, 76, 60, 0.3);">
+                        <div style="font-size: 0.9rem; opacity: 0.9;">Cancelados</div>
+                        <div style="font-size: 1.5rem; font-weight: bold; color: #e74c3c;">
+                            ${cancelledCount}
+                        </div>
+                    </div>
+                    <div style="background: rgba(149, 165, 166, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(149, 165, 166, 0.3);">
+                        <div style="font-size: 0.9rem; opacity: 0.9;">Expirados</div>
+                        <div style="font-size: 1.5rem; font-weight: bold; color: #95a5a6;">
+                            ${expiredCount}
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                    <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px;">
+                        <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 10px;">Valor Total Filtrado</div>
+                        <div style="font-size: 1.8rem; font-weight: bold; color: #fdbb2d;">
+                            R$ ${totalAmount.toFixed(2)}
+                        </div>
+                        <div style="font-size: 0.9rem; opacity: 0.8; margin-top: 5px;">
+                            ${filteredPayments.length} pagamento(s)
+                        </div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px;">
+                        <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 10px;">Transferências Realizadas</div>
+                        <div style="font-size: 1.8rem; font-weight: bold; color: #3498db;">
+                            ${paidTransfers}
+                        </div>
+                        <div style="font-size: 0.9rem; opacity: 0.8; margin-top: 5px;">
+                            ${approvedCount > 0 ? `${Math.round((paidTransfers / approvedCount) * 100)}% dos aprovados` : 'Sem pagamentos aprovados'}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+
+        // 👁️ VER DETALHES DO PAGAMENTO
+        async function viewPaymentDetails(paymentId) {
+            showLoading();
+            
+            try {
+                const paymentDoc = await db.collection('payment_history').doc(paymentId).get();
+                
+                if (!paymentDoc.exists) {
+                    showAlert('Pagamento não encontrado', 'error');
+                    hideLoading();
+                    return;
+                }
+                
+                const payment = paymentDoc.data();
+                const channel = channels.find(c => c.id === payment.channelId);
+                
+                // Calcular valores
+                const totalAmount = payment.amount || 0;
+                const platformAmount = payment.split?.platform || (totalAmount * 0.08);
+                const channelAmount = payment.split?.channel || (totalAmount * 0.92);
+                
+                // Formatar dados para o modal
+                const modalBody = document.getElementById('modalBody');
+                modalBody.innerHTML = `
+                    <div class="modal-field">
+                        <div class="field-label">ID do Pagamento</div>
+                        <div class="field-value">${payment.paymentId || paymentId}</div>
+                    </div>
+                    
+                    <div class="modal-field">
+                        <div class="field-label">Canal</div>
+                        <div class="field-value">${channel?.name || payment.channelId || 'Não informado'}</div>
+                    </div>
+                    
+                    <div class="modal-field">
+                        <div class="field-label">ID do Canal no MP</div>
+                        <div class="field-value">${payment.channelUserId || payment.metadata?.channelUserId || 'Não informado'}</div>
+                    </div>
+                    
+                    <div class="modal-field">
+                        <div class="field-label">Doador</div>
+                        <div class="field-value">${payment.payerEmail || payment.metadata?.payerEmail || 'Não informado'}</div>
+                    </div>
+                    
+                    <div class="modal-field">
+                        <div class="field-label">Data e Hora</div>
+                        <div class="field-value">${payment.createdAt?.toDate().toLocaleString('pt-BR') || 'Não disponível'}</div>
+                    </div>
+                    
+                    <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0;">
+                        <div style="text-align: center; font-size: 1.2rem; margin-bottom: 15px; color: #fdbb2d;">
+                            💰 Valor Total: R$ ${totalAmount.toFixed(2)}
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="text-align: center;">
+                                <div style="font-size: 0.9rem; opacity: 0.9;">Sua Parte (8%)</div>
+                                <div style="font-size: 1.5rem; font-weight: bold; color: #2ecc71;">
+                                    R$ ${platformAmount.toFixed(2)}
+                                </div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div style="font-size: 0.9rem; opacity: 0.9;">Devido ao Canal (92%)</div>
+                                <div style="font-size: 1.5rem; font-weight: bold; color: #3498db;">
+                                    R$ ${channelAmount.toFixed(2)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="modal-field">
+                        <div class="field-label">Status do Pagamento</div>
+                        <div class="field-value">
+                            ${payment.status === 'pending' ? '⏳ Pendente (não pago)' : 
+                              payment.status === 'received' || payment.status === 'approved' ? '✅ Recebido (pago)' : 
+                              payment.status === 'cancelled' ? '❌ Cancelado' : 
+                              payment.status === 'expired' ? '⌛ Expirado' : 
+                              payment.status || 'Desconhecido'}
+                        </div>
+                    </div>
+                    
+                    <div class="modal-field">
+                        <div class="field-label">Status do Repasse</div>
+                        <div class="field-value">
+                            ${payment.transferStatus === 'paid' ? '✅ Já Repassado ao Canal' : 
+                              '⏳ Aguardando Repasse'}
+                        </div>
+                    </div>
+                    
+                    ${payment.transferredAt ? `
+                        <div class="modal-field">
+                            <div class="field-label">Data do Repasse</div>
+                            <div class="field-value">${payment.transferredAt?.toDate().toLocaleString('pt-BR') || 'Não realizado'}</div>
+                        </div>
+                    ` : ''}
+                `;
+                
+                // Mostrar/ocultar botão de transferir
+                const transferBtn = document.getElementById('transferNowBtn');
+                const canTransfer = (payment.status === 'received' || payment.status === 'approved') && 
+                                   payment.transferStatus !== 'paid' &&
+                                   payment.channelUserId && 
+                                   channelAmount > 0;
+                
+                if (canTransfer) {
+                    transferBtn.style.display = 'block';
+                    transferBtn.onclick = () => transferPayment(paymentId);
+                } else {
+                    transferBtn.style.display = 'none';
+                }
+                
+                // Mostrar modal
+                document.getElementById('paymentModal').style.display = 'flex';
+                
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Erro ao buscar detalhes:', error);
+                showAlert('Erro ao carregar detalhes do pagamento', 'error');
+                hideLoading();
+            }
+        }
+
+        // 💰 REALIZAR TRANSFERÊNCIA VIA API DO MERCADO PAGO
+        async function transferPayment(paymentId) {
+            if (!confirm('Deseja REALMENTE transferir este valor para o canal?\n\nEsta ação fará uma transferência REAL via API do Mercado Pago.')) {
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                // Buscar dados do pagamento
+                const paymentRef = db.collection('payment_history').doc(paymentId);
+                const paymentDoc = await paymentRef.get();
+                
+                if (!paymentDoc.exists) {
+                    throw new Error('Pagamento não encontrado');
+                }
+                
+                const payment = paymentDoc.data();
+                
+                // Verificar se pode ser transferido
+                if (payment.status !== 'received' && payment.status !== 'approved') {
+                    showAlert('⚠️ Este pagamento não está com status "aprovado".\nSó pode transferir pagamentos que foram realmente recebidos.', 'warning');
+                    hideLoading();
+                    return;
+                }
+                
+                if (payment.transferStatus === 'paid') {
+                    showAlert('⚠️ Este pagamento já foi repassado anteriormente.', 'warning');
+                    hideLoading();
+                    return;
+                }
+                
+                // Verificar se temos os dados necessários
+                const channelUserId = payment.channelUserId || payment.metadata?.channelUserId;
+                const channelAmount = payment.split?.channel || ((payment.amount || 0) * 0.92);
+                
+                if (!channelUserId) {
+                    showAlert('❌ Não foi possível identificar o destinatário (channelUserId).', 'error');
+                    hideLoading();
+                    return;
+                }
+                
+                if (channelAmount <= 0) {
+                    showAlert('❌ Valor a transferir inválido ou zero.', 'error');
+                    hideLoading();
+                    return;
+                }
+                
+                // Criar uma chave de idempotência única
+                const idempotencyKey = 'transfer_' + Date.now() + '_' + paymentId;
+                
+                // Preparar dados da transferência
+                const transferData = {
+                    channelId: payment.channelId,
+                    mpPaymentId: payment.paymentId || payment.mpPaymentId,
+                    channelUserId: channelUserId,
+                    amount: channelAmount.toFixed(2),
+                    idempotencyKey: idempotencyKey,
+                    adminEmail: currentUser.email,
+                    adminName: currentUser.displayName || 'Administrador'
+                };
+                
+                // Chamar a Cloud Function para fazer a transferência
+                showAlert('🔄 Iniciando transferência via Mercado Pago...', 'info');
+                
+                // Você precisa configurar esta URL da sua Cloud Function
+                // Exemplo: https://us-central1-playtronic-tv.cloudfunctions.net/transferToChannel
+                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/transferToChannel', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(transferData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Atualizar status no Firestore
+                    await paymentRef.update({
+                        transferStatus: 'paid',
+                        transferredAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        transferId: result.transferId,
+                        transferNotes: `Transferido via API MP por ${currentUser.email} em ${new Date().toLocaleString('pt-BR')}`,
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Atualizar também na coleção pending_transfers se existir
+                    const transferQuery = await db.collection('pending_transfers')
+                        .where('paymentId', '==', payment.paymentId || paymentId.replace('payment_', ''))
+                        .get();
+                    
+                    if (!transferQuery.empty) {
+                        const transferDoc = transferQuery.docs[0];
+                        await transferDoc.ref.update({
+                            transferStatus: 'paid',
+                            transferId: result.transferId,
+                            paymentDate: firebase.firestore.FieldValue.serverTimestamp(),
+                            notes: `Transferido via API MP por ${currentUser.email}`
+                        });
+                    }
+                    
+                    // Recarregar dados
+                    await loadDashboardData();
+                    
+                    showAlert(`✅ Transferência REALIZADA com sucesso!\nID da transferência: ${result.transferId}\nValor: R$ ${channelAmount.toFixed(2)}`, 'success');
+                    
+                    // Fechar modal
+                    document.getElementById('paymentModal').style.display = 'none';
+                    
+                } else {
+                    throw new Error(result.error || 'Erro desconhecido na transferência');
+                }
+                
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Erro na transferência:', error);
+                
+                // Tentar alternativa: marcar como pago manualmente (fallback)
+                if (confirm('Falha na transferência automática. Deseja marcar como repassado manualmente?')) {
+                    try {
+                        const paymentRef = db.collection('payment_history').doc(paymentId);
+                        await paymentRef.update({
+                            transferStatus: 'paid',
+                            transferredAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            transferNotes: `Marcado como repassado manualmente após falha na API por ${currentUser.email}`,
+                            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        await loadDashboardData();
+                        showAlert('⚠️ Pagamento marcado como repassado manualmente (API falhou).', 'warning');
+                        
+                        // Fechar modal
+                        document.getElementById('paymentModal').style.display = 'none';
+                        
+                    } catch (manualError) {
+                        showAlert('❌ Erro ao marcar como repassado manualmente: ' + manualError.message, 'error');
+                    }
+                } else {
+                    showAlert('❌ Transferência falhou: ' + error.message, 'error');
+                }
+                
+                hideLoading();
+            }
+        }
+
+        // 📥 EXPORTAR PARA CSV
+        function exportToCSV() {
+            if (filteredPayments.length === 0) {
+                showAlert('Não há dados para exportar', 'error');
+                return;
+            }
+            
+            // Cabeçalhos
+            const headers = [
+                'ID Pagamento',
+                'Data',
+                'Canal',
+                'Email Doador',
+                'Valor Total',
+                'Plataforma (8%)',
+                'Canal (92%)',
+                'Status Pagamento',
+                'Status Repasse',
+                'Data Criação',
+                'ID Canal MP'
+            ];
+            
+            // Dados
+            const rows = filteredPayments.map(payment => {
+                const channel = channels.find(c => c.id === payment.channelId);
+                const totalAmount = payment.amount || 0;
+                const platformAmount = payment.split?.platform || (totalAmount * 0.08);
+                const channelAmount = payment.split?.channel || (totalAmount * 0.92);
+                
+                return [
+                    payment.paymentId || payment.id,
+                    payment.createdAt.toLocaleDateString('pt-BR'),
+                    channel?.name || payment.channelId || 'Não informado',
+                    payment.payerEmail || payment.metadata?.payerEmail || '',
+                    `R$ ${totalAmount.toFixed(2)}`,
+                    `R$ ${platformAmount.toFixed(2)}`,
+                    `R$ ${channelAmount.toFixed(2)}`,
+                    payment.status,
+                    payment.transferStatus || 'pending',
+                    payment.createdAt.toISOString(),
+                    payment.channelUserId || payment.metadata?.channelUserId || ''
+                ];
+            });
+            
+            // Criar CSV
+            const csvContent = [
+                headers.join(','),
+                ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+            ].join('\n');
+            
+            // Criar blob e baixar
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', `pagamentos_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showAlert('✅ Arquivo CSV exportado com sucesso!', 'success');
+        }
+
+        // 💬 MOSTRAR ALERTA
+        function showAlert(message, type) {
+            const alert = document.getElementById('alertMessage');
+            alert.innerHTML = `
+                <div>${message}</div>
+                <button class="alert-close" onclick="this.parentElement.style.display='none'">×</button>
+            `;
+            alert.className = `alert-message alert-${type}`;
+            alert.style.display = 'flex';
+            
+            // Auto-esconder após 5 segundos
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 5000);
+        }
+
+        // ⏳ MOSTRAR LOADING
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        // 🚀 INICIALIZAÇÃO
+        document.addEventListener('DOMContentLoaded', function() {
+            // 🔐 VERIFICAR AUTENTICAÇÃO
+            auth.onAuthStateChanged(async (user) => {
+                if (!user) {
+                    // Usuário não logado
+                    redirectUnauthorized();
+                    return;
+                }
+                
+                // Verificar se o email está autorizado
+                if (!checkAuthorization(user)) {
+                    showAlert('⚠️ Acesso negado. Esta conta não tem permissão para acessar o dashboard.', 'error');
+                    setTimeout(redirectUnauthorized, 2000);
+                    return;
+                }
+                
+                // Usuário autorizado
+                currentUser = user;
+                updateUserInfo(user);
+                
+                // Carregar dados do dashboard
+                await loadDashboardData();
+                
+                // Configurar intervalo de atualização automática (5 minutos)
+                setInterval(loadDashboardData, 5 * 60 * 1000);
+            });
+            
+            // 📅 CONFIGURAR DATAS PADRÃO (últimos 30 dias)
+            const today = new Date();
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(today.getDate() - 30);
+            
+            document.getElementById('startDate').value = thirtyDaysAgo.toISOString().split('T')[0];
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            
+            // 🎯 CONFIGURAR EVENT LISTENERS
+            document.getElementById('applyFilters').addEventListener('click', applyFilters);
+            
+            document.getElementById('resetFilters').addEventListener('click', function() {
+                document.getElementById('startDate').value = thirtyDaysAgo.toISOString().split('T')[0];
+                document.getElementById('endDate').value = today.toISOString().split('T')[0];
+                document.getElementById('statusFilter').value = 'approved';
+                document.getElementById('channelSearch').value = '';
+                document.getElementById('paymentIdFilter').value = '';
+                document.getElementById('payerEmailFilter').value = '';
+                selectedChannelId = '';
+                document.getElementById('channelSuggestions').style.display = 'none';
+                applyFilters();
+            });
+            
+            document.getElementById('refreshData').addEventListener('click', loadDashboardData);
+            document.getElementById('exportBtn').addEventListener('click', exportToCSV);
+            
+            document.getElementById('prevPage').addEventListener('click', function() {
+                if (currentPage > 1) {
+                    currentPage--;
+                    updatePaymentsTable();
+                    updatePagination();
+                }
+            });
+            
+            document.getElementById('nextPage').addEventListener('click', function() {
+                const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    updatePaymentsTable();
+                    updatePagination();
+                }
+            });
+            
+            document.getElementById('closeModal').addEventListener('click', function() {
+                document.getElementById('paymentModal').style.display = 'none';
+            });
+            
+            document.getElementById('closeModalBtn').addEventListener('click', function() {
+                document.getElementById('paymentModal').style.display = 'none';
+            });
+            
+            document.getElementById('logoutBtn').addEventListener('click', function() {
+                auth.signOut().then(() => {
+                    window.location.href = 'https://canaisdetv.online/Gerador';
+                });
+            });
+            
+            // Permitir fechar modal clicando fora
+            document.getElementById('paymentModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    this.style.display = 'none';
+                }
+            });
+            
+            // Permitir busca com Enter
+            document.getElementById('paymentIdFilter').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') applyFilters();
+            });
+            
+            document.getElementById('payerEmailFilter').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') applyFilters();
+            });
+            
+            // Configurar busca de canais em tempo real
+            document.getElementById('channelSearch').addEventListener('input', function(e) {
+                searchChannels(e.target.value);
+            });
+            
+            // Fechar sugestões ao clicar fora
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.suggestions-container')) {
+                    document.getElementById('channelSuggestions').style.display = 'none';
+                }
+            });
+            
+            // Aplicar filtros quando mudar o status
+            document.getElementById('statusFilter').addEventListener('change', applyFilters);
         });
-        
-        return res.status(200).json({
-            success: true,
-            transferId: transferResponse.data.id,
-            amount: amount,
-            message: 'Transferência realizada com sucesso'
-        });
-        
-    } catch (error) {
-        console.error('Erro na transferência:', error);
-        return res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
+    </script>
+</body>
+</html>
