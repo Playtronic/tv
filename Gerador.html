@@ -2607,7 +2607,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 1500);
 });
 <\/script>
-`;// ==================== SISTEMA DE SINCRONIZAÇÃO ULTRA-AGUERRIDO + VIGILÂNCIA CONSTANTE ====================
+`;
+
+// ==================== SISTEMA DE SINCRONIZAÇÃO HIPER-AGUERRIDO + VIGILÂNCIA CONSTANTE ====================
 const syncSystemScript = `
 <script>
     let syncCheckInterval = null;
@@ -2618,258 +2620,232 @@ const syncSystemScript = `
     let audioRecoveryAttempts = 0;
     let lastAudioRecoveryTime = 0;
     let audioWasWorking = true;
-    let problemVideoDetected = false;
-    let problemVideoScore = 0;
-    let lastSyncTime = 0;
-    let consecutiveAudioLoss = 0;
-    
-    // Contadores para monitoramento
-    let videoChecks = 0;
-    let totalDrift = 0;
-    let audioCheckInterval = null;
+    let videoProblemScore = 0;
+    let currentVideoURL = '';
+    let problematicVideos = new Set();
+    let intensiveMonitoring = false;
+    let lastSyncLogTime = 0;
 
-    // CONFIGURAÇÕES ULTRA-AGUERRIDAS
     const SYNC_CONFIG = {
-        normal: {
-            checkInterval: 2000,           // Verificar a cada 2 segundos (AGUERRIDO)
-            maxDiffAllowed: 0.3,           // Tolerância de 0.3 segundos (MUITO sensível)
-            minSamples: 2,
-            microSeekAmount: 0.12,         // Ajuste micro (120ms)
-            maxCumulativeDrift: 1.0,       // Máximo drift acumulado
-            speedAdjustment: 0.0015,       // Ajuste de velocidade (0.15%)
-            minTimeBetweenAdjustments: 5000,
-        },
-        aggressive: {  // Para vídeos problemáticos
-            checkInterval: 1000,           // Verificar a cada 1 SEGUNDO (MUITO AGUERRIDO)
-            maxDiffAllowed: 0.2,           // Tolerância de 0.2 segundos
-            microSeekAmount: 0.15,         // Ajuste mais forte
-            speedAdjustment: 0.002,        // Ajuste de velocidade (0.2%)
-            maxCumulativeDrift: 0.8,
-        }
+        checkInterval: 2000,
+        intensiveCheckInterval: 1000,
+        maxDiffAllowed: 0.3,
+        microSeekAmount: 0.08,
+        maxCumulativeDrift: 1.0,
+        speedAdjustment: 0.002,
+        audioCheckInterval: 1500,
+        intensiveAudioCheck: 800,
+        audioRecoveryThreshold: 1000,
+        maxAudioRecoveryAttempts: 5,
+        problemThreshold: 3,
+        intensiveMonitoringDuration: 300000,
     };
 
-    // Obter configuração baseada no estado do vídeo
-    function getSyncConfig() {
-        return problemVideoDetected ? SYNC_CONFIG.aggressive : SYNC_CONFIG.normal;
-    }
+    let audioMonitorInterval = null;
+    let audioCheckCounter = 0;
+    let lastAudioState = { muted: false, volume: 1, time: 0 };
+    let consecutiveAudioProblems = 0;
 
-    // NOVO: Sistema de pontuação para detectar vídeos problemáticos
-    function updateProblemVideoScore(driftAmount, audioLost) {
-        if (audioLost) {
-            problemVideoScore += 3; // Perda de áudio é grave
-            consecutiveAudioLoss++;
-        } else if (Math.abs(driftAmount) > 0.5) {
-            problemVideoScore += 2; // Drift significativo
-            consecutiveAudioLoss = 0;
-        } else if (Math.abs(driftAmount) > 0.2) {
-            problemVideoScore += 1; // Drift leve
-            consecutiveAudioLoss = 0;
-        }
-        
-        // Se perdeu áudio consecutivamente, aumenta score
-        if (consecutiveAudioLoss >= 2) {
-            problemVideoScore += 5;
-        }
-        
-        // Decaimento do score ao longo do tempo
-        setTimeout(() => {
-            if (problemVideoScore > 0) problemVideoScore--;
-        }, 30000);
-        
-        // Atualizar estado de vídeo problemático
-        problemVideoDetected = problemVideoScore >= 8;
-        
-        if (problemVideoDetected && !problemVideoScoreLogged) {
-            console.log('🚨 VÍDEO PROBLEMÁTICO DETECTADO! Ativando modo de vigilância máxima.');
-            console.log(`📊 Score: ${problemVideoScore}, Drift: ${driftAmount.toFixed(2)}s`);
-            problemVideoScoreLogged = true;
-        }
-    }
-    
-    let problemVideoScoreLogged = false;
+    const videoProblemLog = new Map();
 
     function initSyncSystem() {
         if (syncCheckInterval) {
             clearInterval(syncCheckInterval);
         }
         
-        if (audioCheckInterval) {
-            clearInterval(audioCheckInterval);
-        }
-        
-        // Resetar todos os contadores
         lastValidTime = 0;
         cumulativeDrift = 0;
         microAdjustments = 0;
         audioRecoveryAttempts = 0;
         lastAudioRecoveryTime = 0;
         audioWasWorking = true;
-        problemVideoScore = 0;
-        problemVideoDetected = false;
-        consecutiveAudioLoss = 0;
-        videoChecks = 0;
-        totalDrift = 0;
-        problemVideoScoreLogged = false;
+        consecutiveAudioProblems = 0;
+        lastSyncLogTime = Date.now();
         
-        const config = getSyncConfig();
+        currentVideoURL = getCurrentVideoURL();
         
-        // Sincronização principal
-        syncCheckInterval = setInterval(checkAndFixSync, config.checkInterval);
+        intensiveMonitoring = problematicVideos.has(currentVideoURL) || 
+                              (videoProblemLog.get(currentVideoURL)?.problems || 0) >= SYNC_CONFIG.problemThreshold;
         
-        // Monitoramento de áudio CONSTANTE
-        audioCheckInterval = setInterval(monitorAudioHealth, 3000); // A cada 3 segundos
+        const checkInterval = intensiveMonitoring ? 
+                             SYNC_CONFIG.intensiveCheckInterval : 
+                             SYNC_CONFIG.checkInterval;
         
-        // Verificação preventiva extra para vídeos problemáticos
-        if (problemVideoDetected) {
-            setInterval(aggressiveAudioCheck, 1500);
-        }
+        syncCheckInterval = setInterval(checkAndFixSync, checkInterval);
         
-        console.log(`🔧 Sistema de sincronização ULTRA-AGUERRIDO inicializado`);
-        console.log(`📊 Modo: ${problemVideoDetected ? 'VIGILÂNCIA MÁXIMA' : 'Normal'}`);
+        startAudioMonitoring();
     }
 
-    // NOVO: Monitoramento constante da saúde do áudio
-    function monitorAudioHealth() {
+    function getCurrentVideoURL() {
+        if (isYoutubeVideo && youtubePlayer) {
+            try {
+                return youtubePlayer.getVideoUrl() || 'youtube-video';
+            } catch (e) {
+                return 'youtube-unknown';
+            }
+        } else if (videoElement && videoElement.src) {
+            return videoElement.src;
+        }
+        return 'unknown';
+    }
+
+    function logVideoProblem(type) {
+        const now = Date.now();
+        const url = getCurrentVideoURL();
+        
+        if (!videoProblemLog.has(url)) {
+            videoProblemLog.set(url, { problems: 0, lastProblemTime: 0, types: new Set() });
+        }
+        
+        const log = videoProblemLog.get(url);
+        log.problems++;
+        log.lastProblemTime = now;
+        log.types.add(type);
+        
+        videoProblemScore = log.problems;
+        
+        if (log.problems >= SYNC_CONFIG.problemThreshold && !intensiveMonitoring) {
+            intensiveMonitoring = true;
+            problematicVideos.add(url);
+            
+            clearInterval(syncCheckInterval);
+            syncCheckInterval = setInterval(checkAndFixSync, SYNC_CONFIG.intensiveCheckInterval);
+            
+            setTimeout(() => {
+                if (intensiveMonitoring) {
+                    intensiveMonitoring = false;
+                    clearInterval(syncCheckInterval);
+                    syncCheckInterval = setInterval(checkAndFixSync, SYNC_CONFIG.checkInterval);
+                }
+            }, SYNC_CONFIG.intensiveMonitoringDuration);
+        }
+    }
+
+    function startAudioMonitoring() {
+        if (audioMonitorInterval) {
+            clearInterval(audioMonitorInterval);
+        }
+        
+        const audioInterval = intensiveMonitoring ? 
+                             SYNC_CONFIG.intensiveAudioCheck : 
+                             SYNC_CONFIG.audioCheckInterval;
+        
+        audioMonitorInterval = setInterval(() => {
+            performAudioCheck();
+        }, audioInterval);
+    }
+
+    function performAudioCheck() {
         if (!videoElement || isYoutubeVideo || !userStartedPlayback) return;
         
-        // Verificar se o vídeo está tocando
-        if (videoElement.paused) return;
+        const now = Date.now();
         
-        // Critérios para áudio saudável:
-        // 1. Volume > 0
-        // 2. Não está mudo
-        // 3. O tempo está avançando
-        const volumeOk = videoElement.volume > 0;
-        const notMuted = !videoElement.muted;
-        const timeAdvancing = videoElement.currentTime > lastValidTime + 0.1;
+        const isPlaying = !videoElement.paused;
+        const hasTimeProgress = Math.abs(videoElement.currentTime - lastAudioState.time) > 0.01;
+        const shouldHaveAudio = !videoElement.muted && videoElement.volume > 0;
         
-        const audioShouldBeWorking = volumeOk && notMuted && timeAdvancing;
+        lastAudioState = {
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            time: videoElement.currentTime
+        };
         
-        // Se o áudio DEVERIA estar funcionando mas detectamos problemas
-        if (audioShouldBeWorking) {
-            // Verificação extra: podemos tentar detectar se há áudio realmente
-            // Isso é um proxy: se o vídeo está tocando mas não houve mudança no tempo
-            setTimeout(() => {
-                if (videoElement.currentTime <= lastValidTime + 0.05) {
-                    // Tempo não está avançando, pode ser que o áudio/vídeo travou
-                    console.log('⚠️ Possível travamento detectado');
-                    gentleRecovery();
+        if (isPlaying && shouldHaveAudio) {
+            const timeSinceLastAudioCheck = now - lastAudioRecoveryTime;
+            const isAudioSuspicious = timeSinceLastAudioCheck > 5000 && 
+                                     audioRecoveryAttempts > 0 &&
+                                     consecutiveAudioProblems > 0;
+            
+            if (isAudioSuspicious || !hasTimeProgress) {
+                consecutiveAudioProblems++;
+                
+                if (consecutiveAudioProblems >= 2) {
+                    logVideoProblem('audio_loss');
+                    detectAndRecoverAudio();
                 }
-            }, 1000);
-        }
-        
-        // Verificação preventiva: a cada 5 monitoramentos, fazer um check-up
-        videoChecks++;
-        if (videoChecks % 5 === 0) {
-            preventiveAudioCheck();
+            } else {
+                consecutiveAudioProblems = Math.max(0, consecutiveAudioProblems - 1);
+            }
         }
     }
 
-    // NOVO: Verificação preventiva de áudio
-    function preventiveAudioCheck() {
-        if (!videoElement || videoElement.paused) return;
+    function detectAndRecoverAudio() {
+        const now = Date.now();
         
-        // Técnica sutil: pausar e play rápido para "refrescar" o buffer
+        const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
+        if (now - lastAudioRecoveryTime < recoveryCooldown) {
+            return false;
+        }
+        
+        if (audioRecoveryAttempts >= SYNC_CONFIG.maxAudioRecoveryAttempts) {
+            return false;
+        }
+        
+        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+            return false;
+        }
+        
         const currentTime = videoElement.currentTime;
         const wasPlaying = !videoElement.paused;
-        
-        if (wasPlaying && problemVideoDetected) {
-            // Técnica ULTRA-RÁPIDA (15ms apenas)
-            videoElement.pause();
-            
-            setTimeout(() => {
-                videoElement.currentTime = currentTime + 0.001;
-                
-                // Salvar estado do áudio
-                const wasMuted = videoElement.muted;
-                const hadVolume = videoElement.volume;
-                
-                videoElement.play().then(() => {
-                    // Restaurar configurações de áudio
-                    if (!wasMuted) videoElement.muted = false;
-                    videoElement.volume = hadVolume;
-                }).catch(() => {
-                    // Fallback
-                    videoElement.muted = true;
-                    videoElement.play().then(() => {
-                        setTimeout(() => {
-                            videoElement.muted = wasMuted;
-                        }, 100);
-                    });
-                });
-                
-                console.log('🛡️ Check-up preventivo aplicado');
-            }, 15);
-        }
-    }
-
-    // NOVO: Verificação agressiva de áudio (para vídeos problemáticos)
-    function aggressiveAudioCheck() {
-        if (!problemVideoDetected || !videoElement || videoElement.paused) return;
-        
-        // Verificar se o áudio está realmente funcionando
-        const timeBefore = videoElement.currentTime;
-        
-        setTimeout(() => {
-            const timeAfter = videoElement.currentTime;
-            const timeDiff = timeAfter - timeBefore;
-            
-            // Se o tempo não avançou significativamente, pode estar travado
-            if (timeDiff < 0.05) {
-                console.log('🔍 Verificação agressiva: vídeo pode estar travado');
-                gentleRecovery();
-            }
-        }, 500);
-    }
-
-    // NOVO: Recuperação suave sem interromper a experiência
-    function gentleRecovery() {
-        if (!videoElement || videoElement.paused) return;
-        
-        const currentTime = videoElement.currentTime;
         const wasMuted = videoElement.muted;
         const hadVolume = videoElement.volume;
         
-        // Técnica: recarregar apenas o buffer atual
-        // Isso é menos intrusivo que recarregar o vídeo inteiro
-        videoElement.pause();
+        if (wasPlaying) {
+            videoElement.pause();
+            
+            setTimeout(() => {
+                const newTime = currentTime + 0.001;
+                
+                const originalMuted = videoElement.muted;
+                const originalVolume = videoElement.volume;
+                
+                if (videoElement.readyState >= 3) {
+                    videoElement.currentTime = newTime;
+                    
+                    requestAnimationFrame(() => {
+                        videoElement.muted = false;
+                        videoElement.volume = originalVolume > 0 ? originalVolume : 1.0;
+                        
+                        const playPromise = videoElement.play();
+                        
+                        if (playPromise !== undefined) {
+                            playPromise
+                                .then(() => {
+                                    audioWasWorking = true;
+                                    consecutiveAudioProblems = 0;
+                                })
+                                .catch(error => {
+                                    videoElement.muted = true;
+                                    videoElement.play().then(() => {
+                                        setTimeout(() => {
+                                            videoElement.muted = originalMuted;
+                                            videoElement.volume = originalVolume;
+                                        }, 100);
+                                    });
+                                });
+                        }
+                    });
+                }
+                
+                audioRecoveryAttempts++;
+                lastAudioRecoveryTime = Date.now();
+                
+            }, 10);
+            
+            return true;
+        }
         
-        setTimeout(() => {
-            // Pequeno avanço para forçar novo buffer
-            videoElement.currentTime = currentTime + 0.002;
-            
-            // Restaurar play
-            videoElement.muted = wasMuted;
-            videoElement.volume = hadVolume;
-            
-            videoElement.play().catch(e => {
-                // Se falhou, tentar com muted
-                videoElement.muted = true;
-                videoElement.play().then(() => {
-                    setTimeout(() => {
-                        videoElement.muted = wasMuted;
-                    }, 150);
-                });
-            });
-            
-            console.log('🔄 Recuperação suave aplicada');
-        }, 20);
+        return false;
     }
 
     function checkAndFixSync() {
-        if (isManualSeeking || !userStartedPlayback || currentState === 'commercial') {
+        if (isManualSeeking || !userStartedPlayback) {
             return;
         }
         
-        const config = getSyncConfig();
-        const now = Date.now();
-        
-        // Evitar verificações muito próximas
-        if (now - lastSyncTime < config.checkInterval / 2) {
+        if (currentState === 'commercial') {
             return;
         }
-        
-        lastSyncTime = now;
         
         let currentTime, duration, playbackRate;
         
@@ -2895,332 +2871,245 @@ const syncSystemScript = `
         const diff = expectedTime - currentTime;
         const absDiff = Math.abs(diff);
         
-        // Registrar drift para análise
-        totalDrift += absDiff;
-        
-        // ATUALIZAÇÃO: Correção MAIS IMEDIATA
-        if (absDiff > config.maxDiffAllowed) {
+        if (absDiff > 0.1) {
             cumulativeDrift += diff;
             
-            // Para vídeos problemáticos, corrigir IMEDIATAMENTE
-            if (problemVideoDetected || Math.abs(cumulativeDrift) > config.maxCumulativeDrift) {
-                ultraAggressiveFix(diff, currentTime, duration, playbackRate);
+            if (Math.abs(cumulativeDrift) > SYNC_CONFIG.maxCumulativeDrift || absDiff > 0.5) {
+                if (absDiff > 1.0) {
+                    logVideoProblem('desync_large');
+                } else if (absDiff > 0.5) {
+                    logVideoProblem('desync_medium');
+                } else {
+                    logVideoProblem('desync_small');
+                }
+                
+                subtleSyncFix(cumulativeDrift, currentTime, duration, playbackRate);
                 cumulativeDrift = 0;
                 
-                // Após correção agressiva, verificar áudio em 100ms
                 setTimeout(() => {
-                    if (problemVideoDetected) {
-                        verifyAndRecoverAudio();
+                    if (!isYoutubeVideo && videoElement && !videoElement.paused) {
+                        performAudioCheck();
                     }
-                }, 100);
+                }, 50);
             }
+        } else {
+            cumulativeDrift *= 0.7;
         }
         
         lastValidTime = currentTime;
-        
-        // Atualizar pontuação do vídeo
-        updateProblemVideoScore(diff, false);
-        
-        // Verificação extra de áudio a cada 10 correções
-        if (microAdjustments % 10 === 0) {
-            setTimeout(verifyAndRecoverAudio, 50);
-        }
     }
 
-    // NOVO: Correção ULTRA-AGUERRIDA
-    function ultraAggressiveFix(drift, currentTime, duration, playbackRate) {
-        console.log(`🔥 Correção ULTRA-AGUERRIDA: Drift = ${drift.toFixed(2)}s`);
+    function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        const driftAbs = Math.abs(drift);
         
-        const config = getSyncConfig();
+        const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
         
-        // Estratégia 1: Ajuste de velocidade MAIS FORTE
         if (!isYoutubeVideo && videoElement && videoElement.playbackRate !== undefined) {
-            const newRate = playbackRate + (Math.sign(drift) * config.speedAdjustment * 1.5);
+            const baseAdjustment = SYNC_CONFIG.speedAdjustment * adjustmentMultiplier;
+            const newRate = playbackRate + (Math.sign(drift) * baseAdjustment);
             
-            // Limites mais amplos para correções agressivas
-            const clampedRate = Math.max(0.85, Math.min(1.15, newRate));
+            const minRate = intensiveMonitoring ? 0.85 : 0.9;
+            const maxRate = intensiveMonitoring ? 1.15 : 1.1;
+            const clampedRate = Math.max(minRate, Math.min(maxRate, newRate));
             
-            if (Math.abs(clampedRate - playbackRate) > 0.001) {
+            if (Math.abs(clampedRate - playbackRate) > 0.0005) {
                 videoElement.playbackRate = clampedRate;
-                console.log(`🎚️ Ajuste AGUERRIDO de velocidade: ${playbackRate.toFixed(3)} → ${clampedRate.toFixed(3)}`);
                 
-                // Restaurar gradativamente
-                let restoreSteps = 0;
-                const restoreInterval = setInterval(() => {
-                    if (restoreSteps >= 5 || !videoElement || isManualSeeking) {
-                        clearInterval(restoreInterval);
-                        if (videoElement) videoElement.playbackRate = 1.0;
-                        return;
+                setTimeout(() => {
+                    if (videoElement && !isManualSeeking) {
+                        videoElement.playbackRate = 1.0;
                     }
-                    
-                    const currentRate = videoElement.playbackRate;
-                    const step = (1.0 - currentRate) * 0.3;
-                    videoElement.playbackRate = currentRate + step;
-                    restoreSteps++;
-                }, 1000);
+                }, intensiveMonitoring ? 3000 : 5000);
                 
                 return;
             }
         }
         
-        // Estratégia 2: Seek mais agressivo
-        const adjustment = Math.sign(drift) * config.microSeekAmount;
+        let seekAmount = SYNC_CONFIG.microSeekAmount * adjustmentMultiplier;
+        
+        if (driftAbs > 1.0) {
+            seekAmount *= 1.5;
+        } else if (driftAbs > 2.0) {
+            seekAmount *= 2.0;
+        }
+        
+        const adjustment = Math.sign(drift) * seekAmount;
         const newTime = currentTime + adjustment;
         
-        if (newTime >= 0 && newTime < duration - 1) {
+        if (newTime >= 0 && newTime < duration - 0.5) {
             if (isYoutubeVideo && youtubePlayer && playerReady) {
                 youtubePlayer.seekTo(newTime, true);
             } else if (videoElement) {
-                // Técnica de seek otimizada
-                const beforeSeek = {
-                    time: videoElement.currentTime,
+                const audioStateBeforeSeek = {
                     muted: videoElement.muted,
-                    volume: videoElement.volume
+                    volume: videoElement.volume,
+                    playing: !videoElement.paused
                 };
                 
-                // Usar requestAnimationFrame para timing preciso
-                requestAnimationFrame(() => {
-                    videoElement.currentTime = newTime;
-                    
-                    // Monitorar se o áudio continua após o seek
-                    setTimeout(() => {
-                        if (videoElement && !videoElement.paused) {
-                            const afterSeek = {
-                                time: videoElement.currentTime,
-                                muted: videoElement.muted
-                            };
-                            
-                            // Se o tempo não avançou, pode ter perdido áudio
-                            if (Math.abs(afterSeek.time - newTime) > 0.1) {
-                                console.log('⚠️ Seek pode ter causado travamento');
-                                gentleRecovery();
-                            }
+                videoElement.currentTime = newTime;
+                
+                setTimeout(() => {
+                    if (!audioStateBeforeSeek.muted && audioStateBeforeSeek.volume > 0) {
+                        if (videoElement.muted) {
+                            videoElement.muted = false;
                         }
-                    }, 300);
-                });
+                        if (videoElement.volume < audioStateBeforeSeek.volume) {
+                            videoElement.volume = audioStateBeforeSeek.volume;
+                        }
+                    }
+                }, 100);
             }
             
             microAdjustments++;
-            console.log(`🎯 Seek aguerrido: ${adjustment.toFixed(2)}s (total: ${microAdjustments})`);
             
-            // ATUALIZAR: Aumentar vigilância após seek agressivo
-            updateProblemVideoScore(drift, false);
-            
-            // Verificação de áudio IMEDIATA após seek
-            setTimeout(verifyAndRecoverAudio, 150);
-        }
-    }
-
-    // NOVO: Verificação e recuperação de áudio
-    function verifyAndRecoverAudio() {
-        if (!videoElement || isYoutubeVideo || videoElement.paused) return;
-        
-        const now = Date.now();
-        if (now - lastAudioRecoveryTime < 2000) return; // Evitar recuperação excessiva
-        
-        // Critérios para verificar perda de áudio:
-        const timeBefore = videoElement.currentTime;
-        
-        setTimeout(() => {
-            const timeAfter = videoElement.currentTime;
-            const timeDiff = timeAfter - timeBefore;
-            
-            // Se o tempo não avançou ou avançou muito pouco
-            const shouldHaveAdvanced = 0.1; // 100ms
-            const isTimeStalled = timeDiff < shouldHaveAdvanced * 0.5;
-            
-            // Verificar também se o vídeo está mudo quando não deveria
-            const shouldHaveAudio = !videoElement.muted && videoElement.volume > 0;
-            
-            if ((isTimeStalled && shouldHaveAudio) || problemVideoDetected) {
-                console.log('🔧 Verificação de áudio: possível problema detectado');
-                performAudioRecovery();
-            }
-        }, 500);
-    }
-
-    // NOVO: Recuperação de áudio otimizada
-    function performAudioRecovery() {
-        if (!videoElement || videoElement.paused) return;
-        
-        audioRecoveryAttempts++;
-        lastAudioRecoveryTime = Date.now();
-        
-        // Diferentes níveis de recuperação baseado na gravidade
-        if (audioRecoveryAttempts <= 2) {
-            gentleAudioRecovery();
-        } else if (audioRecoveryAttempts <= 5) {
-            moderateAudioRecovery();
-        } else {
-            aggressiveAudioRecovery();
-        }
-        
-        // Registrar perda de áudio no score do vídeo
-        consecutiveAudioLoss++;
-        updateProblemVideoScore(0, true);
-    }
-
-    function gentleAudioRecovery() {
-        const currentTime = videoElement.currentTime;
-        const wasMuted = videoElement.muted;
-        const hadVolume = videoElement.volume;
-        
-        videoElement.pause();
-        
-        setTimeout(() => {
-            videoElement.currentTime = currentTime + 0.003;
-            videoElement.muted = false;
-            videoElement.volume = hadVolume;
-            
-            videoElement.play().catch(() => {
-                videoElement.muted = true;
-                videoElement.play();
+            if (intensiveMonitoring) {
                 setTimeout(() => {
-                    videoElement.muted = wasMuted;
+                    detectAndRecoverAudio();
                 }, 200);
-            });
-            
-            console.log('🔊 Recuperação de áudio suave');
-        }, 25);
+            }
+        }
     }
 
-    function moderateAudioRecovery() {
+    function imperceptibleRefresh() {
+        if (isYoutubeVideo || !videoElement || videoElement.paused) return;
+        
         const currentTime = videoElement.currentTime;
-        const src = videoElement.src;
+        const wasPlaying = !videoElement.paused;
         
-        // Recarregar o source
-        videoElement.pause();
-        videoElement.src = '';
-        videoElement.src = src;
-        videoElement.load();
-        
-        setTimeout(() => {
-            videoElement.currentTime = currentTime;
-            videoElement.muted = false;
+        if (wasPlaying) {
+            const refreshAmount = intensiveMonitoring ? 0.005 : 0.01;
             
-            videoElement.play().then(() => {
-                console.log('🔊 Recuperação moderada aplicada');
-            }).catch(() => {
-                videoElement.muted = true;
-                videoElement.play();
-            });
-        }, 100);
-    }
-
-    function aggressiveAudioRecovery() {
-        console.log('🚨 RECUPERAÇÃO DE ÁUDIO AGUERRIDA');
-        
-        // Método nuclear: recarregar completamente
-        const currentTime = videoElement.currentTime;
-        const src = videoElement.src;
-        
-        videoElement.pause();
-        videoElement.removeAttribute('src');
-        videoElement.load();
-        
-        setTimeout(() => {
-            videoElement.src = src;
-            videoElement.load();
+            videoElement.pause();
             
-            videoElement.addEventListener('loadeddata', () => {
-                videoElement.currentTime = currentTime;
-                videoElement.muted = false;
-                videoElement.volume = 1.0;
-                
-                videoElement.play().catch(e => {
-                    videoElement.muted = true;
-                    videoElement.play().then(() => {
-                        setTimeout(() => {
-                            videoElement.muted = false;
-                        }, 300);
-                    });
-                });
-                
-                console.log('💥 Recuperação aguerrida completa');
-            }, { once: true });
-        }, 150);
-    }
-
-    // Sistema de vigilância constante
-    function setupVigilanceSystem() {
-        // Monitorar eventos do player
-        if (videoElement) {
-            videoElement.addEventListener('timeupdate', () => {
-                // A cada atualização de tempo, verificar saúde
-                if (videoChecks % 20 === 0) {
-                    const currentTime = videoElement.currentTime;
-                    const diff = currentTime - lastValidTime;
+            setTimeout(() => {
+                if (videoElement) {
+                    videoElement.currentTime = currentTime + refreshAmount;
                     
-                    // Se houve um salto grande de tempo, pode ser travamento
-                    if (Math.abs(diff) > 2.0 && !isManualSeeking) {
-                        console.log('⚠️ Salto temporal detectado, verificando saúde...');
-                        setTimeout(verifyAndRecoverAudio, 100);
+                    const playPromise = videoElement.play();
+                    
+                    if (playPromise !== undefined) {
+                        playPromise.catch(e => {
+                            videoElement.muted = true;
+                            videoElement.play();
+                            
+                            setTimeout(() => {
+                                videoElement.muted = false;
+                            }, 50);
+                        });
                     }
                 }
+            }, intensiveMonitoring ? 20 : 50);
+        }
+    }
+
+    function setupManualSeekDetection() {
+        if (videoElement) {
+            videoElement.addEventListener('seeking', () => {
+                isManualSeeking = true;
+                cumulativeDrift = 0;
+                setTimeout(() => { isManualSeeking = false; }, 3000);
             });
             
-            videoElement.addEventListener('stalled', () => {
-                console.log('⚠️ Vídeo travado, acionando recuperação...');
-                performAudioRecovery();
+            videoElement.addEventListener('seeked', () => {
+                setTimeout(() => { isManualSeeking = false; }, 2000);
             });
+            
+            videoElement.addEventListener('volumechange', () => {});
             
             videoElement.addEventListener('error', (e) => {
-                console.error('Erro no vídeo:', videoElement.error);
-                if (videoElement.error && videoElement.error.code === 3) {
-                    setTimeout(performAudioRecovery, 1000);
+                logVideoProblem('video_error');
+            });
+            
+            videoElement.addEventListener('ended', () => {
+                if (syncCheckInterval) {
+                    clearInterval(syncCheckInterval);
+                    syncCheckInterval = null;
+                }
+                if (audioMonitorInterval) {
+                    clearInterval(audioMonitorInterval);
+                    audioMonitorInterval = null;
                 }
             });
         }
-        
-        // Log periódico do estado do sistema
-        setInterval(() => {
-            if (problemVideoDetected) {
-                console.log(`📊 VIGILÂNCIA ATIVA | Score: ${problemVideoScore} | Drift médio: ${(totalDrift/videoChecks).toFixed(2)}s`);
-            }
-        }, 30000);
     }
 
-    // Inicializar tudo quando o vídeo começar
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
-                setTimeout(() => {
-                    initSyncSystem();
-                    setupVigilanceSystem();
-                }, 1000);
+                setTimeout(initSyncSystem, 1000);
+                
+                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                setInterval(() => {
+                    if (!isManualSeeking && currentState !== 'commercial') {
+                        imperceptibleRefresh();
+                    }
+                }, refreshInterval);
             });
             
             videoElement.addEventListener('pause', () => {
-                clearInterval(syncCheckInterval);
-                clearInterval(audioCheckInterval);
-            });
-        }
-        
-        // Inicializar também quando o usuário der play manualmente
-        if (autoplayButton) {
-            autoplayButton.addEventListener('click', () => {
-                setTimeout(() => {
-                    initSyncSystem();
-                    setupVigilanceSystem();
-                }, 2000);
+                if (syncCheckInterval) {
+                    clearInterval(syncCheckInterval);
+                    syncCheckInterval = null;
+                }
+                if (audioMonitorInterval) {
+                    clearInterval(audioMonitorInterval);
+                    audioMonitorInterval = null;
+                }
             });
         }
     }
 
-    // Expor funções para debug
-    window.getVideoHealth = () => {
+    function emergencyAudioRecovery() {
+        if (!videoElement || isYoutubeVideo) return;
+        
+        const currentTime = videoElement.currentTime;
+        const wasPlaying = !videoElement.paused;
+        
+        if (wasPlaying) {
+            const parent = videoElement.parentElement;
+            const newVideo = document.createElement('video');
+            
+            newVideo.src = videoElement.src;
+            newVideo.currentTime = currentTime;
+            newVideo.muted = false;
+            newVideo.volume = 1.0;
+            newVideo.playsInline = true;
+            newVideo.style.cssText = videoElement.style.cssText;
+            
+            parent.replaceChild(newVideo, videoElement);
+            videoElement = newVideo;
+            
+            newVideo.load();
+            newVideo.addEventListener('loadeddata', () => {
+                newVideo.play().catch(e => {
+                    newVideo.muted = true;
+                    newVideo.play();
+                    setTimeout(() => { newVideo.muted = false; }, 100);
+                });
+            }, { once: true });
+            
+            setupManualSeekDetection();
+            setupSyncOnPlay();
+        }
+        
+        audioRecoveryAttempts = 0;
+        consecutiveAudioProblems = 0;
+        lastAudioRecoveryTime = Date.now();
+    }
+
+    window.getSyncStats = () => {
         return {
-            problemVideoDetected,
-            problemVideoScore,
             microAdjustments,
+            videoProblemScore,
+            intensiveMonitoring,
+            currentVideoURL: getCurrentVideoURL().substring(0, 50),
             audioRecoveryAttempts,
-            consecutiveAudioLoss,
-            averageDrift: videoChecks > 0 ? totalDrift / videoChecks : 0
+            consecutiveAudioProblems,
+            problematicVideos: Array.from(problematicVideos).map(url => url.substring(0, 50))
         };
     };
-
-    console.log('✅ Sistema de sincronização ULTRA-AGUERRIDO carregado');
 <\/script>
+    `;
 
     // ============= SISTEMA DE AUTENTICAÇÃO PARA O CANAL =============
             const authHTML = `
