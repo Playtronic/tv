@@ -14,7 +14,7 @@
     <script src="https://www.youtube.com/iframe_api"></script>
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.1.7.1">
+    <meta name="version" content="1.1.7.2">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -901,7 +901,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.1.7.1
+            Versão 1.1.7.2
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1478,6 +1478,509 @@ if (slotIndex === currentPlayingSlot) {
     }
 </script>
 
+   
+    <!-- SISTEMA DE SINCRONIA -->
+    
+<script>
+    let syncCheckInterval = null;
+    let lastValidTime = 0;
+    let cumulativeDrift = 0;
+    let isManualSeeking = false;
+    let microAdjustments = 0;
+    let audioRecoveryAttempts = 0;
+    let lastAudioRecoveryTime = 0;
+    let audioWasWorking = true;
+    let videoProblemScore = 0;
+    let currentVideoURL = '';
+    let problematicVideos = new Set();
+    let intensiveMonitoring = false;
+    let lastSyncLogTime = 0;
+
+    const SYNC_CONFIG = {
+        checkInterval: 2000,
+        intensiveCheckInterval: 1000,
+        maxDiffAllowed: 0.3,
+        microSeekAmount: 0.08,
+        maxCumulativeDrift: 1.0,
+        speedAdjustment: 0.002,
+        audioCheckInterval: 1500,
+        intensiveAudioCheck: 800,
+        audioRecoveryThreshold: 1000,
+        maxAudioRecoveryAttempts: 5,
+        problemThreshold: 3,
+        intensiveMonitoringDuration: 300000,
+    };
+
+    let audioMonitorInterval = null;
+    let audioCheckCounter = 0;
+    let lastAudioState = { muted: false, volume: 1, time: 0 };
+    let consecutiveAudioProblems = 0;
+
+    const videoProblemLog = new Map();
+
+    function initSyncSystem() {
+        if (syncCheckInterval) {
+            clearInterval(syncCheckInterval);
+        }
+        
+        lastValidTime = 0;
+        cumulativeDrift = 0;
+        microAdjustments = 0;
+        audioRecoveryAttempts = 0;
+        lastAudioRecoveryTime = 0;
+        audioWasWorking = true;
+        consecutiveAudioProblems = 0;
+        lastSyncLogTime = Date.now();
+        
+        currentVideoURL = getCurrentVideoURL();
+        
+        intensiveMonitoring = problematicVideos.has(currentVideoURL) || 
+                              (videoProblemLog.get(currentVideoURL)?.problems || 0) >= SYNC_CONFIG.problemThreshold;
+        
+        const checkInterval = intensiveMonitoring ? 
+                             SYNC_CONFIG.intensiveCheckInterval : 
+                             SYNC_CONFIG.checkInterval;
+        
+        syncCheckInterval = setInterval(checkAndFixSync, checkInterval);
+        
+        startAudioMonitoring();
+    }
+
+    function getCurrentVideoURL() {
+        if (isYoutubeVideo && youtubePlayer) {
+            try {
+                return youtubePlayer.getVideoUrl() || 'youtube-video';
+            } catch (e) {
+                return 'youtube-unknown';
+            }
+        } else if (videoElement && videoElement.src) {
+            return videoElement.src;
+        }
+        return 'unknown';
+    }
+
+    function logVideoProblem(type) {
+        const now = Date.now();
+        const url = getCurrentVideoURL();
+        
+        if (!videoProblemLog.has(url)) {
+            videoProblemLog.set(url, { problems: 0, lastProblemTime: 0, types: new Set() });
+        }
+        
+        const log = videoProblemLog.get(url);
+        log.problems++;
+        log.lastProblemTime = now;
+        log.types.add(type);
+        
+        videoProblemScore = log.problems;
+        
+        if (log.problems >= SYNC_CONFIG.problemThreshold && !intensiveMonitoring) {
+            intensiveMonitoring = true;
+            problematicVideos.add(url);
+            
+            clearInterval(syncCheckInterval);
+            syncCheckInterval = setInterval(checkAndFixSync, SYNC_CONFIG.intensiveCheckInterval);
+            
+            setTimeout(() => {
+                if (intensiveMonitoring) {
+                    intensiveMonitoring = false;
+                    clearInterval(syncCheckInterval);
+                    syncCheckInterval = setInterval(checkAndFixSync, SYNC_CONFIG.checkInterval);
+                }
+            }, SYNC_CONFIG.intensiveMonitoringDuration);
+        }
+    }
+
+    function startAudioMonitoring() {
+        if (audioMonitorInterval) {
+            clearInterval(audioMonitorInterval);
+        }
+        
+        const audioInterval = intensiveMonitoring ? 
+                             SYNC_CONFIG.intensiveAudioCheck : 
+                             SYNC_CONFIG.audioCheckInterval;
+        
+        audioMonitorInterval = setInterval(() => {
+            performAudioCheck();
+        }, audioInterval);
+    }
+
+    function performAudioCheck() {
+        if (!videoElement || isYoutubeVideo || !userStartedPlayback) return;
+        
+        const now = Date.now();
+        
+        const isPlaying = !videoElement.paused;
+        const hasTimeProgress = Math.abs(videoElement.currentTime - lastAudioState.time) > 0.01;
+        const shouldHaveAudio = !videoElement.muted && videoElement.volume > 0;
+        
+        lastAudioState = {
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            time: videoElement.currentTime
+        };
+        
+        if (isPlaying && shouldHaveAudio) {
+            const timeSinceLastAudioCheck = now - lastAudioRecoveryTime;
+            const isAudioSuspicious = timeSinceLastAudioCheck > 5000 && 
+                                     audioRecoveryAttempts > 0 &&
+                                     consecutiveAudioProblems > 0;
+            
+            if (isAudioSuspicious || !hasTimeProgress) {
+                consecutiveAudioProblems++;
+                
+                if (consecutiveAudioProblems >= 2) {
+                    logVideoProblem('audio_loss');
+                    detectAndRecoverAudio();
+                }
+            } else {
+                consecutiveAudioProblems = Math.max(0, consecutiveAudioProblems - 1);
+            }
+        }
+    }
+
+    function detectAndRecoverAudio() {
+        const now = Date.now();
+        
+        const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
+        if (now - lastAudioRecoveryTime < recoveryCooldown) {
+            return false;
+        }
+        
+        if (audioRecoveryAttempts >= SYNC_CONFIG.maxAudioRecoveryAttempts) {
+            return false;
+        }
+        
+        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+            return false;
+        }
+        
+        const currentTime = videoElement.currentTime;
+        const wasPlaying = !videoElement.paused;
+        const wasMuted = videoElement.muted;
+        const hadVolume = videoElement.volume;
+        
+        if (wasPlaying) {
+            videoElement.pause();
+            
+            setTimeout(() => {
+                const newTime = currentTime + 0.001;
+                
+                const originalMuted = videoElement.muted;
+                const originalVolume = videoElement.volume;
+                
+                if (videoElement.readyState >= 3) {
+                    videoElement.currentTime = newTime;
+                    
+                    requestAnimationFrame(() => {
+                        videoElement.muted = false;
+                        videoElement.volume = originalVolume > 0 ? originalVolume : 1.0;
+                        
+                        const playPromise = videoElement.play();
+                        
+                        if (playPromise !== undefined) {
+                            playPromise
+                                .then(() => {
+                                    audioWasWorking = true;
+                                    consecutiveAudioProblems = 0;
+                                })
+                                .catch(error => {
+                                    videoElement.muted = true;
+                                    videoElement.play().then(() => {
+                                        setTimeout(() => {
+                                            videoElement.muted = originalMuted;
+                                            videoElement.volume = originalVolume;
+                                        }, 100);
+                                    });
+                                });
+                        }
+                    });
+                }
+                
+                audioRecoveryAttempts++;
+                lastAudioRecoveryTime = Date.now();
+                
+            }, 10);
+            
+            return true;
+        }
+        
+        return false;
+    }
+
+    function checkAndFixSync() {
+        if (isManualSeeking || !userStartedPlayback) {
+            return;
+        }
+        
+        if (currentState === 'commercial') {
+            return;
+        }
+        
+        let currentTime, duration, playbackRate;
+        
+        if (isYoutubeVideo && youtubePlayer && playerReady) {
+            try {
+                currentTime = youtubePlayer.getCurrentTime();
+                duration = youtubePlayer.getDuration();
+                playbackRate = 1.0;
+            } catch (e) {
+                return;
+            }
+        } else if (videoElement && videoElement.readyState >= 2) {
+            currentTime = videoElement.currentTime;
+            duration = videoElement.duration;
+            playbackRate = videoElement.playbackRate || 1.0;
+        } else {
+            return;
+        }
+        
+        const expectedTime = calculateExpectedTime(duration);
+        if (expectedTime === null) return;
+        
+        const diff = expectedTime - currentTime;
+        const absDiff = Math.abs(diff);
+        
+        if (absDiff > 0.1) {
+            cumulativeDrift += diff;
+            
+            if (Math.abs(cumulativeDrift) > SYNC_CONFIG.maxCumulativeDrift || absDiff > 0.5) {
+                if (absDiff > 1.0) {
+                    logVideoProblem('desync_large');
+                } else if (absDiff > 0.5) {
+                    logVideoProblem('desync_medium');
+                } else {
+                    logVideoProblem('desync_small');
+                }
+                
+                subtleSyncFix(cumulativeDrift, currentTime, duration, playbackRate);
+                cumulativeDrift = 0;
+                
+                setTimeout(() => {
+                    if (!isYoutubeVideo && videoElement && !videoElement.paused) {
+                        performAudioCheck();
+                    }
+                }, 50);
+            }
+        } else {
+            cumulativeDrift *= 0.7;
+        }
+        
+        lastValidTime = currentTime;
+    }
+
+    function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        const driftAbs = Math.abs(drift);
+        
+        const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
+        
+        if (!isYoutubeVideo && videoElement && videoElement.playbackRate !== undefined) {
+            const baseAdjustment = SYNC_CONFIG.speedAdjustment * adjustmentMultiplier;
+            const newRate = playbackRate + (Math.sign(drift) * baseAdjustment);
+            
+            const minRate = intensiveMonitoring ? 0.85 : 0.9;
+            const maxRate = intensiveMonitoring ? 1.15 : 1.1;
+            const clampedRate = Math.max(minRate, Math.min(maxRate, newRate));
+            
+            if (Math.abs(clampedRate - playbackRate) > 0.0005) {
+                videoElement.playbackRate = clampedRate;
+                
+                setTimeout(() => {
+                    if (videoElement && !isManualSeeking) {
+                        videoElement.playbackRate = 1.0;
+                    }
+                }, intensiveMonitoring ? 3000 : 5000);
+                
+                return;
+            }
+        }
+        
+        let seekAmount = SYNC_CONFIG.microSeekAmount * adjustmentMultiplier;
+        
+        if (driftAbs > 1.0) {
+            seekAmount *= 1.5;
+        } else if (driftAbs > 2.0) {
+            seekAmount *= 2.0;
+        }
+        
+        const adjustment = Math.sign(drift) * seekAmount;
+        const newTime = currentTime + adjustment;
+        
+        if (newTime >= 0 && newTime < duration - 0.5) {
+            if (isYoutubeVideo && youtubePlayer && playerReady) {
+                youtubePlayer.seekTo(newTime, true);
+            } else if (videoElement) {
+                const audioStateBeforeSeek = {
+                    muted: videoElement.muted,
+                    volume: videoElement.volume,
+                    playing: !videoElement.paused
+                };
+                
+                videoElement.currentTime = newTime;
+                
+                setTimeout(() => {
+                    if (!audioStateBeforeSeek.muted && audioStateBeforeSeek.volume > 0) {
+                        if (videoElement.muted) {
+                            videoElement.muted = false;
+                        }
+                        if (videoElement.volume < audioStateBeforeSeek.volume) {
+                            videoElement.volume = audioStateBeforeSeek.volume;
+                        }
+                    }
+                }, 100);
+            }
+            
+            microAdjustments++;
+            
+            if (intensiveMonitoring) {
+                setTimeout(() => {
+                    detectAndRecoverAudio();
+                }, 200);
+            }
+        }
+    }
+
+    function imperceptibleRefresh() {
+        if (isYoutubeVideo || !videoElement || videoElement.paused) return;
+        
+        const currentTime = videoElement.currentTime;
+        const wasPlaying = !videoElement.paused;
+        
+        if (wasPlaying) {
+            const refreshAmount = intensiveMonitoring ? 0.005 : 0.01;
+            
+            videoElement.pause();
+            
+            setTimeout(() => {
+                if (videoElement) {
+                    videoElement.currentTime = currentTime + refreshAmount;
+                    
+                    const playPromise = videoElement.play();
+                    
+                    if (playPromise !== undefined) {
+                        playPromise.catch(e => {
+                            videoElement.muted = true;
+                            videoElement.play();
+                            
+                            setTimeout(() => {
+                                videoElement.muted = false;
+                            }, 50);
+                        });
+                    }
+                }
+            }, intensiveMonitoring ? 20 : 50);
+        }
+    }
+
+    function setupManualSeekDetection() {
+        if (videoElement) {
+            videoElement.addEventListener('seeking', () => {
+                isManualSeeking = true;
+                cumulativeDrift = 0;
+                setTimeout(() => { isManualSeeking = false; }, 3000);
+            });
+            
+            videoElement.addEventListener('seeked', () => {
+                setTimeout(() => { isManualSeeking = false; }, 2000);
+            });
+            
+            videoElement.addEventListener('volumechange', () => {});
+            
+            videoElement.addEventListener('error', (e) => {
+                logVideoProblem('video_error');
+            });
+            
+            videoElement.addEventListener('ended', () => {
+                if (syncCheckInterval) {
+                    clearInterval(syncCheckInterval);
+                    syncCheckInterval = null;
+                }
+                if (audioMonitorInterval) {
+                    clearInterval(audioMonitorInterval);
+                    audioMonitorInterval = null;
+                }
+            });
+        }
+    }
+
+    function setupSyncOnPlay() {
+        if (videoElement) {
+            videoElement.addEventListener('playing', () => {
+                setTimeout(initSyncSystem, 1000);
+                
+                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                setInterval(() => {
+                    if (!isManualSeeking && currentState !== 'commercial') {
+                        imperceptibleRefresh();
+                    }
+                }, refreshInterval);
+            });
+            
+            videoElement.addEventListener('pause', () => {
+                if (syncCheckInterval) {
+                    clearInterval(syncCheckInterval);
+                    syncCheckInterval = null;
+                }
+                if (audioMonitorInterval) {
+                    clearInterval(audioMonitorInterval);
+                    audioMonitorInterval = null;
+                }
+            });
+        }
+    }
+
+    function emergencyAudioRecovery() {
+        if (!videoElement || isYoutubeVideo) return;
+        
+        const currentTime = videoElement.currentTime;
+        const wasPlaying = !videoElement.paused;
+        
+        if (wasPlaying) {
+            const parent = videoElement.parentElement;
+            const newVideo = document.createElement('video');
+            
+            newVideo.src = videoElement.src;
+            newVideo.currentTime = currentTime;
+            newVideo.muted = false;
+            newVideo.volume = 1.0;
+            newVideo.playsInline = true;
+            newVideo.style.cssText = videoElement.style.cssText;
+            
+            parent.replaceChild(newVideo, videoElement);
+            videoElement = newVideo;
+            
+            newVideo.load();
+            newVideo.addEventListener('loadeddata', () => {
+                newVideo.play().catch(e => {
+                    newVideo.muted = true;
+                    newVideo.play();
+                    setTimeout(() => { newVideo.muted = false; }, 100);
+                });
+            }, { once: true });
+            
+            setupManualSeekDetection();
+            setupSyncOnPlay();
+        }
+        
+        audioRecoveryAttempts = 0;
+        consecutiveAudioProblems = 0;
+        lastAudioRecoveryTime = Date.now();
+    }
+
+    window.getSyncStats = () => {
+        return {
+            microAdjustments,
+            videoProblemScore,
+            intensiveMonitoring,
+            currentVideoURL: getCurrentVideoURL().substring(0, 50),
+            audioRecoveryAttempts,
+            consecutiveAudioProblems,
+            problematicVideos: Array.from(problematicVideos).map(url => url.substring(0, 50))
+        };
+    };
+</script>
+    
+
     
     <script>
         // CONFIGURAÇÕES DO CANAL
@@ -1500,7 +2003,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-12-14";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.1.7.1";
+        const CHANNEL_VERSION = "1.1.7.2";
         const CHANNEL_ID = "nhJtBCdsyaXXca3O4Emj";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -1820,7 +2323,10 @@ if (slotIndex === currentPlayingSlot) {
                 });
         }
         
-        // ==================== FUNÇÕES PRINCIPAIS ====================
+            // ==================== FUNÇÕES PRINCIPAIS ====================
+
+  
+
         // Calcular percentual decorrido do slot atual (COM LOGS) - VERSÃO EM SEGUNDOS
 function calcularPercentualSlot() {
     const agora = new Date();
@@ -2117,41 +2623,63 @@ function atualizarIconeVolume(volume) {
 }
 
 
-          function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-    // Evitar múltiplos carregamentos simultâneos
-    if (isLoadingVideo) {
-        console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-        return;
-    }
-    isLoadingVideo = true;
-
-    // Esconder player do YouTube se estiver visível
-    if (youtubeContainer) {
-        youtubeContainer.style.display = 'none';
-        if (youtubePlayer) {
-            youtubePlayer.stopVideo();
+              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+        // Evitar múltiplos carregamentos simultâneos
+        if (isLoadingVideo) {
+            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
+            return;
         }
-    }
-    isYoutubeVideo = false;
-    
-    // Limpar container do YouTube se existir
-    if (youtubeContainer) {
-        youtubeContainer.style.display = 'none';
-        youtubeContainer.innerHTML = '';
-    }
-    
-    // Verificar se temos elemento de vídeo
-    if (!videoElement) {
-        console.error('Elemento de vídeo não encontrado');
-        isLoadingVideo = false; // Resetar flag
-        return;
-    }
-    
-    // Parar qualquer vídeo atual ANTES de carregar novo
-    if (videoElement.src) {
-        videoElement.pause();
-        videoElement.src = '';
-    }
+        isLoadingVideo = true;
+        
+        
+        // Esconder player do YouTube se estiver visível
+        if (youtubeContainer) {
+            youtubeContainer.style.display = 'none';
+            if (youtubePlayer) {
+                youtubePlayer.stopVideo();
+            }
+        }
+        isYoutubeVideo = false;
+        
+        // Limpar container do YouTube se existir
+        if (youtubeContainer) {
+            youtubeContainer.style.display = 'none';
+            youtubeContainer.innerHTML = '';
+        }
+        
+        // Verificar se temos elemento de vídeo
+        if (!videoElement) {
+            console.error('Elemento de vídeo não encontrado');
+            isLoadingVideo = false; // Resetar flag
+            return;
+        }
+        
+        // Parar qualquer vídeo atual ANTES de carregar novo
+        if (videoElement.src) {
+            videoElement.pause();
+            videoElement.src = '';
+        }
+        
+        // Configurações básicas
+videoElement.preload = 'auto';
+videoElement.playsInline = true;
+        
+        
+
+        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
+        if (loadingMessage && currentState !== 'commercial') {
+            loadingMessage.style.display = 'block';
+        }
+        
+        // Remover event listeners antigos para evitar duplicação
+        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
+        videoElement.removeEventListener('canplay', handleCanPlay);
+        
+        // Configurar nova URL
+        videoElement.style.display = 'block';
+        videoElement.src = url;
+        
+        // ... continue com o resto do código existente ...
             // Resetar mensagem de loading apenas se não for comercial
         if (loadingMessage && currentState !== 'commercial') {
             loadingMessage.style.display = 'block';
@@ -2856,6 +3384,48 @@ setInterval(ocultarControlesYouTube, 1000);
             }
         }    
 
+// ==================== OTIMIZAÇÃO PARA VÍDEOS PROBLEMÁTICOS ====================
+function setupVideoOptimizations() {
+    if (!videoElement) return;
+    
+    // Evitar buffering excessivo
+    videoElement.addEventListener('waiting', () => {
+        console.log('⏳ Vídeo em buffering...');
+    });
+    
+    videoElement.addEventListener('stalled', () => {
+        console.log('⚠️ Conexão com vídeo interrompida');
+        setTimeout(() => {
+            if (videoElement.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+                console.log('🔁 Tentando recuperar vídeo...');
+                const currentSrc = videoElement.src;
+                videoElement.src = '';
+                videoElement.src = currentSrc;
+                videoElement.load();
+            }
+        }, 3000);
+    });
+    
+    // Detectar problemas de decode
+    videoElement.addEventListener('error', (e) => {
+        console.error('Erro no vídeo:', videoElement.error);
+        if (videoElement.error && videoElement.error.code === 3) { // MEDIA_ERR_DECODE
+            console.log('🔄 Problema de decode, tentando próximo vídeo...');
+            setTimeout(() => {
+                if (currentState === 'program') {
+                    const proximoSlot = getNextSlot();
+                    reproduzirPrograma(proximoSlot, 0);
+                }
+            }, 2000);
+        }
+    });
+}
+
+// Chamar quando o player inicializar
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(setupVideoOptimizations, 1000);
+});
+
 function verificarFimDoVideo() {
     console.log('=== FIM DO VÍDEO DETECTADO ===');
     console.log('Estado atual:', currentState);
@@ -3039,11 +3609,26 @@ function verificarFimDoVideo() {
             if (ENABLE_DEBUG && CHANNEL_ID) {
                 inicializarContagemEspectadores();
             }
-            
-            if (PROGRAMMING_MODE === 'grade') {
-                setInterval(verificarMudancaDeDia, 60000);
+                if (PROGRAMMING_MODE === 'grade') {
+        setInterval(verificarMudancaDeDia, 60000);
+    }
+    
+    // ==================== INICIALIZAR SISTEMA DE SINCRONIZAÇÃO ====================
+    if (typeof setupManualSeekDetection === 'function' && typeof setupSyncOnPlay === 'function') {
+        setupManualSeekDetection();
+        setupSyncOnPlay();
+        
+        // Iniciar verificação de sincronização após 10 segundos do carregamento
+        setTimeout(() => {
+            if (userStartedPlayback) {
+                initSyncSystem();
             }
-        }
+        }, 10000);
+    }
+    // ==============================================================================
+}
+
+
         document.addEventListener('DOMContentLoaded', function() {
     inicializarAutenticacao();
     
@@ -3075,8 +3660,8 @@ function verificarFimDoVideo() {
         <h2 style="color: #333; margin-bottom: 20px; text-align: center;">Apoie este canal ❤️</h2>
         
         <p style="color: #666; margin-bottom: 25px; text-align: center;">
-            Faça uma doação de qualquer valor para apoiar o trabalho do criador.<br>
-            Você receberá um QR Code PIX para realizar o pagamento.
+            Faça uma doação para apoiar e incentivar este canal.<br>
+            
         </p>
         
         <div style="margin-bottom: 25px;">
