@@ -656,6 +656,7 @@
                 <button class="filter-btn primary" id="applyFilters">Aplicar Filtros</button>
                 <button class="filter-btn secondary" id="resetFilters">Limpar Filtros</button>
                 <button class="filter-btn secondary" id="refreshData">🔄 Atualizar</button>
+                <button class="filter-btn secondary" id="testConnectionBtn">🔧 Testar Conexão MP</button>
             </div>
         </div>
 
@@ -954,7 +955,7 @@
             document.getElementById('totalCount').textContent = allPayments.length;
         }
 
-        // 📋 ATUALIZAR TABELA DE PAGAMENTOS (COM BOTÃO DE RETRY CORRIGIDO)
+        // 📋 ATUALIZAR TABELA DE PAGAMENTOS
         function updatePaymentsTable() {
             const tbody = document.getElementById('paymentsTableBody');
             
@@ -1018,15 +1019,14 @@
                 
                 // BUSCAR DADOS DO MERCADO PAGO DO CANAL
                 let channelUserId = payment.channelUserId || (payment.metadata?.channelUserId || null);
-                let channelMpAccessToken = payment.channelMpAccessToken || (payment.metadata?.channelMpAccessToken || null);
                 
-                // ✅ CORREÇÃO: PERMITIR RETRY EM CASO DE FALHA
+                // ✅ CORREÇÃO: AGORA SÓ PRECISA DO channelUserId (NÃO DO TOKEN)
                 const isApproved = payment.displayStatus === 'approved';
                 const isTransferable = (payment.transferStatus === 'pending' || payment.transferStatus === 'failed');
-                const hasMpData = channelUserId && channelMpAccessToken;
+                const hasUserId = channelUserId && channelUserId.toString().trim() !== '';
                 const hasValidAmount = channelAmount > 0;
                 
-                const canTransfer = isApproved && isTransferable && hasMpData && hasValidAmount && !transferInProgress;
+                const canTransfer = isApproved && isTransferable && hasUserId && hasValidAmount && !transferInProgress;
                 const showRetry = payment.transferStatus === 'failed';
                 
                 // HTML DOS BOTÕES DE AÇÃO
@@ -1047,8 +1047,8 @@
                     actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(155, 89, 182, 0.1); border-radius: 4px;">✅ Já transferido</span>`;
                 } else if (payment.displayStatus !== 'approved') {
                     actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(241, 196, 15, 0.1); border-radius: 4px;">Aguardando aprovação</span>`;
-                } else if (!channelUserId || !channelMpAccessToken) {
-                    actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(231, 76, 60, 0.1); border-radius: 4px;">Dados MP incompletos</span>`;
+                } else if (!channelUserId) {
+                    actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(231, 76, 60, 0.1); border-radius: 4px;">ID do MP não encontrado</span>`;
                 } else if (payment.transferStatus === 'transferring') {
                     actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(52, 152, 219, 0.1); border-radius: 4px;">🔄 Transferindo...</span>`;
                 }
@@ -1154,7 +1154,7 @@
                 <div style="background: rgba(231, 76, 60, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(231, 76, 60, 0.3); margin-bottom: 15px;">
                     <div style="font-size: 0.9rem; opacity: 0.9;">❌ Transferências Falhas</div>
                     <div style="font-size: 1.5rem; font-weight: bold; color: #e74c3c;">${failedTransfers}</div>
-                    <div style="font-size: 0.9rem; opacity: 0.8; margin-top: 5px;">R$ ${totalFailedTransfer.toFixed(2)} (${failedTransfers} falha(s))</div>
+                    <div style="font-size: 0.9rem; opacity: 0.8; margin-top: 5px;">R$ ${totalFailedTransfer.toFixed(2)}</div>
                 </div>
                 ` : ''}
                 <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; text-align: center;">
@@ -1167,7 +1167,7 @@
             container.innerHTML = html;
         }
 
-        // 👁️ VER DETALHES DO PAGAMENTO (COM BOTÃO DE RETRY CORRIGIDO)
+        // 👁️ VER DETALHES DO PAGAMENTO
         async function viewPaymentDetails(paymentId) {
             showLoading();
             try {
@@ -1199,40 +1199,6 @@
                 // BUSCAR DADOS DO MERCADO PAGO
                 let channelUserId = payment.channelUserId || (payment.metadata?.channelUserId || null);
                 let channelMpAccessToken = payment.channelMpAccessToken || (payment.metadata?.channelMpAccessToken || null);
-                
-                // Se não encontrou no pagamento, buscar no canal
-                if ((!channelUserId || !channelMpAccessToken) && payment.channelId) {
-                    try {
-                        // Buscar na estrutura antiga do canal
-                        const channelDoc = await db.collection('channels').doc(payment.channelId).get();
-                        if (channelDoc.exists) {
-                            const channelData = channelDoc.data();
-                            
-                            // Verificar em pixDonations
-                            if (channelData.pixDonations) {
-                                channelUserId = channelData.pixDonations.mpUserId || channelData.pixDonations.mpPlatformUserId;
-                                channelMpAccessToken = channelData.pixDonations.mpAccessToken;
-                            }
-                            
-                            // Se não encontrou, buscar na subcoleção monetization
-                            if (!channelUserId || !channelMpAccessToken) {
-                                const monetizationDoc = await db.collection('channels').doc(payment.channelId)
-                                    .collection('monetization').doc('settings').get();
-                                
-                                if (monetizationDoc.exists) {
-                                    const monetizationData = monetizationDoc.data();
-                                    if (monetizationData.pixDonations) {
-                                        channelUserId = monetizationData.pixDonations.mpUserId || 
-                                                      monetizationData.pixDonations.mpPlatformUserId;
-                                        channelMpAccessToken = monetizationData.pixDonations.mpAccessToken;
-                                    }
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Erro ao buscar dados do canal:', error);
-                    }
-                }
                 
                 const totalAmount = payment.amount || 0;
                 const platformAmount = payment.split?.platform || (totalAmount * 0.08);
@@ -1319,22 +1285,18 @@
                             <div style="font-size: 0.9rem; margin-top: 5px;">${payment.transferError}</div>
                         </div>
                     ` : ''}
-                    ${!channelUserId || !channelMpAccessToken ? `
+                    ${!channelUserId ? `
                         <div class="modal-field" style="background: rgba(231, 76, 60, 0.1); padding: 15px; border-radius: 8px; border: 1px solid rgba(231, 76, 60, 0.3);">
                             <div style="color: #e74c3c; font-weight: bold;">⚠️ ATENÇÃO</div>
                             <div style="font-size: 0.9rem; margin-top: 5px;">
-                                ${!channelUserId && !channelMpAccessToken ? 
-                                    'ID e Token do Mercado Pago não encontrados.' : 
-                                    !channelUserId ? 
-                                    'ID do Mercado Pago não encontrado.' : 
-                                    'Token do Mercado Pago não encontrado.'}
-                                <br>O canal precisa configurar o Pix na página de monetização.
+                                ID do Mercado Pago não encontrado.<br>
+                                O canal precisa configurar o Pix na página de monetização.
                             </div>
                         </div>
                     ` : ''}
                 `;
                 
-                // ✅ CORREÇÃO: CONFIGURAR BOTÕES DO MODAL (COM RETRY)
+                // ✅ CORREÇÃO: CONFIGURAR BOTÕES DO MODAL
                 const transferBtn = document.getElementById('transferNowBtn');
                 const retryBtn = document.getElementById('retryTransferBtn');
                 const progressDiv = document.getElementById('transferProgress');
@@ -1342,10 +1304,10 @@
                 // ✅ CORREÇÃO: LÓGICA CORRETA PARA MOSTRAR BOTÕES
                 const isApproved = payment.displayStatus === 'approved';
                 const isTransferable = (payment.transferStatus === 'pending' || payment.transferStatus === 'failed');
-                const hasMpData = channelUserId && channelMpAccessToken;
+                const hasUserId = channelUserId && channelUserId.toString().trim() !== '';
                 const hasValidAmount = channelAmount > 0;
                 
-                const canTransfer = isApproved && isTransferable && hasMpData && hasValidAmount && !transferInProgress;
+                const canTransfer = isApproved && isTransferable && hasUserId && hasValidAmount && !transferInProgress;
                 const showRetry = payment.transferStatus === 'failed';
                 
                 console.log('Modal - Detalhes do pagamento:', {
@@ -1353,7 +1315,7 @@
                     displayStatus: payment.displayStatus,
                     transferStatus: payment.transferStatus,
                     channelUserId,
-                    hasMpData,
+                    hasUserId,
                     canTransfer,
                     showRetry
                 });
@@ -1362,12 +1324,12 @@
                     if (showRetry) {
                         retryBtn.style.display = 'block';
                         transferBtn.style.display = 'none';
-                        retryBtn.onclick = () => transferPaymentViaAPI(paymentId, channelUserId, channelMpAccessToken);
+                        retryBtn.onclick = () => transferPaymentViaAPI(paymentId, channelUserId);
                         retryBtn.innerHTML = `🔄 Tentar Transferir R$ ${channelAmount.toFixed(2)}`;
                     } else {
                         transferBtn.style.display = 'block';
                         retryBtn.style.display = 'none';
-                        transferBtn.onclick = () => transferPaymentViaAPI(paymentId, channelUserId, channelMpAccessToken);
+                        transferBtn.onclick = () => transferPaymentViaAPI(paymentId, channelUserId);
                         transferBtn.innerHTML = `💰 Transferir R$ ${channelAmount.toFixed(2)} via Mercado Pago`;
                     }
                 } else {
@@ -1392,10 +1354,10 @@
                                 🔄 Transferência em andamento
                             </div>
                         `;
-                    } else if (!channelUserId || !channelMpAccessToken) {
+                    } else if (!channelUserId) {
                         modalBody.innerHTML += `
                             <div style="text-align: center; margin-top: 20px; padding: 10px; background: rgba(231, 76, 60, 0.1); border-radius: 8px;">
-                                ❌ Dados do Mercado Pago incompletos
+                                ❌ ID do Mercado Pago não encontrado
                             </div>
                         `;
                     }
@@ -1528,8 +1490,8 @@
             }, 3000);
         }
 
-        // 💰 TRANSFERIR VIA API (USANDO CLOUD FUNCTION)
-        async function transferPaymentViaAPI(paymentId, channelUserId, channelMpAccessToken) {
+        // 💰 TRANSFERIR VIA API (USANDO TOKEN DA PLATAFORMA - CORREÇÃO PRINCIPAL)
+        async function transferPaymentViaAPI(paymentId, channelUserId) {
             if (!confirm(`⚠️ CONFIRMAR TRANSFERÊNCIA\n\nValor a transferir: 92% do pagamento\n\nEsta ação fará uma transferência REAL via Mercado Pago para o canal.`)) {
                 return;
             }
@@ -1570,12 +1532,11 @@
                 }
                 
                 // BUSCAR DADOS DO MP SE NÃO FORAM PASSADOS
-                if (!channelUserId || !channelMpAccessToken) {
+                if (!channelUserId) {
                     channelUserId = payment.channelUserId || (payment.metadata?.channelUserId || null);
-                    channelMpAccessToken = payment.channelMpAccessToken || (payment.metadata?.channelMpAccessToken || null);
                     
-                    if (!channelUserId || !channelMpAccessToken) {
-                        showAlert('❌ Dados do Mercado Pago do canal não encontrados.', 'error');
+                    if (!channelUserId) {
+                        showAlert('❌ ID do Mercado Pago do canal não encontrado.', 'error');
                         transferInProgress = false;
                         hideLoading();
                         return;
@@ -1602,9 +1563,17 @@
                 document.getElementById('transferProgress').style.display = 'block';
                 updateTransferProgress(paymentId);
                 
-                // CHAMAR CLOUD FUNCTION PARA TRANSFERÊNCIA
-                showAlert('🔄 Iniciando transferência via Cloud Function...', 'info');
+                // ✅ CORREÇÃO: ENVIAR APENAS paymentId, channelUserId E amount
+                // O TOKEN DA PLATAFORMA É USADO NA CLOUD FUNCTION
+                showAlert('🔄 Iniciando transferência via Mercado Pago...', 'info');
                 
+                console.log('Enviando para Cloud Function:', {
+                    paymentId,
+                    channelUserId,
+                    amount: channelAmount.toFixed(2)
+                });
+                
+                // CHAMAR A CLOUD FUNCTION COM TOKEN DA PLATAFORMA
                 const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/transferToChannel', {
                     method: 'POST',
                     headers: {
@@ -1612,13 +1581,13 @@
                     },
                     body: JSON.stringify({
                         paymentId: paymentId,
-                        channelUserId: channelUserId,
-                        channelMpAccessToken: channelMpAccessToken,
+                        channelUserId: channelUserId, // APENAS O USER_ID
                         amount: parseFloat(channelAmount.toFixed(2))
                     })
                 });
                 
                 const result = await response.json();
+                console.log('Resposta da Cloud Function:', result);
                 
                 if (response.ok && result.success) {
                     // ✅ SUCESSO
@@ -1633,7 +1602,7 @@
                     }, 2000);
                     
                 } else {
-                    throw new Error(result.error || result.details || 'Erro na transferência');
+                    throw new Error(result.error || result.details || result.mpError?.message || 'Erro na transferência');
                 }
                 
                 transferInProgress = false;
@@ -1664,6 +1633,36 @@
                         viewPaymentDetails(paymentId);
                     }
                 }, 1000);
+            }
+        }
+
+        // 🧪 TESTAR CONEXÃO COM MERCADO PAGO
+        async function testMpConnection() {
+            showLoading();
+            try {
+                showAlert('🔧 Testando conexão com Mercado Pago...', 'info');
+                
+                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/testMpConnection', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert('✅ Conexão com Mercado Pago estabelecida com sucesso!', 'success');
+                } else {
+                    showAlert(`❌ Falha na conexão: ${result.error || 'Erro desconhecido'}`, 'error');
+                }
+                
+                hideLoading();
+            } catch (error) {
+                console.error('Erro no teste de conexão:', error);
+                showAlert('❌ Erro ao testar conexão com Mercado Pago', 'error');
+                hideLoading();
             }
         }
 
@@ -1771,6 +1770,7 @@
             });
             
             document.getElementById('refreshData').addEventListener('click', loadDashboardData);
+            document.getElementById('testConnectionBtn').addEventListener('click', testMpConnection);
             document.getElementById('exportBtn').addEventListener('click', exportToCSV);
             document.getElementById('prevPage').addEventListener('click', function() { 
                 if (currentPage > 1) { 
