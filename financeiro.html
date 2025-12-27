@@ -649,27 +649,48 @@
             }
         }
 
-        // 📊 CARREGAR DADOS
+        // 📊 CARREGAR DADOS - CORRIGIDO
         async function loadDashboardData() {
             showLoading();
             
             try {
-                // Carregar pagamentos
-                const paymentsSnapshot = await db.collection('payment_history')
-                    .orderBy('createdAt', 'desc')
-                    .get();
-                
+                // 🔍 BUSCAR DE VÁRIAS COLEÇÕES POSSÍVEIS
+                const collections = ['pix_payments', 'payment_history', 'pending_transfers'];
                 allPayments = [];
-                paymentsSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    allPayments.push({
-                        id: doc.id,
-                        ...data,
-                        createdAt: data.createdAt?.toDate() || new Date(),
-                        status: data.status || 'unknown',
-                        transferStatus: data.transferStatus || 'pending'
-                    });
-                });
+                
+                for (const collectionName of collections) {
+                    try {
+                        const snapshot = await db.collection(collectionName).get();
+                        snapshot.forEach(doc => {
+                            const data = doc.data();
+                            
+                            // Converter status para padrão
+                            let status = data.status || 'pending';
+                            if (status === 'received') status = 'approved';
+                            
+                            allPayments.push({
+                                id: doc.id,
+                                collection: collectionName,
+                                ...data,
+                                status: status,
+                                createdAt: data.createdAt?.toDate() || new Date(),
+                                transferStatus: data.transferStatus || 'pending',
+                                channelId: data.channelId || data.metadata?.channelId || '',
+                                amount: data.totalAmount || data.amount || 0,
+                                platformFee: data.platformFee || data.split?.platform?.amount || 0,
+                                channelAmount: data.channelAmount || data.split?.channel?.amount || 0,
+                                channelUserId: data.channelUserId || data.metadata?.channelUserId,
+                                paymentId: data.paymentId || data.mpPaymentId || doc.id,
+                                payerEmail: data.payerEmail || data.metadata?.payerEmail || ''
+                            });
+                        });
+                        console.log(`✅ ${collectionName}: ${snapshot.size} pagamentos encontrados`);
+                    } catch (error) {
+                        console.log(`⚠️ ${collectionName}: ${error.message}`);
+                    }
+                }
+                
+                console.log(`📊 Total de pagamentos carregados: ${allPayments.length}`);
                 
                 // Carregar canais
                 const channelsSnapshot = await db.collection('channels').get();
@@ -683,6 +704,12 @@
                     });
                 });
                 
+                console.log(`📊 Total de canais carregados: ${channels.length}`);
+                
+                if (allPayments.length === 0) {
+                    showAlert('⚠️ Nenhum pagamento encontrado no banco de dados', 'warning');
+                }
+                
                 // Aplicar filtros iniciais
                 applyFilters();
                 updateSummary();
@@ -691,8 +718,8 @@
                 hideLoading();
                 
             } catch (error) {
-                console.error('Erro:', error);
-                showAlert('Erro ao carregar dados', 'error');
+                console.error('Erro ao carregar dados:', error);
+                showAlert(`❌ Erro ao carregar dados: ${error.message}`, 'error');
                 hideLoading();
             }
         }
@@ -721,7 +748,7 @@
                 if (statusFilter !== 'all') {
                     if (statusFilter === 'approved') {
                         // Mostrar tanto "approved" quanto "received"
-                        if (payment.status !== 'approved' && payment.status !== 'received') {
+                        if (payment.status !== 'approved') {
                             return false;
                         }
                     } else if (payment.status !== statusFilter) {
@@ -747,6 +774,9 @@
                 
                 return true;
             });
+            
+            // Ordenar por data mais recente
+            filteredPayments.sort((a, b) => b.createdAt - a.createdAt);
             
             updatePaymentsTable();
             updateCounters();
@@ -785,7 +815,6 @@
                     case 'pending':
                         statusBadge = '<span class="status-badge status-pending">⏳ Pendente</span>';
                         break;
-                    case 'received':
                     case 'approved':
                         statusBadge = '<span class="status-badge status-approved">✅ Recebido</span>';
                         break;
@@ -806,11 +835,11 @@
                 
                 // Calcular valores
                 const totalAmount = payment.amount || 0;
-                const platformAmount = payment.split?.platform || (totalAmount * 0.08);
-                const channelAmount = payment.split?.channel || (totalAmount * 0.92);
+                const platformAmount = payment.platformFee || (totalAmount * 0.08);
+                const channelAmount = payment.channelAmount || (totalAmount * 0.92);
                 
                 // ✅ BOTÃO DE TRANSFERÊNCIA VIA API
-                const canTransfer = (payment.status === 'received' || payment.status === 'approved') && 
+                const canTransfer = (payment.status === 'approved') && 
                                    payment.transferStatus !== 'paid' &&
                                    payment.channelUserId && 
                                    channelAmount > 0;
@@ -818,7 +847,7 @@
                 html += `
                     <tr>
                         <td>
-                            <strong>${payment.paymentId || payment.id.replace('payment_', '')}</strong>
+                            <strong>${payment.paymentId || payment.id}</strong>
                         </td>
                         <td>
                             ${date}<br>
@@ -832,11 +861,11 @@
                         <td>${transferBadge}</td>
                         <td>
                             <div class="action-buttons">
-                                <button class="action-btn view" onclick="viewPaymentDetails('${payment.id}')">
+                                <button class="action-btn view" onclick="viewPaymentDetails('${payment.id}', '${payment.collection}')">
                                     👁️ Detalhes
                                 </button>
                                 ${canTransfer ? `
-                                    <button class="action-btn transfer transfer-btn" onclick="transferPayment('${payment.id}')">
+                                    <button class="action-btn transfer transfer-btn" onclick="transferPayment('${payment.id}', '${payment.collection}')">
                                         💰 TRANSFERIR
                                     </button>
                                 ` : ''}
@@ -858,7 +887,7 @@
         // 📈 ATUALIZAR RESUMO
         function updateSummary() {
             const confirmedPayments = allPayments.filter(p => 
-                p.status === 'approved' || p.status === 'received'
+                p.status === 'approved'
             );
             
             if (confirmedPayments.length === 0) {
@@ -871,16 +900,14 @@
             
             const totalReceived = confirmedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
             const totalPlatform = confirmedPayments.reduce((sum, p) => {
-                if (p.split?.platform) return sum + p.split.platform;
-                return sum + ((p.amount || 0) * 0.08);
+                return sum + (p.platformFee || ((p.amount || 0) * 0.08));
             }, 0);
             
             const pendingTransfers = confirmedPayments.filter(p => 
                 p.transferStatus !== 'paid'
             );
             const totalPending = pendingTransfers.reduce((sum, p) => {
-                if (p.split?.channel) return sum + p.split.channel;
-                return sum + ((p.amount || 0) * 0.92);
+                return sum + (p.channelAmount || ((p.amount || 0) * 0.92));
             }, 0);
             
             document.getElementById('totalReceived').textContent = `R$ ${totalReceived.toFixed(2)}`;
@@ -895,7 +922,7 @@
             const container = document.getElementById('financialSummary');
             
             const confirmedPayments = allPayments.filter(p => 
-                p.status === 'approved' || p.status === 'received'
+                p.status === 'approved'
             );
             
             if (confirmedPayments.length === 0) {
@@ -905,7 +932,7 @@
                             📊 Sem pagamentos confirmados
                         </div>
                         <div style="opacity: 0.7;">
-                            Nenhum pagamento com status "received" ou "approved" encontrado.
+                            Nenhum pagamento com status "approved" encontrado.
                         </div>
                     </div>
                 `;
@@ -917,9 +944,9 @@
             
             const totalAmount = confirmedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
             const totalTransferred = confirmedPayments.filter(p => p.transferStatus === 'paid')
-                .reduce((sum, p) => sum + (p.split?.channel || ((p.amount || 0) * 0.92)), 0);
+                .reduce((sum, p) => sum + (p.channelAmount || ((p.amount || 0) * 0.92)), 0);
             const totalPendingTransfer = confirmedPayments.filter(p => p.transferStatus !== 'paid')
-                .reduce((sum, p) => sum + (p.split?.channel || ((p.amount || 0) * 0.92)), 0);
+                .reduce((sum, p) => sum + (p.channelAmount || ((p.amount || 0) * 0.92)), 0);
             
             const html = `
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
@@ -956,11 +983,11 @@
         }
 
         // 👁️ VER DETALHES DO PAGAMENTO
-        async function viewPaymentDetails(paymentId) {
+        async function viewPaymentDetails(paymentId, collectionName) {
             showLoading();
             
             try {
-                const paymentDoc = await db.collection('payment_history').doc(paymentId).get();
+                const paymentDoc = await db.collection(collectionName).doc(paymentId).get();
                 
                 if (!paymentDoc.exists) {
                     showAlert('Pagamento não encontrado', 'error');
@@ -971,9 +998,9 @@
                 const payment = paymentDoc.data();
                 const channel = channels.find(c => c.id === payment.channelId);
                 
-                const totalAmount = payment.amount || 0;
-                const platformAmount = payment.split?.platform || (totalAmount * 0.08);
-                const channelAmount = payment.split?.channel || (totalAmount * 0.92);
+                const totalAmount = payment.totalAmount || payment.amount || 0;
+                const platformAmount = payment.platformFee || payment.split?.platform?.amount || (totalAmount * 0.08);
+                const channelAmount = payment.channelAmount || payment.split?.channel?.amount || (totalAmount * 0.92);
                 
                 const modalBody = document.getElementById('modalBody');
                 modalBody.innerHTML = `
@@ -1016,7 +1043,7 @@
                         <div style="font-size: 0.9rem; opacity: 0.8;">Status do Pagamento</div>
                         <div style="font-size: 1.2rem; font-weight: bold; color: #fdbb2d;">
                             ${payment.status === 'pending' ? '⏳ Pendente' : 
-                              payment.status === 'received' || payment.status === 'approved' ? '✅ Recebido' : 
+                              payment.status === 'approved' ? '✅ Recebido' : 
                               payment.status === 'cancelled' ? '❌ Cancelado' : 
                               payment.status || 'Desconhecido'}
                         </div>
@@ -1032,14 +1059,14 @@
                 
                 // ✅ BOTÃO DE TRANSFERÊNCIA VIA API
                 const transferBtn = document.getElementById('transferNowBtn');
-                const canTransfer = (payment.status === 'received' || payment.status === 'approved') && 
+                const canTransfer = (payment.status === 'approved') && 
                                    payment.transferStatus !== 'paid' &&
                                    payment.channelUserId && 
                                    channelAmount > 0;
                 
                 if (canTransfer) {
                     transferBtn.style.display = 'block';
-                    transferBtn.onclick = () => transferPayment(paymentId);
+                    transferBtn.onclick = () => transferPayment(paymentId, collectionName);
                 } else {
                     transferBtn.style.display = 'none';
                 }
@@ -1055,7 +1082,7 @@
         }
 
         // 💰 TRANSFERIR PAGAMENTO VIA API DO MERCADO PAGO
-        async function transferPayment(paymentId) {
+        async function transferPayment(paymentId, collectionName) {
             if (!confirm('⚠️ ATENÇÃO: Esta ação fará uma transferência REAL via Mercado Pago.\n\nConfirma que deseja transferir este valor para o canal?')) {
                 return;
             }
@@ -1063,7 +1090,7 @@
             showLoading();
             
             try {
-                const paymentRef = db.collection('payment_history').doc(paymentId);
+                const paymentRef = db.collection(collectionName).doc(paymentId);
                 const paymentDoc = await paymentRef.get();
                 
                 if (!paymentDoc.exists) {
@@ -1072,8 +1099,8 @@
                 
                 const payment = paymentDoc.data();
                 
-                if (payment.status !== 'received' && payment.status !== 'approved') {
-                    showAlert('❌ Este pagamento não está com status "recebido".', 'error');
+                if (payment.status !== 'approved') {
+                    showAlert('❌ Este pagamento não está com status "aprovado".', 'error');
                     hideLoading();
                     return;
                 }
@@ -1085,7 +1112,7 @@
                 }
                 
                 const channelUserId = payment.channelUserId || payment.metadata?.channelUserId;
-                const channelAmount = payment.split?.channel || ((payment.amount || 0) * 0.92);
+                const channelAmount = payment.channelAmount || payment.split?.channel?.amount || ((payment.totalAmount || payment.amount || 0) * 0.92);
                 
                 if (!channelUserId) {
                     showAlert('❌ Não foi possível identificar o destinatário.', 'error');
@@ -1138,23 +1165,9 @@
                         transferStatus: 'paid',
                         transferredAt: firebase.firestore.FieldValue.serverTimestamp(),
                         transferId: result.id,
-                        transferNotes: `Transferido via API MP por ${currentUser.email}`,
+                        transferNotes: `Transferido via API MP por ${currentUser.email} em ${new Date().toLocaleString('pt-BR')}`,
                         lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                     });
-                    
-                    // Atualizar pending_transfers
-                    const transferQuery = await db.collection('pending_transfers')
-                        .where('paymentId', '==', payment.paymentId || paymentId.replace('payment_', ''))
-                        .get();
-                    
-                    if (!transferQuery.empty) {
-                        const transferDoc = transferQuery.docs[0];
-                        await transferDoc.ref.update({
-                            transferStatus: 'paid',
-                            transferId: result.id,
-                            paymentDate: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
                     
                     await loadDashboardData();
                     
@@ -1187,8 +1200,8 @@
             const rows = filteredPayments.map(payment => {
                 const channel = channels.find(c => c.id === payment.channelId);
                 const totalAmount = payment.amount || 0;
-                const platformAmount = payment.split?.platform || (totalAmount * 0.08);
-                const channelAmount = payment.split?.channel || (totalAmount * 0.92);
+                const platformAmount = payment.platformFee || (totalAmount * 0.08);
+                const channelAmount = payment.channelAmount || (totalAmount * 0.92);
                 
                 return [
                     payment.paymentId || payment.id,
