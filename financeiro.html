@@ -55,7 +55,7 @@
             display: none;
             align-items: center;
             justify-content: space-between;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.8) !important;
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
         .alert-success { color: #2ecc71; border-color: rgba(46, 204, 113, 0.5); }
@@ -85,7 +85,7 @@
         .status-transferring { background: rgba(52, 152, 219, 0.2); color: #3498db; border: 1px solid rgba(52, 152, 219, 0.3); }
         .status-transferred { background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.3); }
         
-        /* BOTÕES DE AÇÃO */
+        /* BOTÕES */
         .action-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
         .action-btn { padding: 6px 12px; border-radius: 6px; border: none; font-size: 0.85rem; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 5px; }
         .action-btn.view { background: rgba(52, 152, 219, 0.2); color: #3498db; border: 1px solid rgba(52, 152, 219, 0.3); }
@@ -113,7 +113,7 @@
         .field-value { font-size: 1.1rem; font-weight: bold; color: #fdbb2d; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); }
         .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
         
-        /* SUGESTÕES DE CANAL */
+        /* SUGESTÕES */
         .suggestions-container { position: relative; }
         .suggestions-list { position: absolute; top: 100%; left: 0; right: 0; background: rgba(0, 0, 0, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto; z-index: 100; display: none; }
         .suggestion-item { padding: 10px 15px; cursor: pointer; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
@@ -124,7 +124,7 @@
         .loading-spinner { width: 50px; height: 50px; border: 5px solid rgba(255, 255, 255, 0.1); border-top-color: #fdbb2d; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        /* PROGRESSO DE TRANSFERÊNCIA */
+        /* PROGRESSO */
         .transfer-progress { display: none; margin: 10px 0; }
         .progress-bar { height: 10px; background: linear-gradient(90deg, #3498db, #2ecc71); border-radius: 5px; overflow: hidden; }
         .progress-fill { height: 100%; background: #2ecc71; width: 0%; transition: width 0.3s ease; }
@@ -164,7 +164,7 @@
 
     <!-- CONTAINER -->
     <div class="dashboard-container">
-        <!-- CARDS - APENAS APROVADOS -->
+        <!-- CARDS -->
         <div class="summary-cards">
             <div class="card">
                 <div class="card-title">Total Recebido</div>
@@ -278,7 +278,7 @@
             </div>
         </div>
 
-        <!-- RESUMO FINANCEIRO - APENAS APROVADOS -->
+        <!-- RESUMO FINANCEIRO -->
         <div class="filters-section">
             <div class="filters-title">📊 Resumo Financeiro (Apenas Aprovados)</div>
             <div id="financialSummary">
@@ -287,7 +287,7 @@
         </div>
     </div>
 
-    <!-- MODAL COM BOTÃO DE TRANSFERÊNCIA -->
+    <!-- MODAL -->
     <div class="modal-overlay" id="paymentModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -399,82 +399,24 @@
                     }));
                 });
                 
-                // CARREGAR CANAIS E SUAS CONFIGURAÇÕES DE PIX
+                // CARREGAR CANAIS
                 const channelsSnapshot = await db.collection('channels').get();
                 channels = [];
-                
-                for (const doc of channelsSnapshot.docs) {
-                    const channelId = doc.id;
-                    const channelData = doc.data();
-                    
-                    // TENTAR OBTER DADOS DO PIX DE 3 FORMAS DIFERENTES:
-                    let pixDonations = null;
-                    
-                    // 1. Diretamente do canal
-                    if (channelData.pixDonations) {
-                        pixDonations = channelData.pixDonations;
-                    } 
-                    // 2. Da subcoleção monetization/settings
-                    else {
-                        try {
-                            const monetizationDoc = await db.collection('channels').doc(channelId)
-                                .collection('monetization').doc('settings').get();
-                            
-                            if (monetizationDoc.exists) {
-                                const monetizationData = monetizationDoc.data();
-                                if (monetizationData.pixDonations) {
-                                    pixDonations = monetizationData.pixDonations;
-                                }
-                            }
-                        } catch (error) {
-                            console.error(`Erro ao buscar monetização do canal ${channelId}:`, error);
-                        }
-                    }
-                    
-                    // 3. Da estrutura antiga (usuário -> canal -> monetization)
-                    if (!pixDonations) {
-                        try {
-                            if (channelData.ownerId) {
-                                const oldMonetizationDoc = await db.collection('users').doc(channelData.ownerId)
-                                    .collection('channels').doc(channelId)
-                                    .collection('monetization').doc('settings').get();
-                                
-                                if (oldMonetizationDoc.exists) {
-                                    const oldData = oldMonetizationDoc.data();
-                                    if (oldData.pixDonations) {
-                                        pixDonations = oldData.pixDonations;
-                                    }
-                                }
-                            }
-                        } catch (error) {
-                            console.error(`Erro ao buscar dados antigos do canal ${channelId}:`, error);
-                        }
-                    }
-                    
-                    // Construir objeto do canal
-                    const channel = {
-                        id: channelId,
-                        name: channelData.name || `Canal ${channelId.substring(0, 8)}...`,
-                        pixDonations: pixDonations || {
-                            enabled: false,
-                            mpAccessToken: '',
-                            mpUserId: '',
-                            mpUserEmail: ''
-                        }
-                    };
-                    
-                    channels.push(channel);
-                }
-                
-                console.log(`✅ Carregados ${allPayments.length} pagamentos e ${channels.length} canais`);
-                console.log('📊 Exemplo de dados do canal:', channels[0]);
+                channelsSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    channels.push({
+                        id: doc.id,
+                        name: data.name || `Canal ${doc.id.substring(0, 8)}...`,
+                        ...data
+                    });
+                });
                 
                 applyFilters();
                 updateSummary();
                 updateFinancialSummary();
                 hideLoading();
             } catch (error) {
-                console.error('Erro ao carregar dados:', error);
+                console.error('Erro:', error);
                 showAlert('Erro ao carregar dados', 'error');
                 hideLoading();
             }
@@ -603,7 +545,7 @@
                 const date = payment.createdAt.toLocaleDateString('pt-BR');
                 const time = payment.createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                 
-                // STATUS DO PAGAMENTO
+                // STATUS
                 let statusBadge = '';
                 switch(payment.displayStatus) {
                     case 'pending': 
@@ -619,7 +561,7 @@
                         statusBadge = `<span class="status-badge status-pending">${payment.displayStatus}</span>`;
                 }
                 
-                // STATUS DA TRANSFERÊNCIA
+                // STATUS TRANSFERÊNCIA
                 let transferBadge = '';
                 switch(payment.transferStatus) {
                     case 'pending':
@@ -643,37 +585,69 @@
                 const platformAmount = payment.split?.platform || (totalAmount * 0.08);
                 const channelAmount = payment.split?.channel || (totalAmount * 0.92);
                 
-                // ✅ BUSCAR DADOS DO CANAL PARA TRANSFERÊNCIA
-                const channelUserId = payment.channelUserId || 
-                                    payment.metadata?.channelUserId ||
-                                    (channel?.pixDonations?.mpUserId);
+                // ✅ BUSCAR DADOS DO MP DO CANAL DE VÁRIAS FONTES
+                let channelUserId = null;
+                let channelMpAccessToken = null;
                 
-                const channelMpAccessToken = payment.channelMpAccessToken || 
-                                           payment.metadata?.channelMpAccessToken ||
-                                           (channel?.pixDonations?.mpAccessToken);
+                // 1. Primeiro tenta do payment metadata (salvo na criação)
+                if (payment.metadata) {
+                    channelUserId = payment.metadata.channelUserId || payment.channelUserId;
+                    channelMpAccessToken = payment.metadata.channelMpAccessToken || payment.channelMpAccessToken;
+                }
                 
-                // ✅ VERIFICAR SE O CANAL TEM TOKEN MP VÁLIDO
-                const hasValidToken = channelMpAccessToken && 
-                                     channelMpAccessToken.trim() !== '' && 
-                                     channelMpAccessToken !== 'undefined' &&
-                                     channelMpAccessToken.length > 20;
+                // 2. Se não tem no payment, busca direto do canal
+                if (!channelUserId && payment.channelId) {
+                    // Buscar dados do canal
+                    const channelDoc = channels.find(c => c.id === payment.channelId);
+                    if (channelDoc) {
+                        // Primeiro tenta da estrutura antiga
+                        if (channelDoc.pixDonations) {
+                            channelUserId = channelDoc.pixDonations.mpUserId || channelDoc.pixDonations.mpPlatformUserId;
+                            channelMpAccessToken = channelDoc.pixDonations.mpAccessToken;
+                        }
+                        
+                        // Se não tem, busca na subcoleção monetization
+                        if (!channelUserId) {
+                            // Vamos buscar dinamicamente
+                            setTimeout(async () => {
+                                try {
+                                    const monetizationDoc = await db.collection('channels').doc(payment.channelId)
+                                        .collection('monetization').doc('settings').get();
+                                    
+                                    if (monetizationDoc.exists) {
+                                        const monetizationData = monetizationDoc.data();
+                                        if (monetizationData.pixDonations) {
+                                            channelUserId = monetizationData.pixDonations.mpUserId || 
+                                                          monetizationData.pixDonations.mpPlatformUserId;
+                                            channelMpAccessToken = monetizationData.pixDonations.mpAccessToken;
+                                            
+                                            // Atualiza o payment no array para usar depois
+                                            const paymentIndex = allPayments.findIndex(p => p.id === payment.id);
+                                            if (paymentIndex !== -1) {
+                                                allPayments[paymentIndex].channelUserId = channelUserId;
+                                                allPayments[paymentIndex].channelMpAccessToken = channelMpAccessToken;
+                                            }
+                                        }
+                                    }
+                                } catch (error) {
+                                    console.error('Erro ao buscar monetização:', error);
+                                }
+                            }, 0);
+                        }
+                    }
+                }
                 
-                const hasUserId = channelUserId && 
-                                channelUserId.trim() !== '' && 
-                                channelUserId !== 'undefined' &&
-                                channelUserId !== 'unknown';
-                
-                // ✅ CONDICIONAIS PARA EXIBIR BOTÃO DE TRANSFERÊNCIA
+                // ✅ CONDICIONAIS PARA TRANSFERÊNCIA
                 const canTransfer = (
                     payment.displayStatus === 'approved' && 
                     payment.transferStatus === 'pending' && 
-                    hasUserId && 
-                    hasValidToken && 
+                    channelUserId && 
+                    channelMpAccessToken && 
                     channelAmount > 0 &&
                     !transferInProgress
                 );
                 
-                // Ações disponíveis
+                // AÇÕES
                 let actionsHTML = `
                     <div class="action-buttons">
                         <button class="action-btn view" onclick="viewPaymentDetails('${payment.id}')">👁️ Detalhes</button>
@@ -686,12 +660,8 @@
                     actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(155, 89, 182, 0.1); border-radius: 4px;">✅ Já transferido</span>`;
                 } else if (payment.displayStatus !== 'approved') {
                     actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(241, 196, 15, 0.1); border-radius: 4px;">Aguardando aprovação</span>`;
-                } else if (!hasUserId || !hasValidToken) {
-                    let missingInfo = [];
-                    if (!hasUserId) missingInfo.push('ID do MP não encontrado');
-                    if (!hasValidToken) missingInfo.push('Token do MP inválido');
-                    
-                    actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(231, 76, 60, 0.1); border-radius: 4px;" title="${missingInfo.join(', ')}">❌ Não configurado</span>`;
+                } else if (!channelUserId || !channelMpAccessToken) {
+                    actionsHTML += `<span style="font-size: 0.8rem; opacity: 0.7; padding: 4px 8px; background: rgba(231, 76, 60, 0.1); border-radius: 4px;">Token ou ID não encontrado</span>`;
                 }
                 
                 actionsHTML += `</div>`;
@@ -722,7 +692,7 @@
             document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
         }
 
-        // 📈 RESUMO - APENAS APROVADOS
+        // 📈 RESUMO
         function updateSummary() {
             const approvedPayments = allPayments.filter(p => p.displayStatus === 'approved');
             
@@ -800,12 +770,6 @@
                     <div style="font-size: 2rem; font-weight: bold; color: #fdbb2d; margin-bottom: 5px;">R$ ${totalAmount.toFixed(2)}</div>
                     <div style="font-size: 0.9rem; opacity: 0.8;">${approvedPayments.length} pagamento(s) aprovado(s)</div>
                 </div>
-                <div style="margin-top: 20px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 10px; border-left: 4px solid #fdbb2d;">
-                    <div style="font-size: 0.9rem; opacity: 0.9;">
-                        <strong>Nota:</strong> Este resumo considera apenas pagamentos com status "Aprovado".
-                        Pagamentos pendentes ou cancelados não são incluídos nos cálculos.
-                    </div>
-                </div>
             `;
             
             container.innerHTML = html;
@@ -815,6 +779,7 @@
         async function viewPaymentDetails(paymentId) {
             showLoading();
             try {
+                // Limpar listener anterior
                 if (realTimeListeners[paymentId]) {
                     realTimeListeners[paymentId]();
                     delete realTimeListeners[paymentId];
@@ -838,14 +803,43 @@
                 
                 const channel = channels.find(c => c.id === payment.channelId);
                 
-                // ✅ BUSCAR DADOS DO CANAL PARA TRANSFERÊNCIA
-                const channelUserId = payment.channelUserId || 
-                                    payment.metadata?.channelUserId ||
-                                    (channel?.pixDonations?.mpUserId);
+                // ✅ BUSCAR DADOS DO MP DO CANAL
+                let channelUserId = null;
+                let channelMpAccessToken = null;
                 
-                const channelMpAccessToken = payment.channelMpAccessToken || 
-                                           payment.metadata?.channelMpAccessToken ||
-                                           (channel?.pixDonations?.mpAccessToken);
+                // 1. Do payment metadata
+                if (payment.metadata) {
+                    channelUserId = payment.metadata.channelUserId || payment.channelUserId;
+                    channelMpAccessToken = payment.metadata.channelMpAccessToken || payment.channelMpAccessToken;
+                }
+                
+                // 2. Se não tem, busca do canal
+                if ((!channelUserId || !channelMpAccessToken) && payment.channelId) {
+                    try {
+                        // Busca na estrutura antiga
+                        if (channel && channel.pixDonations) {
+                            channelUserId = channel.pixDonations.mpUserId || channel.pixDonations.mpPlatformUserId;
+                            channelMpAccessToken = channel.pixDonations.mpAccessToken;
+                        }
+                        
+                        // Busca na subcoleção monetization
+                        if (!channelUserId || !channelMpAccessToken) {
+                            const monetizationDoc = await db.collection('channels').doc(payment.channelId)
+                                .collection('monetization').doc('settings').get();
+                            
+                            if (monetizationDoc.exists) {
+                                const monetizationData = monetizationDoc.data();
+                                if (monetizationData.pixDonations) {
+                                    channelUserId = monetizationData.pixDonations.mpUserId || 
+                                                  monetizationData.pixDonations.mpPlatformUserId;
+                                    channelMpAccessToken = monetizationData.pixDonations.mpAccessToken;
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Erro ao buscar dados do canal:', error);
+                    }
+                }
                 
                 const totalAmount = payment.amount || 0;
                 const platformAmount = payment.split?.platform || (totalAmount * 0.08);
@@ -864,13 +858,13 @@
                     <div class="modal-field">
                         <div class="field-label">ID do Canal no Mercado Pago</div>
                         <div class="field-value" style="${!channelUserId ? 'color: #e74c3c;' : 'color: #2ecc71;'}">
-                            ${channelUserId || '⚠️ Não encontrado - verifique configuração do canal'}
+                            ${channelUserId || '⚠️ Não encontrado'}
                         </div>
                     </div>
                     <div class="modal-field">
-                        <div class="field-label">Token do Mercado Pago do Canal</div>
+                        <div class="field-label">Token do Mercado Pago</div>
                         <div class="field-value" style="${!channelMpAccessToken ? 'color: #e74c3c;' : 'color: #2ecc71;'}">
-                            ${channelMpAccessToken ? `✅ Token presente (${channelMpAccessToken.length} caracteres)` : '⚠️ Não encontrado - verifique configuração do canal'}
+                            ${channelMpAccessToken ? '✅ Disponível' : '❌ Não encontrado'}
                         </div>
                     </div>
                     <div class="modal-field">
@@ -929,15 +923,18 @@
                         <div class="modal-field" style="background: rgba(231, 76, 60, 0.1); padding: 15px; border-radius: 8px; border: 1px solid rgba(231, 76, 60, 0.3);">
                             <div style="color: #e74c3c; font-weight: bold;">⚠️ ATENÇÃO</div>
                             <div style="font-size: 0.9rem; margin-top: 5px;">
-                                ${!channelUserId ? '• ID do canal não encontrado<br>' : ''}
-                                ${!channelMpAccessToken ? '• Token do Mercado Pago não encontrado<br>' : ''}
-                                Verifique se o canal configurou corretamente o Pix na página de monetização.
+                                ${!channelUserId && !channelMpAccessToken ? 
+                                    'ID e Token do Mercado Pago não encontrados.' : 
+                                    !channelUserId ? 
+                                    'ID do Mercado Pago não encontrado.' : 
+                                    'Token do Mercado Pago não encontrado.'}
+                                <br>O canal precisa configurar o Pix na página de monetização.
                             </div>
                         </div>
                     ` : ''}
                 `;
                 
-                // ✅ BOTÃO DE TRANSFERÊNCIA NO MODAL
+                // ✅ BOTÃO DE TRANSFERÊNCIA
                 const transferBtn = document.getElementById('transferNowBtn');
                 const canTransfer = (
                     payment.displayStatus === 'approved' && 
@@ -950,7 +947,7 @@
                 
                 if (canTransfer) {
                     transferBtn.style.display = 'block';
-                    transferBtn.onclick = () => transferPaymentViaAPI(paymentId);
+                    transferBtn.onclick = () => transferPaymentViaAPI(paymentId, channelUserId, channelMpAccessToken);
                     transferBtn.innerHTML = `💰 Transferir R$ ${channelAmount.toFixed(2)} via Mercado Pago`;
                 } else {
                     transferBtn.style.display = 'none';
@@ -958,7 +955,7 @@
                     if (payment.displayStatus !== 'approved') {
                         modalBody.innerHTML += `
                             <div style="text-align: center; margin-top: 20px; padding: 10px; background: rgba(241, 196, 15, 0.1); border-radius: 8px;">
-                                ⏳ Aguardando aprovação do pagamento para liberar transferência
+                                ⏳ Aguardando aprovação do pagamento
                             </div>
                         `;
                     } else if (payment.transferStatus === 'paid') {
@@ -970,12 +967,13 @@
                     } else if (!channelUserId || !channelMpAccessToken) {
                         modalBody.innerHTML += `
                             <div style="text-align: center; margin-top: 20px; padding: 10px; background: rgba(231, 76, 60, 0.1); border-radius: 8px;">
-                                ❌ Dados do canal incompletos - não é possível transferir
+                                ❌ Dados do Mercado Pago incompletos
                             </div>
                         `;
                     }
                 }
                 
+                // Mostrar/ocultar progresso
                 const progressDiv = document.getElementById('transferProgress');
                 if (payment.transferStatus === 'transferring') {
                     progressDiv.style.display = 'block';
@@ -987,6 +985,7 @@
                 document.getElementById('paymentModal').style.display = 'flex';
                 hideLoading();
                 
+                // ✅ INICIAR MONITORAMENTO EM TEMPO REAL
                 startRealTimeTransferMonitor(paymentId);
                 
             } catch (error) {
@@ -1007,6 +1006,7 @@
                     const progressDiv = document.getElementById('transferProgress');
                     const transferBtn = document.getElementById('transferNowBtn');
                     
+                    // Atualizar status no modal
                     let statusText = '';
                     switch(payment.transferStatus) {
                         case 'pending': statusText = '⏳ Pendente'; break;
@@ -1020,6 +1020,7 @@
                         transferStatusField.innerHTML = statusText;
                     }
                     
+                    // Atualizar botão
                     if (transferBtn) {
                         const canTransfer = (
                             (payment.status === 'approved' || payment.status === 'received') && 
@@ -1028,6 +1029,7 @@
                         transferBtn.style.display = canTransfer ? 'block' : 'none';
                     }
                     
+                    // Atualizar progresso
                     if (progressDiv) {
                         progressDiv.style.display = payment.transferStatus === 'transferring' ? 'block' : 'none';
                         if (payment.transferStatus === 'transferring') {
@@ -1035,6 +1037,7 @@
                         }
                     }
                     
+                    // Atualizar tabela principal
                     setTimeout(() => {
                         const paymentIndex = filteredPayments.findIndex(p => p.id === paymentId);
                         if (paymentIndex !== -1) {
@@ -1048,6 +1051,7 @@
             
             realTimeListeners[paymentId] = unsubscribe;
             
+            // Limpar listener quando modal fechar
             const modal = document.getElementById('paymentModal');
             const closeModalHandler = function() {
                 if (realTimeListeners[paymentId]) {
@@ -1060,8 +1064,8 @@
             modal.addEventListener('click', closeModalHandler);
         }
 
-        // 🔄 ATUALIZAR PROGRESSO DA TRANSFERÊNCIA
-        async function updateTransferProgress(paymentId) {
+        // 🔄 ATUALIZAR PROGRESSO
+        function updateTransferProgress(paymentId) {
             const progressFill = document.getElementById('progressFill');
             const progressText = document.getElementById('progressText');
             
@@ -1073,6 +1077,7 @@
                 progressText.textContent = `Processando transferência... ${progress}%`;
             }, 1000);
             
+            // Verificar status a cada 3 segundos
             const checkInterval = setInterval(async () => {
                 try {
                     const paymentDoc = await db.collection('payment_history').doc(paymentId).get();
@@ -1103,6 +1108,7 @@
                 }
             }, 3000);
             
+            // Limpar intervalos se modal fechar
             const modal = document.getElementById('paymentModal');
             const closeHandler = function() {
                 clearInterval(interval);
@@ -1112,9 +1118,9 @@
             modal.addEventListener('click', closeHandler);
         }
 
-        // 💰 TRANSFERIR VIA API DO MERCADO PAGO
-        async function transferPaymentViaAPI(paymentId) {
-            if (!confirm(`⚠️ CONFIRMAR TRANSFERÊNCIA\n\nValor a transferir: 92% do pagamento\nDestino: Canal proprietário\n\nEsta ação fará uma transferência REAL via Mercado Pago para o canal.`)) {
+        // 💰 TRANSFERIR VIA API DO MERCADO PAGO (CORRIGIDA)
+        async function transferPaymentViaAPI(paymentId, channelUserId, channelMpAccessToken) {
+            if (!confirm(`⚠️ CONFIRMAR TRANSFERÊNCIA\n\nValor a transferir: 92% do pagamento\nDestino: ID ${channelUserId}\n\nEsta ação fará uma transferência REAL via Mercado Pago para o canal.`)) {
                 return;
             }
             
@@ -1138,8 +1144,9 @@
                     ...rawPayment
                 });
                 
+                // ✅ VERIFICAÇÃO: APENAS PAGAMENTOS APROVADOS
                 if (payment.displayStatus !== 'approved') {
-                    showAlert('❌ Este pagamento não está aprovado. Apenas pagamentos aprovados podem ser transferidos.', 'error');
+                    showAlert('❌ Este pagamento não está aprovado.', 'error');
                     transferInProgress = false;
                     hideLoading();
                     return;
@@ -1152,25 +1159,9 @@
                     return;
                 }
                 
-                // ✅ BUSCAR DADOS DO CANAL
-                const channel = channels.find(c => c.id === payment.channelId);
-                const channelUserId = payment.channelUserId || 
-                                    payment.metadata?.channelUserId ||
-                                    (channel?.pixDonations?.mpUserId);
-                
-                const channelMpAccessToken = payment.channelMpAccessToken || 
-                                           payment.metadata?.channelMpAccessToken ||
-                                           (channel?.pixDonations?.mpAccessToken);
-                
-                if (!channelUserId) {
-                    showAlert('❌ Não foi possível identificar o destinatário (ID do canal no MP).', 'error');
-                    transferInProgress = false;
-                    hideLoading();
-                    return;
-                }
-                
-                if (!channelMpAccessToken) {
-                    showAlert('❌ Token do Mercado Pago não encontrado para este canal. Configure o Pix no canal primeiro.', 'error');
+                // ✅ USAR OS DADOS PASSADOS COMO PARÂMETRO (do canal)
+                if (!channelUserId || !channelMpAccessToken) {
+                    showAlert('❌ Dados do Mercado Pago do canal não encontrados.', 'error');
                     transferInProgress = false;
                     hideLoading();
                     return;
@@ -1192,12 +1183,13 @@
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 
+                // Mostrar progresso
                 document.getElementById('transferProgress').style.display = 'block';
                 updateTransferProgress(paymentId);
                 
+                // ✅ FAZER TRANSFERÊNCIA VIA API DO MERCADO PAGO
                 showAlert('🔄 Iniciando transferência via Mercado Pago...', 'info');
                 
-                // ✅ FAZER TRANSFERÊNCIA VIA API DO MERCADO PAGO
                 const transferData = {
                     amount: parseFloat(channelAmount.toFixed(2)),
                     user_id: channelUserId.toString(),
@@ -1206,7 +1198,6 @@
                 
                 console.log('Dados da transferência:', {
                     channelUserId,
-                    channelToken: channelMpAccessToken.substring(0, 10) + '...',
                     amount: transferData.amount
                 });
                 
@@ -1232,8 +1223,24 @@
                         lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     
-                    showAlert(`✅ Transferência REALIZADA!\nID: ${result.id}\nValor: R$ ${channelAmount.toFixed(2)}\nPara: ${channelUserId}`, 'success');
+                    // ✅ NOTIFICAR CANAL
+                    if (payment.channelId) {
+                        await db.collection('channels').doc(payment.channelId)
+                            .collection('notifications').doc(`transfer_${result.id}`).set({
+                                type: 'transfer_completed',
+                                paymentId: payment.paymentId || paymentId,
+                                amount: channelAmount,
+                                transferId: result.id,
+                                status: 'completed',
+                                message: `Transferência de R$ ${channelAmount.toFixed(2)} realizada com sucesso!`,
+                                transferredAt: firebase.firestore.FieldValue.serverTimestamp(),
+                                read: false
+                            });
+                    }
                     
+                    showAlert(`✅ Transferência REALIZADA!\nID: ${result.id}\nValor: R$ ${channelAmount.toFixed(2)}`, 'success');
+                    
+                    // Recarregar dados
                     setTimeout(() => {
                         loadDashboardData();
                         if (document.getElementById('paymentModal').style.display === 'flex') {
@@ -1258,6 +1265,7 @@
             } catch (error) {
                 console.error('Erro na transferência:', error);
                 
+                // Marcar como falha
                 try {
                     await db.collection('payment_history').doc(paymentId).update({
                         transferStatus: 'failed',
@@ -1272,6 +1280,7 @@
                 transferInProgress = false;
                 hideLoading();
                 
+                // Recarregar
                 setTimeout(loadDashboardData, 1000);
             }
         }
