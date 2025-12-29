@@ -486,10 +486,11 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // CONFIGURAÇÃO DO MERCADO PAGO
+        // CONFIGURAÇÃO DO MERCADO PAGO (CORRIGIDA)
         const MP_CONFIG = {
             CLIENT_ID: '4240568631810752',
-            REDIRECT_URI: 'https://us-central1-playtronic-tv.cloudfunctions.net/mercadoPagoCallback'
+            REDIRECT_URI: 'https://us-central1-playtronic-tv.cloudfunctions.net/mercadoPagoCallback',
+            AUTH_URL: 'https://auth.mercadopago.com/authorization'
         };
 
         // VARIÁVEIS GLOBAIS
@@ -534,18 +535,20 @@
             }
 
             // CORREÇÃO: URL de autenticação correta do Mercado Pago
-            const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MP_CONFIG.CIENT_ID}&response_type=code&platform_id=mp&state=${channelId}_${type}&redirect_uri=${encodeURIComponent(MP_CONFIG.REDIRECT_URI)}`;
+            const authUrl = `${MP_CONFIG.AUTH_URL}?client_id=${MP_CONFIG.CLIENT_ID}&response_type=code&platform_id=mp&state=${channelId}_${type}&redirect_uri=${encodeURIComponent(MP_CONFIG.REDIRECT_URI)}`;
             
-            // Abrir popup corretamente
-            const popupWidth = 600;
-            const popupHeight = 700;
+            console.log('🔗 URL de autenticação:', authUrl);
+            
+            // Tamanho correto do popup
+            const popupWidth = 800;
+            const popupHeight = 600;
             const left = (window.screen.width - popupWidth) / 2;
             const top = (window.screen.height - popupHeight) / 2;
             
             const popup = window.open(
                 authUrl,
                 'mercadoPagoAuth',
-                `width=${popupWidth},height=${popupHeight},left=${left},top=${top},scrollbars=yes,resizable=yes`
+                `width=${popupWidth},height=${popupHeight},left=${left},top=${top},toolbar=no,location=yes,status=no,menubar=no,scrollbars=yes,resizable=yes`
             );
             
             if (!popup || popup.closed || typeof popup.closed === 'undefined') {
@@ -555,14 +558,17 @@
             
             popup.focus();
             
-            // Verificar se o popup foi redirecionado para outra página
+            // Verificar se o popup foi redirecionado
             const checkPopup = setInterval(() => {
                 if (popup.closed) {
                     clearInterval(checkPopup);
-                    // Recarregar dados para verificar se a conexão foi bem sucedida
-                    setTimeout(() => loadMonetizationData(), 2000);
+                    console.log('✅ Popup fechado, recarregando dados...');
+                    setTimeout(() => {
+                        loadMonetizationData();
+                        showSuccess('Processando conexão com Mercado Pago...');
+                    }, 3000);
                 }
-            }, 500);
+            }, 1000);
         }
 
         async function disconnectFromMercadoPago(type) {
@@ -571,8 +577,11 @@
             }
 
             try {
+                const channelRef = db.collection('channels').doc(channelId);
+                const updateData = {};
+                
                 if (type === 'pixDonations') {
-                    monetizationData.pixDonations = {
+                    updateData['pixDonations'] = {
                         enabled: false,
                         mpAccessToken: '',
                         mpUserId: '',
@@ -580,13 +589,15 @@
                         pixKeyType: '',
                         accountHolderName: '',
                         isValid: false,
-                        connected: false
+                        connected: false,
+                        disconnectedAt: new Date()
                     };
                     
+                    monetizationData.pixDonations = updateData['pixDonations'];
                     document.getElementById('pixDonations').checked = false;
                     updatePixInterface();
                 } else {
-                    monetizationData.paidCommercials = {
+                    updateData['paidCommercials'] = {
                         enabled: false,
                         pricePerSecond: 0.05,
                         maxDuration: 90,
@@ -596,14 +607,18 @@
                         pixKeyType: '',
                         accountHolderName: '',
                         isValid: false,
-                        connected: false
+                        connected: false,
+                        disconnectedAt: new Date()
                     };
                     
+                    monetizationData.paidCommercials = updateData['paidCommercials'];
                     document.getElementById('paidCommercials').checked = false;
                     updateCommercialsInterface();
                 }
                 
-                await saveMonetizationData();
+                updateData['lastUpdated'] = new Date();
+                
+                await channelRef.collection('monetization').doc('settings').set(updateData, { merge: true });
                 showSuccess('✅ Conta desconectada com sucesso!');
                 
             } catch (error) {
@@ -635,14 +650,36 @@
                 
                 if (settingsDoc.exists) {
                     const data = settingsDoc.data();
-                    if (data.adsterraSmartlink) monetizationData.adsterraSmartlink = data.adsterraSmartlink;
-                    if (data.pixDonations) monetizationData.pixDonations = data.pixDonations;
-                    if (data.paidCommercials) monetizationData.paidCommercials = data.paidCommercials;
+                    
+                    // Atualizar apenas se os dados existirem
+                    if (data.adsterraSmartlink) {
+                        monetizationData.adsterraSmartlink = {
+                            ...monetizationData.adsterraSmartlink,
+                            ...data.adsterraSmartlink
+                        };
+                    }
+                    
+                    if (data.pixDonations) {
+                        monetizationData.pixDonations = {
+                            ...monetizationData.pixDonations,
+                            ...data.pixDonations
+                        };
+                    }
+                    
+                    if (data.paidCommercials) {
+                        monetizationData.paidCommercials = {
+                            ...monetizationData.paidCommercials,
+                            ...data.paidCommercials
+                        };
+                    }
                 }
                 
                 updateUI();
+                return true;
             } catch (error) {
                 console.error('Erro ao carregar:', error);
+                showError('Erro ao carregar configurações: ' + error.message);
+                return false;
             }
         }
 
@@ -666,12 +703,20 @@
                 pixInfoCard.style.display = 'block';
                 pixInfoContent.innerHTML = `
                     <div class="pix-info-row">
+                        <span class="pix-info-label">Tipo:</span>
+                        <span class="pix-info-value">${pixData.pixKeyType || 'Não informado'}</span>
+                    </div>
+                    <div class="pix-info-row">
                         <span class="pix-info-label">Chave PIX:</span>
-                        <span class="pix-info-value">${pixData.pixKey}</span>
+                        <span class="pix-info-value">${pixData.pixKey || 'Não informado'}</span>
                     </div>
                     <div class="pix-info-row">
                         <span class="pix-info-label">Titular:</span>
                         <span class="pix-info-value">${pixData.accountHolderName || 'Não informado'}</span>
+                    </div>
+                    <div class="pix-info-row">
+                        <span class="pix-info-label">Conectado em:</span>
+                        <span class="pix-info-value">${new Date(pixData.connectedAt).toLocaleDateString('pt-BR')}</span>
                     </div>
                 `;
             } else {
@@ -712,31 +757,38 @@
 
         function updateUI() {
             // Smartlink Adsterra
-            document.getElementById('adsterraSmartlink').checked = monetizationData.adsterraSmartlink.enabled;
+            const adsterraEnabled = monetizationData.adsterraSmartlink.enabled;
+            document.getElementById('adsterraSmartlink').checked = adsterraEnabled;
             document.getElementById('adsterraSmartlinkUrl').value = monetizationData.adsterraSmartlink.url || '';
-            document.getElementById('adsterraSettings').style.display = monetizationData.adsterraSmartlink.enabled ? 'block' : 'none';
+            document.getElementById('adsterraSettings').style.display = adsterraEnabled ? 'block' : 'none';
 
             // Doações PIX
-            document.getElementById('pixDonations').checked = monetizationData.pixDonations.enabled;
-            document.getElementById('pixSettings').style.display = monetizationData.pixDonations.enabled ? 'block' : 'none';
+            const pixEnabled = monetizationData.pixDonations.enabled;
+            document.getElementById('pixDonations').checked = pixEnabled;
+            document.getElementById('pixSettings').style.display = pixEnabled ? 'block' : 'none';
             updatePixInterface();
 
             // Comerciais Pagos
-            document.getElementById('paidCommercials').checked = monetizationData.paidCommercials.enabled;
+            const commercialsEnabled = monetizationData.paidCommercials.enabled;
+            document.getElementById('paidCommercials').checked = commercialsEnabled;
             document.getElementById('pricePerSecond').value = monetizationData.paidCommercials.pricePerSecond;
             document.getElementById('maxCommercialDuration').value = monetizationData.paidCommercials.maxDuration;
-            document.getElementById('paidCommercialsSettings').style.display = monetizationData.paidCommercials.enabled ? 'block' : 'none';
+            document.getElementById('paidCommercialsSettings').style.display = commercialsEnabled ? 'block' : 'none';
             updateCommercialsInterface();
         }
 
         async function loadChannelData() {
             try {
-                if (!currentUser) throw new Error("Usuário não autenticado");
+                if (!currentUser) {
+                    throw new Error("Usuário não autenticado");
+                }
                 
                 channelId = getUrlParameter('channelId');
                 if (!channelId) {
                     showError('ID do canal não especificado');
-                    setTimeout(() => window.location.href = 'https://canaisdetv.online/Gerador', 2000);
+                    setTimeout(() => {
+                        window.location.href = 'https://canaisdetv.online/Gerador';
+                    }, 2000);
                     return;
                 }
 
@@ -754,57 +806,80 @@
                     const channelRef = db.collection('channels').doc(channelId);
                     const channelDoc = await channelRef.get();
                     
-                    if (!channelDoc.exists) {
+                    if (channelDoc.exists) {
+                        channelData = channelDoc.data();
+                    } else {
                         throw new Error("Canal não encontrado");
                     }
-                    channelData = channelDoc.data();
                 }
 
-                // Atualizar interface do canal - CORREÇÃO DA LOGO
+                // Atualizar interface do canal
                 document.getElementById('channelNameSpan').textContent = channelData.name || 'Canal sem nome';
                 document.getElementById('channelSlogan').textContent = channelData.slogan || '';
 
                 const channelLogo = document.getElementById('channelLogo');
                 const defaultLogo = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
                 
-                // CORREÇÃO: Carregar logo corretamente sem adicionar parâmetros extras
                 if (channelData.logo && channelData.logo.trim() !== '') {
-                    // Usar a logo do canal exatamente como está armazenada
                     channelLogo.src = channelData.logo;
                     
-                    // Se a logo falhar ao carregar, usar a logo padrão
+                    // Fallback se a logo falhar
                     channelLogo.onerror = function() {
                         console.log('Logo do canal falhou ao carregar, usando logo padrão');
                         this.src = defaultLogo;
-                        this.onerror = null; // Evitar loop infinito
-                    };
-                    
-                    // Verificar se a logo carregou com sucesso
-                    channelLogo.onload = function() {
-                        console.log('Logo do canal carregada com sucesso');
+                        this.onerror = null;
                     };
                 } else {
-                    // Se não houver logo definida, usar a padrão
                     channelLogo.src = defaultLogo;
                 }
 
                 // Carregar dados de monetização
                 await loadMonetizationData();
 
-                // Verificar parâmetros da URL
-                const mpConnected = getUrlParameter('mpConnected');
-                const mpType = getUrlParameter('type');
-                const error = getUrlParameter('error');
+                // Verificar parâmetros da URL para feedback
+                const urlParams = new URLSearchParams(window.location.search);
+                const mpConnected = urlParams.get('mpConnected');
+                const mpType = urlParams.get('type');
+                const error = urlParams.get('error');
+                const errorMessage = urlParams.get('message');
                 
                 if (mpConnected === 'success' && mpType) {
                     showSuccess('✅ Mercado Pago conectado com sucesso!');
-                    window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
-                    setTimeout(() => loadMonetizationData(), 1000);
+                    
+                    // Limpar URL sem recarregar
+                    const cleanUrl = window.location.pathname + '?channelId=' + channelId;
+                    window.history.replaceState({}, document.title, cleanUrl);
+                    
+                    // Recarregar dados após um momento
+                    setTimeout(() => {
+                        loadMonetizationData();
+                    }, 2000);
                 }
                 
-                if (error === 'no_pix_key') {
-                    showError('❌ A conta do Mercado Pago não possui chave PIX cadastrada. Configure uma chave PIX e tente novamente.');
-                    window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
+                if (error) {
+                    let userMessage = 'Erro na autenticação';
+                    
+                    switch(error) {
+                        case 'no_pix_key':
+                            userMessage = '❌ Configure uma chave PIX na sua conta Mercado Pago antes de conectar.';
+                            break;
+                        case 'token_invalid':
+                            userMessage = '❌ Token de acesso inválido. Tente conectar novamente.';
+                            break;
+                        case 'config_error':
+                            userMessage = '❌ Erro de configuração do servidor.';
+                            break;
+                        default:
+                            if (errorMessage) {
+                                userMessage = `❌ ${decodeURIComponent(errorMessage)}`;
+                            }
+                    }
+                    
+                    showError(userMessage);
+                    
+                    // Limpar URL
+                    const cleanUrl = window.location.pathname + '?channelId=' + channelId;
+                    window.history.replaceState({}, document.title, cleanUrl);
                 }
 
                 // Mostrar conteúdo
@@ -812,7 +887,7 @@
                 document.getElementById('content').style.display = 'block';
 
             } catch (error) {
-                console.error('Erro ao carregar:', error);
+                console.error('Erro ao carregar canal:', error);
                 document.getElementById('loading').style.display = 'none';
                 showError(`Erro: ${error.message}`);
                 setTimeout(() => {
@@ -834,23 +909,23 @@
             }
             
             if (document.getElementById('pixDonations').checked) {
-                if (!monetizationData.pixDonations.connected) {
-                    errors.push('Opção 2 (Doações PIX) está habilitada, mas não há conta do Mercado Pago conectada.');
+                if (!monetizationData.pixDonations.connected || !monetizationData.pixDonations.isValid) {
+                    errors.push('Opção 2 (Doações PIX) está habilitada, mas não há conta do Mercado Pago conectada ou válida.');
                 }
             }
             
             if (document.getElementById('paidCommercials').checked) {
-                if (!monetizationData.paidCommercials.connected) {
-                    errors.push('Opção 3 (Comerciais Pagos) está habilitada, mas não há conta do Mercado Pago conectada.');
+                if (!monetizationData.paidCommercials.connected || !monetizationData.paidCommercials.isValid) {
+                    errors.push('Opção 3 (Comerciais Pagos) está habilitada, mas não há conta do Mercado Pago conectada ou válida.');
                 }
                 
                 const price = parseFloat(document.getElementById('pricePerSecond').value);
-                if (price <= 0) {
+                if (isNaN(price) || price <= 0) {
                     errors.push('Preço por segundo deve ser maior que zero.');
                 }
                 
                 const duration = parseInt(document.getElementById('maxCommercialDuration').value);
-                if (duration < 5 || duration > 300) {
+                if (isNaN(duration) || duration < 5 || duration > 300) {
                     errors.push('Duração máxima deve estar entre 5 e 300 segundos.');
                 }
             }
@@ -865,8 +940,17 @@
                 monetizationData.adsterraSmartlink.url = document.getElementById('adsterraSmartlinkUrl').value.trim();
                 monetizationData.pixDonations.enabled = document.getElementById('pixDonations').checked;
                 monetizationData.paidCommercials.enabled = document.getElementById('paidCommercials').checked;
-                monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
-                monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
+                
+                const price = parseFloat(document.getElementById('pricePerSecond').value);
+                const duration = parseInt(document.getElementById('maxCommercialDuration').value);
+                
+                if (!isNaN(price) && price > 0) {
+                    monetizationData.paidCommercials.pricePerSecond = price;
+                }
+                
+                if (!isNaN(duration) && duration >= 5 && duration <= 300) {
+                    monetizationData.paidCommercials.maxDuration = duration;
+                }
 
                 // Validar
                 const errors = validateMonetizationSettings();
@@ -877,7 +961,7 @@
 
                 // Salvar
                 await saveMonetizationData();
-                showSuccess('✅ Configurações salvas com sucesso!');
+                showSuccess('✅ Configurações salvas com sucesso! Redirecionando...');
                 
                 // Redirecionar
                 setTimeout(() => {
@@ -886,7 +970,7 @@
 
             } catch (error) {
                 console.error('Erro ao salvar:', error);
-                showError(`Erro: ${error.message}`);
+                showError(`Erro ao salvar: ${error.message}`);
             }
         }
 
@@ -897,7 +981,7 @@
             errorDiv.style.display = 'block';
             
             setTimeout(() => {
-                errorDiv.scrollIntoView({ behavior: 'smooth' });
+                errorDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 100);
         }
 
@@ -909,13 +993,14 @@
             const successDiv = document.getElementById('successMessage');
             successDiv.innerHTML = message;
             successDiv.style.display = 'block';
-            setTimeout(() => {
-                successDiv.style.display = 'none';
-            }, 3000);
             
             setTimeout(() => {
-                successDiv.scrollIntoView({ behavior: 'smooth' });
+                successDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 100);
+            
+            setTimeout(() => {
+                successDiv.style.display = 'none';
+            }, 5000);
         }
 
         // INICIALIZAÇÃO
@@ -938,6 +1023,9 @@
 
             document.getElementById('pixDonations').addEventListener('change', function() {
                 document.getElementById('pixSettings').style.display = this.checked ? 'block' : 'none';
+                if (!this.checked) {
+                    document.getElementById('pixInfoCard').style.display = 'none';
+                }
             });
 
             document.getElementById('paidCommercials').addEventListener('change', function() {
@@ -949,13 +1037,14 @@
                 currentUser = user;
                 
                 if (!user) {
-                    showError('❌ Sessão expirada. Redirecionando...');
+                    showError('❌ Sessão expirada. Redirecionando para login...');
                     setTimeout(() => {
                         window.location.href = 'https://canaisdetv.online/Gerador';
                     }, 2000);
                     return;
                 }
                 
+                console.log('Usuário autenticado:', user.uid);
                 await loadChannelData();
             });
         });
