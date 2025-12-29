@@ -351,7 +351,7 @@
 
         <div id="content" style="display: none;">
             <div class="channel-header">
-                <img id="channelLogo" class="channel-logo" src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png" alt="Logo do Canal">
+                <img id="channelLogo" class="channel-logo" src="" alt="Logo do Canal">
                 <div class="channel-info">
                     <div class="channel-name" id="channelNameSpan"></div>
                     <div class="channel-slogan" id="channelSlogan"></div>
@@ -478,6 +478,7 @@
             measurementId: "G-1QRKY0NN0W"
         };
 
+        // Inicializar Firebase apenas uma vez
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
@@ -485,11 +486,13 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
+        // CONFIGURAÇÃO DO MERCADO PAGO
         const MP_CONFIG = {
             CLIENT_ID: '4240568631810752',
             REDIRECT_URI: 'https://us-central1-playtronic-tv.cloudfunctions.net/mercadoPagoCallback'
         };
 
+        // VARIÁVEIS GLOBAIS
         let currentUser = null;
         let channelId = null;
         let monetizationData = {
@@ -518,7 +521,7 @@
             }
         };
 
-        // CORREÇÃO: new URLSearchParams (com espaço)
+        // FUNÇÕES UTILITÁRIAS
         function getUrlParameter(name) {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get(name);
@@ -530,18 +533,36 @@
                 return;
             }
 
-            const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MP_CONFIG.CLIENT_ID}&response_type=code&platform_id=mp&state=${channelId}_${type}&redirect_uri=${encodeURIComponent(MP_CONFIG.REDIRECT_URI)}&scope=marketplace%20offline_access`;
+            // CORREÇÃO: URL de autenticação correta do Mercado Pago
+            const authUrl = `https://auth.mercadopago.com/authorization?client_id=${MP_CONFIG.CIENT_ID}&response_type=code&platform_id=mp&state=${channelId}_${type}&redirect_uri=${encodeURIComponent(MP_CONFIG.REDIRECT_URI)}`;
             
-            console.log('URL de autenticação:', authUrl);
+            // Abrir popup corretamente
+            const popupWidth = 600;
+            const popupHeight = 700;
+            const left = (window.screen.width - popupWidth) / 2;
+            const top = (window.screen.height - popupHeight) / 2;
             
-            const popup = window.open(authUrl, 'mercadoPagoAuth', 'width=600,height=700,scrollbars=yes');
+            const popup = window.open(
+                authUrl,
+                'mercadoPagoAuth',
+                `width=${popupWidth},height=${popupHeight},left=${left},top=${top},scrollbars=yes,resizable=yes`
+            );
             
-            if (!popup || popup.closed) {
-                showError('Popup bloqueado. Permita popups para este site.');
+            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+                showError('O popup foi bloqueado. Por favor, permita popups para este site.');
                 return;
             }
             
             popup.focus();
+            
+            // Verificar se o popup foi redirecionado para outra página
+            const checkPopup = setInterval(() => {
+                if (popup.closed) {
+                    clearInterval(checkPopup);
+                    // Recarregar dados para verificar se a conexão foi bem sucedida
+                    setTimeout(() => loadMonetizationData(), 2000);
+                }
+            }, 500);
         }
 
         async function disconnectFromMercadoPago(type) {
@@ -649,10 +670,6 @@
                         <span class="pix-info-value">${pixData.pixKey}</span>
                     </div>
                     <div class="pix-info-row">
-                        <span class="pix-info-label">Tipo:</span>
-                        <span class="pix-info-value">${pixData.pixKeyType || 'CPF/CNPJ'}</span>
-                    </div>
-                    <div class="pix-info-row">
                         <span class="pix-info-label">Titular:</span>
                         <span class="pix-info-value">${pixData.accountHolderName || 'Não informado'}</span>
                     </div>
@@ -694,14 +711,17 @@
         }
 
         function updateUI() {
+            // Smartlink Adsterra
             document.getElementById('adsterraSmartlink').checked = monetizationData.adsterraSmartlink.enabled;
             document.getElementById('adsterraSmartlinkUrl').value = monetizationData.adsterraSmartlink.url || '';
             document.getElementById('adsterraSettings').style.display = monetizationData.adsterraSmartlink.enabled ? 'block' : 'none';
 
+            // Doações PIX
             document.getElementById('pixDonations').checked = monetizationData.pixDonations.enabled;
             document.getElementById('pixSettings').style.display = monetizationData.pixDonations.enabled ? 'block' : 'none';
             updatePixInterface();
 
+            // Comerciais Pagos
             document.getElementById('paidCommercials').checked = monetizationData.paidCommercials.enabled;
             document.getElementById('pricePerSecond').value = monetizationData.paidCommercials.pricePerSecond;
             document.getElementById('maxCommercialDuration').value = monetizationData.paidCommercials.maxDuration;
@@ -720,111 +740,58 @@
                     return;
                 }
 
-                console.log('🔄 Buscando canal:', channelId);
-                
-                // BUSCAR EM TODAS AS POSSÍVEIS ESTRUTURAS
+                // Buscar dados do canal
                 let channelData = null;
-                const defaultLogo = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
                 
-                // PRIMEIRO: Buscar na estrutura antiga (onde a logo REAL está)
-                try {
-                    console.log('🔍 Buscando na estrutura antiga (usuário)...');
-                    const userChannelRef = db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId);
-                    const userChannelDoc = await userChannelRef.get();
+                // Primeiro tentar na estrutura antiga (users/{uid}/channels/{channelId})
+                const userChannelRef = db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId);
+                const userChannelDoc = await userChannelRef.get();
+                
+                if (userChannelDoc.exists) {
+                    channelData = userChannelDoc.data();
+                } else {
+                    // Se não encontrar na estrutura antiga, tentar na nova (channels/{channelId})
+                    const channelRef = db.collection('channels').doc(channelId);
+                    const channelDoc = await channelRef.get();
                     
-                    if (userChannelDoc.exists) {
-                        channelData = userChannelDoc.data();
-                        console.log('✅ Canal encontrado na estrutura ANTIGA');
-                        console.log('📸 Logo na estrutura antiga:', channelData.logo);
+                    if (!channelDoc.exists) {
+                        throw new Error("Canal não encontrado");
                     }
-                } catch (error) {
-                    console.log('❌ Erro ao buscar na estrutura antiga:', error.message);
-                }
-                
-                // SEGUNDO: Se não encontrou na estrutura antiga, buscar na nova
-                if (!channelData) {
-                    try {
-                        console.log('🔍 Buscando na nova estrutura...');
-                        const newChannelRef = db.collection('channels').doc(channelId);
-                        const newChannelDoc = await newChannelRef.get();
-                        
-                        if (newChannelDoc.exists) {
-                            channelData = newChannelDoc.data();
-                            console.log('✅ Canal encontrado na NOVA estrutura');
-                            console.log('📸 Logo na nova estrutura:', channelData.logo);
-                        } else {
-                            throw new Error("Canal não encontrado em nenhuma estrutura");
-                        }
-                    } catch (error) {
-                        console.error('❌ Erro ao buscar canal:', error);
-                        throw error;
-                    }
+                    channelData = channelDoc.data();
                 }
 
-                // VERIFICAÇÃO DETALHADA DA LOGO
-                console.log('📊 DETALHES DA LOGO:', {
-                    temLogo: !!channelData.logo,
-                    logo: channelData.logo,
-                    logoTrim: channelData.logo ? channelData.logo.trim() : 'vazio',
-                    logoIgualPadrao: channelData.logo === defaultLogo,
-                    logoVazia: channelData.logo ? channelData.logo.trim() === '' : true
-                });
-
-                // ATUALIZAR INTERFACE - FORÇAR BUSCA DA LOGO REAL
+                // Atualizar interface do canal - CORREÇÃO DA LOGO
                 document.getElementById('channelNameSpan').textContent = channelData.name || 'Canal sem nome';
                 document.getElementById('channelSlogan').textContent = channelData.slogan || '';
+
+                const channelLogo = document.getElementById('channelLogo');
+                const defaultLogo = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
                 
-                const logoElement = document.getElementById('channelLogo');
-                
-                // LÓGICA MELHORADA PARA DETECTAR LOGO
-                if (channelData.logo && 
-                    channelData.logo.trim() !== '' && 
-                    channelData.logo.trim() !== defaultLogo && 
-                    channelData.logo !== 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png') {
+                // CORREÇÃO: Carregar logo corretamente sem adicionar parâmetros extras
+                if (channelData.logo && channelData.logo.trim() !== '') {
+                    // Usar a logo do canal exatamente como está armazenada
+                    channelLogo.src = channelData.logo;
                     
-                    console.log('🎯 Usando LOGO PERSONALIZADA:', channelData.logo);
-                    logoElement.src = channelData.logo;
+                    // Se a logo falhar ao carregar, usar a logo padrão
+                    channelLogo.onerror = function() {
+                        console.log('Logo do canal falhou ao carregar, usando logo padrão');
+                        this.src = defaultLogo;
+                        this.onerror = null; // Evitar loop infinito
+                    };
                     
-                    // Forçar carregamento com timestamp para evitar cache
-                    setTimeout(() => {
-                        logoElement.src = channelData.logo + '?t=' + Date.now();
-                    }, 100);
-                    
+                    // Verificar se a logo carregou com sucesso
+                    channelLogo.onload = function() {
+                        console.log('Logo do canal carregada com sucesso');
+                    };
                 } else {
-                    console.log('⚠️ Usando LOGO PADRÃO porque:');
-                    if (!channelData.logo) console.log('- Logo é undefined/null');
-                    if (channelData.logo && channelData.logo.trim() === '') console.log('- Logo está vazia');
-                    if (channelData.logo === defaultLogo) console.log('- Logo é igual à padrão');
-                    
-                    logoElement.src = defaultLogo;
+                    // Se não houver logo definida, usar a padrão
+                    channelLogo.src = defaultLogo;
                 }
 
-                // SINCRONIZAR COM NOVA ESTRUTURA SE NECESSÁRIO
-                try {
-                    const newChannelRef = db.collection('channels').doc(channelId);
-                    const newChannelDoc = await newChannelRef.get();
-                    
-                    if (!newChannelDoc.exists) {
-                        console.log('🔄 Migrando para nova estrutura...');
-                        await newChannelRef.set({
-                            channelId: channelId,
-                            ownerId: currentUser.uid,
-                            name: channelData.name || `Canal ${channelId}`,
-                            logo: channelData.logo || '',
-                            slogan: channelData.slogan || '',
-                            createdAt: channelData.createdAt || new Date(),
-                            updatedAt: new Date()
-                        }, { merge: true });
-                        console.log('✅ Migração concluída');
-                    }
-                } catch (migrationError) {
-                    console.error('❌ Erro na migração:', migrationError);
-                }
-
-                // Carregar monetização
+                // Carregar dados de monetização
                 await loadMonetizationData();
 
-                // Verificar callback do Mercado Pago
+                // Verificar parâmetros da URL
                 const mpConnected = getUrlParameter('mpConnected');
                 const mpType = getUrlParameter('type');
                 const error = getUrlParameter('error');
@@ -832,11 +799,11 @@
                 if (mpConnected === 'success' && mpType) {
                     showSuccess('✅ Mercado Pago conectado com sucesso!');
                     window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
-                    setTimeout(() => loadMonetizationData(), 1500);
+                    setTimeout(() => loadMonetizationData(), 1000);
                 }
                 
                 if (error === 'no_pix_key') {
-                    showError('❌ A conta do Mercado Pago não possui chave PIX cadastrada. Configure uma chave PIX no Mercado Pago e tente novamente.');
+                    showError('❌ A conta do Mercado Pago não possui chave PIX cadastrada. Configure uma chave PIX e tente novamente.');
                     window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
                 }
 
@@ -845,7 +812,7 @@
                 document.getElementById('content').style.display = 'block';
 
             } catch (error) {
-                console.error('💥 Erro ao carregar:', error);
+                console.error('Erro ao carregar:', error);
                 document.getElementById('loading').style.display = 'none';
                 showError(`Erro: ${error.message}`);
                 setTimeout(() => {
@@ -893,6 +860,7 @@
 
         async function saveMonetization() {
             try {
+                // Atualizar dados
                 monetizationData.adsterraSmartlink.enabled = document.getElementById('adsterraSmartlink').checked;
                 monetizationData.adsterraSmartlink.url = document.getElementById('adsterraSmartlinkUrl').value.trim();
                 monetizationData.pixDonations.enabled = document.getElementById('pixDonations').checked;
@@ -900,15 +868,18 @@
                 monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
                 monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
 
+                // Validar
                 const errors = validateMonetizationSettings();
                 if (errors.length > 0) {
                     showError('❌ Erros de validação:<br><br>' + errors.join('<br>'));
                     return;
                 }
 
+                // Salvar
                 await saveMonetizationData();
                 showSuccess('✅ Configurações salvas com sucesso!');
                 
+                // Redirecionar
                 setTimeout(() => {
                     window.location.href = `https://canaisdetv.online/Gerador?channelId=${channelId}&monetizationUpdated=true`;
                 }, 2000);
@@ -936,8 +907,7 @@
 
         function showSuccess(message) {
             const successDiv = document.getElementById('successMessage');
-            const successContent = document.getElementById('successContent');
-            successContent.innerHTML = message;
+            successDiv.innerHTML = message;
             successDiv.style.display = 'block';
             setTimeout(() => {
                 successDiv.style.display = 'none';
@@ -948,7 +918,9 @@
             }, 100);
         }
 
+        // INICIALIZAÇÃO
         document.addEventListener('DOMContentLoaded', function() {
+            // Event Listeners para botões
             document.getElementById('connectMpButton').addEventListener('click', () => connectToMercadoPago('pixDonations'));
             document.getElementById('disconnectMpButton').addEventListener('click', () => disconnectFromMercadoPago('pixDonations'));
             document.getElementById('connectMpCommercialsButton').addEventListener('click', () => connectToMercadoPago('paidCommercials'));
@@ -959,6 +931,7 @@
                 window.location.href = `https://canaisdetv.online/Gerador?channelId=${channelId || ''}`;
             });
 
+            // Event Listeners para checkboxes
             document.getElementById('adsterraSmartlink').addEventListener('change', function() {
                 document.getElementById('adsterraSettings').style.display = this.checked ? 'block' : 'none';
             });
@@ -971,6 +944,7 @@
                 document.getElementById('paidCommercialsSettings').style.display = this.checked ? 'block' : 'none';
             });
 
+            // Verificar autenticação
             auth.onAuthStateChanged(async function(user) {
                 currentUser = user;
                 
