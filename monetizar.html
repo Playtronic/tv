@@ -351,14 +351,13 @@
 
         <div id="content" style="display: none;">
             <div class="channel-header">
-                <img id="channelLogo" class="channel-logo" src="" alt="Logo do Canal">
+                <img id="channelLogo" class="channel-logo" src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png" alt="Logo do Canal">
                 <div class="channel-info">
                     <div class="channel-name" id="channelNameSpan"></div>
                     <div class="channel-slogan" id="channelSlogan"></div>
                 </div>
             </div>
 
-            <!-- 1. Smartlink Adsterra -->
             <div class="monetization-option">
                 <h3>1. Smartlink Adsterra</h3>
                 
@@ -379,7 +378,6 @@
                 </div>
             </div>
 
-            <!-- 2. Doações via PIX -->
             <div class="monetization-option">
                 <h3>2. Doações via PIX</h3>
                 
@@ -411,7 +409,6 @@
                 </div>
             </div>
 
-            <!-- 3. Comerciais Pagos -->
             <div class="monetization-option">
                 <h3>3. Comerciais Pagos</h3>
                 
@@ -481,7 +478,6 @@
             measurementId: "G-1QRKY0NN0W"
         };
 
-        // Inicializar Firebase apenas uma vez
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
@@ -489,13 +485,11 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // CONFIGURAÇÃO DO MERCADO PAGO
         const MP_CONFIG = {
             CLIENT_ID: '4240568631810752',
             REDIRECT_URI: 'https://us-central1-playtronic-tv.cloudfunctions.net/mercadoPagoCallback'
         };
 
-        // VARIÁVEIS GLOBAIS
         let currentUser = null;
         let channelId = null;
         let monetizationData = {
@@ -524,7 +518,6 @@
             }
         };
 
-        // FUNÇÕES UTILITÁRIAS
         function getUrlParameter(name) {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get(name);
@@ -536,17 +529,9 @@
                 return;
             }
 
-            // CORREÇÃO: URL correta do Mercado Pago
             const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${MP_CONFIG.CLIENT_ID}&response_type=code&platform_id=mp&state=${channelId}_${type}&redirect_uri=${encodeURIComponent(MP_CONFIG.REDIRECT_URI)}&scope=marketplace%20offline_access`;
             
-            // CORREÇÃO: Abrir popup corretamente
-            const popup = window.open(authUrl, 'mercadoPagoAuth', 'width=600,height=700,scrollbars=yes,resizable=yes');
-            
-            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-                showError('O popup foi bloqueado. Por favor, permita popups para este site.');
-            } else {
-                popup.focus();
-            }
+            window.open(authUrl, 'mercadoPagoAuth', 'width=600,height=700,scrollbars=yes');
         }
 
         async function disconnectFromMercadoPago(type) {
@@ -699,17 +684,14 @@
         }
 
         function updateUI() {
-            // Smartlink Adsterra
             document.getElementById('adsterraSmartlink').checked = monetizationData.adsterraSmartlink.enabled;
             document.getElementById('adsterraSmartlinkUrl').value = monetizationData.adsterraSmartlink.url || '';
             document.getElementById('adsterraSettings').style.display = monetizationData.adsterraSmartlink.enabled ? 'block' : 'none';
 
-            // Doações PIX
             document.getElementById('pixDonations').checked = monetizationData.pixDonations.enabled;
             document.getElementById('pixSettings').style.display = monetizationData.pixDonations.enabled ? 'block' : 'none';
             updatePixInterface();
 
-            // Comerciais Pagos
             document.getElementById('paidCommercials').checked = monetizationData.paidCommercials.enabled;
             document.getElementById('pricePerSecond').value = monetizationData.paidCommercials.pricePerSecond;
             document.getElementById('maxCommercialDuration').value = monetizationData.paidCommercials.maxDuration;
@@ -728,91 +710,54 @@
                     return;
                 }
 
-                // Buscar dados do canal - CORREÇÃO: Buscar na nova estrutura
                 let channelData = null;
                 const channelRef = db.collection('channels').doc(channelId);
                 const channelDoc = await channelRef.get();
                 
                 if (channelDoc.exists) {
                     channelData = channelDoc.data();
-                    console.log('✅ Canal encontrado na nova estrutura');
                 } else {
-                    // Tentar buscar na estrutura antiga
-                    console.log('🔍 Buscando canal na estrutura antiga...');
+                    const userChannelsRef = db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId);
+                    const userChannelDoc = await userChannelsRef.get();
                     
-                    // Buscar em todos os usuários
-                    const usersSnapshot = await db.collection('users').get();
-                    let found = false;
-                    
-                    for (const userDoc of usersSnapshot.docs) {
-                        const userChannelRef = userDoc.ref.collection('channels').doc(channelId);
-                        const userChannelDoc = await userChannelRef.get();
-                        
-                        if (userChannelDoc.exists) {
-                            channelData = userChannelDoc.data();
-                            channelData.ownerId = userDoc.id;
-                            found = true;
-                            console.log('✅ Canal encontrado na estrutura antiga');
-                            
-                            // Migrar para nova estrutura
-                            await channelRef.set({
-                                channelId: channelId,
-                                ownerId: userDoc.id,
-                                name: channelData.name || `Canal ${channelId}`,
-                                logo: channelData.logo || '',
-                                slogan: channelData.slogan || '',
-                                playlistUrls: channelData.playlistUrls || [],
-                                categories: channelData.categories || [],
-                                createdAt: channelData.createdAt || new Date(),
-                                updatedAt: new Date()
-                            }, { merge: true });
-                            break;
-                        }
+                    if (!userChannelDoc.exists) {
+                        throw new Error("Canal não encontrado");
                     }
                     
-                    if (!found) {
-                        throw new Error("Canal não encontrado em nenhuma estrutura");
-                    }
+                    channelData = userChannelDoc.data();
+                    
+                    await channelRef.set({
+                        channelId: channelId,
+                        ownerId: currentUser.uid,
+                        name: channelData.name || `Canal ${channelId}`,
+                        logo: channelData.logo || '',
+                        slogan: channelData.slogan || '',
+                        createdAt: channelData.createdAt || new Date(),
+                        updatedAt: new Date()
+                    }, { merge: true });
                 }
 
-                // Atualizar interface do canal - CORREÇÃO: Carregar logo corretamente
                 document.getElementById('channelNameSpan').textContent = channelData.name || 'Canal sem nome';
                 document.getElementById('channelSlogan').textContent = channelData.slogan || '';
                 
                 const channelLogo = document.getElementById('channelLogo');
                 const defaultLogo = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
                 
-                // CORREÇÃO: Verificar se a logo existe e carregar
                 if (channelData.logo && channelData.logo.trim() !== '' && channelData.logo !== defaultLogo) {
-                    // Criar uma nova imagem para testar se carrega
-                    const testImage = new Image();
-                    testImage.onload = function() {
-                        // Se carregar, usar a logo do canal
-                        channelLogo.src = channelData.logo;
-                    };
-                    testImage.onerror = function() {
-                        // Se não carregar, usar a logo padrão
-                        channelLogo.src = defaultLogo;
-                    };
-                    testImage.src = channelData.logo;
+                    channelLogo.src = channelData.logo;
                 } else {
-                    // Se não houver logo definida, usar a padrão
                     channelLogo.src = defaultLogo;
                 }
 
-                // Carregar dados de monetização
                 await loadMonetizationData();
 
-                // Verificar parâmetros da URL
                 const mpConnected = getUrlParameter('mpConnected');
                 const mpType = getUrlParameter('type');
                 const error = getUrlParameter('error');
                 
                 if (mpConnected === 'success' && mpType) {
                     showSuccess('✅ Mercado Pago conectado com sucesso!');
-                    // Limpar URL
                     window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
-                    // Recarregar dados
                     setTimeout(() => loadMonetizationData(), 1500);
                 }
                 
@@ -821,7 +766,6 @@
                     window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
                 }
 
-                // Mostrar conteúdo
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
 
@@ -874,7 +818,6 @@
 
         async function saveMonetization() {
             try {
-                // Atualizar dados
                 monetizationData.adsterraSmartlink.enabled = document.getElementById('adsterraSmartlink').checked;
                 monetizationData.adsterraSmartlink.url = document.getElementById('adsterraSmartlinkUrl').value.trim();
                 monetizationData.pixDonations.enabled = document.getElementById('pixDonations').checked;
@@ -882,18 +825,15 @@
                 monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
                 monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
 
-                // Validar
                 const errors = validateMonetizationSettings();
                 if (errors.length > 0) {
                     showError('❌ Erros de validação:<br><br>' + errors.join('<br>'));
                     return;
                 }
 
-                // Salvar
                 await saveMonetizationData();
                 showSuccess('✅ Configurações salvas com sucesso!');
                 
-                // Redirecionar
                 setTimeout(() => {
                     window.location.href = `https://canaisdetv.online/Gerador?channelId=${channelId}&monetizationUpdated=true`;
                 }, 2000);
@@ -933,9 +873,7 @@
             }, 100);
         }
 
-        // INICIALIZAÇÃO
         document.addEventListener('DOMContentLoaded', function() {
-            // Event Listeners para botões
             document.getElementById('connectMpButton').addEventListener('click', () => connectToMercadoPago('pixDonations'));
             document.getElementById('disconnectMpButton').addEventListener('click', () => disconnectFromMercadoPago('pixDonations'));
             document.getElementById('connectMpCommercialsButton').addEventListener('click', () => connectToMercadoPago('paidCommercials'));
@@ -946,7 +884,6 @@
                 window.location.href = `https://canaisdetv.online/Gerador?channelId=${channelId || ''}`;
             });
 
-            // Event Listeners para checkboxes
             document.getElementById('adsterraSmartlink').addEventListener('change', function() {
                 document.getElementById('adsterraSettings').style.display = this.checked ? 'block' : 'none';
             });
@@ -959,7 +896,6 @@
                 document.getElementById('paidCommercialsSettings').style.display = this.checked ? 'block' : 'none';
             });
 
-            // Verificar autenticação
             auth.onAuthStateChanged(async function(user) {
                 currentUser = user;
                 
