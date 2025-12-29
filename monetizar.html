@@ -529,9 +529,21 @@
                 return;
             }
 
+            // CORREÇÃO: URL CORRETA DO MERCADO PAGO - BRASIL
             const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${MP_CONFIG.CLIENT_ID}&response_type=code&platform_id=mp&state=${channelId}_${type}&redirect_uri=${encodeURIComponent(MP_CONFIG.REDIRECT_URI)}&scope=marketplace%20offline_access`;
             
-            window.open(authUrl, 'mercadoPagoAuth', 'width=600,height=700,scrollbars=yes');
+            // DEBUG: Log da URL
+            console.log('URL de autenticação:', authUrl);
+            
+            // CORREÇÃO: Abrir popup corretamente
+            const popup = window.open(authUrl, 'mercadoPagoAuth', 'width=600,height=700,scrollbars=yes,resizable=yes');
+            
+            if (!popup || popup.closed) {
+                showError('Popup bloqueado. Permita popups para este site.');
+                return;
+            }
+            
+            popup.focus();
         }
 
         async function disconnectFromMercadoPago(type) {
@@ -710,13 +722,19 @@
                     return;
                 }
 
+                // BUSCAR DADOS DO CANAL - CORREÇÃO COMPLETA
                 let channelData = null;
+                const defaultLogo = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
+                
+                // 1. Tentar nova estrutura
                 const channelRef = db.collection('channels').doc(channelId);
                 const channelDoc = await channelRef.get();
                 
                 if (channelDoc.exists) {
                     channelData = channelDoc.data();
+                    console.log('✅ Canal encontrado na nova estrutura');
                 } else {
+                    // 2. Tentar estrutura antiga
                     const userChannelsRef = db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId);
                     const userChannelDoc = await userChannelsRef.get();
                     
@@ -725,7 +743,9 @@
                     }
                     
                     channelData = userChannelDoc.data();
+                    console.log('✅ Canal encontrado na estrutura antiga');
                     
+                    // Migrar para nova estrutura
                     await channelRef.set({
                         channelId: channelId,
                         ownerId: currentUser.uid,
@@ -737,20 +757,25 @@
                     }, { merge: true });
                 }
 
+                // CORREÇÃO DA LOGO - SIMPLES E DIRETA
                 document.getElementById('channelNameSpan').textContent = channelData.name || 'Canal sem nome';
                 document.getElementById('channelSlogan').textContent = channelData.slogan || '';
                 
-                const channelLogo = document.getElementById('channelLogo');
-                const defaultLogo = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
+                const logoElement = document.getElementById('channelLogo');
                 
+                // LOGICA SIMPLES: Se tem logo, usa. Senão, usa padrão.
                 if (channelData.logo && channelData.logo.trim() !== '' && channelData.logo !== defaultLogo) {
-                    channelLogo.src = channelData.logo;
+                    logoElement.src = channelData.logo;
+                    console.log('Logo do canal carregada:', channelData.logo);
                 } else {
-                    channelLogo.src = defaultLogo;
+                    logoElement.src = defaultLogo;
+                    console.log('Usando logo padrão');
                 }
 
+                // Carregar monetização
                 await loadMonetizationData();
 
+                // Verificar parâmetros da URL
                 const mpConnected = getUrlParameter('mpConnected');
                 const mpType = getUrlParameter('type');
                 const error = getUrlParameter('error');
@@ -766,6 +791,7 @@
                     window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
                 }
 
+                // Mostrar conteúdo
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
 
