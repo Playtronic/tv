@@ -536,9 +536,17 @@
                 return;
             }
 
+            // CORREÇÃO: URL correta do Mercado Pago
             const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${MP_CONFIG.CLIENT_ID}&response_type=code&platform_id=mp&state=${channelId}_${type}&redirect_uri=${encodeURIComponent(MP_CONFIG.REDIRECT_URI)}&scope=marketplace%20offline_access`;
             
-            window.open(authUrl, 'mercadoPagoAuth', 'width=600,height=700,scrollbars=yes');
+            // CORREÇÃO: Abrir popup corretamente
+            const popup = window.open(authUrl, 'mercadoPagoAuth', 'width=600,height=700,scrollbars=yes,resizable=yes');
+            
+            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+                showError('O popup foi bloqueado. Por favor, permita popups para este site.');
+            } else {
+                popup.focus();
+            }
         }
 
         async function disconnectFromMercadoPago(type) {
@@ -646,6 +654,10 @@
                         <span class="pix-info-value">${pixData.pixKey}</span>
                     </div>
                     <div class="pix-info-row">
+                        <span class="pix-info-label">Tipo:</span>
+                        <span class="pix-info-value">${pixData.pixKeyType || 'CPF/CNPJ'}</span>
+                    </div>
+                    <div class="pix-info-row">
                         <span class="pix-info-label">Titular:</span>
                         <span class="pix-info-value">${pixData.accountHolderName || 'Não informado'}</span>
                     </div>
@@ -716,35 +728,76 @@
                     return;
                 }
 
-                // Buscar dados do canal
+                // Buscar dados do canal - CORREÇÃO: Buscar na nova estrutura
                 let channelData = null;
                 const channelRef = db.collection('channels').doc(channelId);
                 const channelDoc = await channelRef.get();
                 
                 if (channelDoc.exists) {
                     channelData = channelDoc.data();
+                    console.log('✅ Canal encontrado na nova estrutura');
                 } else {
-                    const oldChannelDoc = await db.collection('users').doc(currentUser.uid)
-                        .collection('channels').doc(channelId).get();
+                    // Tentar buscar na estrutura antiga
+                    console.log('🔍 Buscando canal na estrutura antiga...');
                     
-                    if (!oldChannelDoc.exists) throw new Error("Canal não encontrado");
-                    channelData = oldChannelDoc.data();
+                    // Buscar em todos os usuários
+                    const usersSnapshot = await db.collection('users').get();
+                    let found = false;
+                    
+                    for (const userDoc of usersSnapshot.docs) {
+                        const userChannelRef = userDoc.ref.collection('channels').doc(channelId);
+                        const userChannelDoc = await userChannelRef.get();
+                        
+                        if (userChannelDoc.exists) {
+                            channelData = userChannelDoc.data();
+                            channelData.ownerId = userDoc.id;
+                            found = true;
+                            console.log('✅ Canal encontrado na estrutura antiga');
+                            
+                            // Migrar para nova estrutura
+                            await channelRef.set({
+                                channelId: channelId,
+                                ownerId: userDoc.id,
+                                name: channelData.name || `Canal ${channelId}`,
+                                logo: channelData.logo || '',
+                                slogan: channelData.slogan || '',
+                                playlistUrls: channelData.playlistUrls || [],
+                                categories: channelData.categories || [],
+                                createdAt: channelData.createdAt || new Date(),
+                                updatedAt: new Date()
+                            }, { merge: true });
+                            break;
+                        }
+                    }
+                    
+                    if (!found) {
+                        throw new Error("Canal não encontrado em nenhuma estrutura");
+                    }
                 }
 
-                // Atualizar interface do canal
+                // Atualizar interface do canal - CORREÇÃO: Carregar logo corretamente
                 document.getElementById('channelNameSpan').textContent = channelData.name || 'Canal sem nome';
-                if (channelData.slogan) {
-                    document.getElementById('channelSlogan').textContent = channelData.slogan;
-                }
-
+                document.getElementById('channelSlogan').textContent = channelData.slogan || '';
+                
                 const channelLogo = document.getElementById('channelLogo');
-                if (channelData.logo && channelData.logo.trim() !== '') {
-                    channelLogo.src = channelData.logo;
-                    channelLogo.onerror = function() {
-                        this.src = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
+                const defaultLogo = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
+                
+                // CORREÇÃO: Verificar se a logo existe e carregar
+                if (channelData.logo && channelData.logo.trim() !== '' && channelData.logo !== defaultLogo) {
+                    // Criar uma nova imagem para testar se carrega
+                    const testImage = new Image();
+                    testImage.onload = function() {
+                        // Se carregar, usar a logo do canal
+                        channelLogo.src = channelData.logo;
                     };
+                    testImage.onerror = function() {
+                        // Se não carregar, usar a logo padrão
+                        channelLogo.src = defaultLogo;
+                    };
+                    testImage.src = channelData.logo;
                 } else {
-                    channelLogo.src = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
+                    // Se não houver logo definida, usar a padrão
+                    channelLogo.src = defaultLogo;
                 }
 
                 // Carregar dados de monetização
@@ -757,12 +810,14 @@
                 
                 if (mpConnected === 'success' && mpType) {
                     showSuccess('✅ Mercado Pago conectado com sucesso!');
+                    // Limpar URL
                     window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
-                    setTimeout(() => loadMonetizationData(), 1000);
+                    // Recarregar dados
+                    setTimeout(() => loadMonetizationData(), 1500);
                 }
                 
                 if (error === 'no_pix_key') {
-                    showError('❌ A conta do Mercado Pago não possui chave PIX cadastrada. Configure uma chave PIX e tente novamente.');
+                    showError('❌ A conta do Mercado Pago não possui chave PIX cadastrada. Configure uma chave PIX no Mercado Pago e tente novamente.');
                     window.history.replaceState({}, document.title, window.location.pathname + '?channelId=' + channelId);
                 }
 
@@ -866,7 +921,8 @@
 
         function showSuccess(message) {
             const successDiv = document.getElementById('successMessage');
-            successDiv.innerHTML = message;
+            const successContent = document.getElementById('successContent');
+            successContent.innerHTML = message;
             successDiv.style.display = 'block';
             setTimeout(() => {
                 successDiv.style.display = 'none';
