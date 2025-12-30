@@ -391,12 +391,6 @@
             border: 1px solid rgba(255, 107, 107, 0.3);
         }
 
-        .status-transferring {
-            background: rgba(52, 152, 219, 0.15);
-            color: var(--info);
-            border: 1px solid rgba(52, 152, 219, 0.3);
-        }
-
         .status-paid {
             background: rgba(155, 89, 182, 0.15);
             color: #9b59b6;
@@ -445,39 +439,6 @@
 
         .action-btn.view:hover {
             background: rgba(52, 152, 219, 0.25);
-            transform: translateY(-2px);
-        }
-
-        .action-btn.transfer {
-            background: rgba(46, 204, 113, 0.15);
-            color: var(--success);
-            border: 1px solid rgba(46, 204, 113, 0.3);
-        }
-
-        .action-btn.transfer:hover {
-            background: rgba(46, 204, 113, 0.25);
-            transform: translateY(-2px);
-        }
-
-        .action-btn.pix {
-            background: rgba(155, 89, 182, 0.15);
-            color: #9b59b6;
-            border: 1px solid rgba(155, 89, 182, 0.3);
-        }
-
-        .action-btn.pix:hover {
-            background: rgba(155, 89, 182, 0.25);
-            transform: translateY(-2px);
-        }
-
-        .action-btn.manual {
-            background: rgba(241, 196, 15, 0.15);
-            color: var(--warning);
-            border: 1px solid rgba(241, 196, 15, 0.3);
-        }
-
-        .action-btn.manual:hover {
-            background: rgba(241, 196, 15, 0.25);
             transform: translateY(-2px);
         }
 
@@ -837,7 +798,6 @@
                 <button class="btn btn-secondary" id="resetFilters">🔄 Limpar Filtros</button>
                 <button class="btn btn-secondary" id="refreshData">📊 Atualizar Dados</button>
                 <button class="btn btn-success" id="exportBtn">📥 Exportar CSV</button>
-                <button class="btn btn-info" id="syncNowBtn">🔄 Sincronizar Agora</button>
             </div>
         </div>
 
@@ -907,7 +867,7 @@
                 </div>
             </div>
             
-            <!-- FORMULÁRIO PIX MANUAL (APENAS QUANDO NÃO TEM DADOS DO CANAL) -->
+            <!-- FORMULÁRIO PIX MANUAL -->
             <div class="manual-pix-form" id="manualPixForm">
                 <div class="pix-header">
                     <span>🔧</span> INSERIR PIX MANUALMENTE
@@ -989,7 +949,7 @@
                 // Carregar pagamentos
                 const paymentsSnapshot = await db.collection('payment_history')
                     .orderBy('createdAt', 'desc')
-                    .limit(500) // Limite para performance
+                    .limit(500)
                     .get();
                 
                 allPayments = [];
@@ -1004,7 +964,7 @@
                     }));
                 });
                 
-                // Carregar canais
+                // Carregar canais - AGORA BUSCANDO OS DADOS CORRETAMENTE
                 const channelsSnapshot = await db.collection('channels').get();
                 channels = [];
                 channelsSnapshot.forEach(doc => {
@@ -1012,7 +972,9 @@
                     channels.push({
                         id: doc.id,
                         name: data.name || `Canal ${doc.id.substring(0, 8)}...`,
-                        mpAccessToken: data.mpAccessToken
+                        mpAccessToken: data.mpAccessToken,
+                        mpUserId: data.mpUserId,
+                        hasPixKey: data.hasPixKey || false
                     });
                 });
                 
@@ -1197,7 +1159,7 @@
             document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
         }
 
-        // 👁️ VER DETALHES DO PAGAMENTO
+        // 👁️ VER DETALHES DO PAGAMENTO (AGORA COM BOTÃO PARA GERAR PIX)
         async function viewPaymentDetails(paymentId) {
             showLoading();
             try {
@@ -1210,7 +1172,6 @@
                 
                 currentModalPaymentId = paymentId;
                 const channel = channels.find(c => c.id === payment.channelId);
-                const channelData = channel || {};
                 
                 const totalAmount = payment.amount || 0;
                 const platformAmount = payment.split?.platform || (totalAmount * 0.08);
@@ -1288,24 +1249,20 @@
                 manualForm.style.display = 'none';
                 
                 // Verificar condições para repasse
-                const hasAccessToken = channelData.mpAccessToken;
+                const hasAccessToken = channel?.mpAccessToken;
                 const isApproved = payment.displayStatus === 'approved' || payment.originalStatus === 'received';
                 const isTransferable = ['pending', 'failed'].includes(payment.transferStatus);
-                
-                // Canal tem autenticação no MP? Pode gerar PIX automático
-                const canGeneratePix = isApproved && isTransferable && hasAccessToken;
-                
-                if (canGeneratePix) {
-                    generatePixBtn.style.display = 'inline-flex';
-                    generatePixBtn.onclick = () => generateRepassePix(paymentId);
-                    generatePixBtn.textContent = `💰 Gerar Cobrança PIX para Canal`;
-                    generatePixBtn.title = "Gera uma cobrança PIX em nome do canal para você pagar";
-                }
                 
                 // Se já tem cobrança de repasse PIX, mostrar
                 if (payment.repassePix || payment.manualRepassePix) {
                     const pixData = payment.repassePix || payment.manualRepassePix;
                     showRepassePixQRCode(pixData, payment, channelAmount);
+                } else if (isApproved && isTransferable) {
+                    // Mostrar botão para gerar PIX se o pagamento estiver aprovado e pendente
+                    generatePixBtn.style.display = 'inline-flex';
+                    generatePixBtn.onclick = () => generateRepassePix(paymentId);
+                    generatePixBtn.textContent = `💰 Gerar Cobrança PIX para Canal`;
+                    generatePixBtn.title = "Gera uma cobrança PIX em nome do canal para você pagar";
                 }
                 
                 document.getElementById('paymentModal').style.display = 'flex';
@@ -1318,57 +1275,65 @@
             }
         }
 
-        // 💰 GERAR COBRANÇA PIX DE REPASSE (EM NOME DO CANAL)
+        // 💰 GERAR COBRANÇA PIX DE REPASSE
         async function generateRepassePix(paymentId) {
             const payment = allPayments.find(p => p.id === paymentId);
             if (!payment) return;
             
+            const channel = channels.find(c => c.id === payment.channelId);
             const channelAmount = payment.split?.channel || ((payment.amount || 0) * 0.92);
-            const confirmMsg = `GERAR COBRANÇA PIX EM NOME DO CANAL?\n\n• Valor: R$ ${channelAmount.toFixed(2)} (92% do total)\n• Você pagará esta cobrança com seu app bancário\n• O valor irá DIRETAMENTE para o canal\n\nContinuar?`;
             
-            if (!confirm(confirmMsg)) return;
-            
-            showLoading();
-            try {
-                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/createPixChargeForChannel', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        paymentId: paymentId,
-                        amount: channelAmount.toFixed(2),
-                        description: `Repasse para canal - ${payment.paymentId || paymentId}`
-                    })
-                });
+            // Verificar se o canal tem token MP
+            if (channel?.mpAccessToken) {
+                // Tentar gerar PIX automático em nome do canal
+                const confirmMsg = `GERAR COBRANÇA PIX EM NOME DO CANAL?\n\n• Valor: R$ ${channelAmount.toFixed(2)} (92% do total)\n• Você pagará esta cobrança com seu app bancário\n• O valor irá DIRETAMENTE para o canal\n\nContinuar?`;
                 
-                const result = await response.json();
+                if (!confirm(confirmMsg)) return;
                 
-                if (result.success) {
-                    showRepassePixQRCode(result, payment, channelAmount);
-                    showAlert('✅ COBRANÇA PIX GERADA EM NOME DO CANAL!\n\nPague usando seu aplicativo bancário.\nO status será atualizado automaticamente.', 'success');
-                    startRepasseCheck(paymentId);
-                } else {
-                    // Se não conseguiu gerar PIX automático (canal sem chave PIX), mostrar formulário manual
-                    if (result.error.includes('não tem chave PIX') || result.error.includes('não autenticado')) {
-                        showManualPixForm(paymentId);
+                showLoading();
+                try {
+                    const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/createPixChargeForChannel', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            paymentId: paymentId,
+                            amount: channelAmount.toFixed(2),
+                            description: `Repasse para canal - ${payment.paymentId || paymentId}`
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        showRepassePixQRCode(result, payment, channelAmount);
+                        showAlert('✅ COBRANÇA PIX GERADA EM NOME DO CANAL!\n\nPague usando seu aplicativo bancário.\nO status será atualizado automaticamente.', 'success');
+                        startRepasseCheck(paymentId);
                     } else {
-                        throw new Error(result.error || 'Erro ao gerar cobrança');
+                        // Se não conseguiu gerar PIX automático (canal sem chave PIX), mostrar formulário manual
+                        showManualPixForm(paymentId, channelAmount);
                     }
+                    
+                    hideLoading();
+                } catch (error) {
+                    console.error('Erro PIX repasse:', error);
+                    // Mostrar formulário manual em caso de erro
+                    showManualPixForm(paymentId, channelAmount);
+                    hideLoading();
                 }
-                
-                hideLoading();
-            } catch (error) {
-                console.error('Erro PIX repasse:', error);
-                showAlert(`❌ Erro: ${error.message}`, 'error');
-                hideLoading();
+            } else {
+                // Canal não tem token MP, mostrar formulário manual diretamente
+                showManualPixForm(paymentId, channelAmount);
             }
         }
 
-        // 🔧 MOSTRAR FORMULÁRIO PIX MANUAL (APENAS QUANDO AUTOMÁTICO FALHOU)
-        function showManualPixForm(paymentId) {
+        // 🔧 MOSTRAR FORMULÁRIO PIX MANUAL
+        function showManualPixForm(paymentId, channelAmount) {
             const payment = allPayments.find(p => p.id === paymentId);
             if (!payment) return;
             
-            const channelAmount = payment.split?.channel || ((payment.amount || 0) * 0.92);
+            if (!channelAmount) {
+                channelAmount = payment.split?.channel || ((payment.amount || 0) * 0.92);
+            }
             
             // Ocultar outros botões
             document.getElementById('generatePixBtn').style.display = 'none';
@@ -1598,28 +1563,6 @@
             }
         }
 
-        // 🔄 SINCRONIZAR AGORA
-        async function syncNow() {
-            showLoading();
-            try {
-                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/syncPayments?days=1');
-                const result = await response.json();
-                
-                if (result.success) {
-                    showAlert(`✅ Sincronização concluída!\n\nEncontrados: ${result.stats.totalFound}\nCriados: ${result.stats.created}\nAtualizados: ${result.stats.updated}`, 'success');
-                    await loadDashboardData();
-                } else {
-                    throw new Error(result.error || 'Erro na sincronização');
-                }
-                
-                hideLoading();
-            } catch (error) {
-                console.error('Erro sincronizar:', error);
-                showAlert(`❌ Erro: ${error.message}`, 'error');
-                hideLoading();
-            }
-        }
-
         // 💬 MOSTRAR ALERTA
         function showAlert(message, type) {
             alert(`[${type === 'error' ? '❌' : '✅'}] ${message}`);
@@ -1689,7 +1632,6 @@
             
             document.getElementById('refreshData').addEventListener('click', loadDashboardData);
             document.getElementById('exportBtn').addEventListener('click', exportToCSV);
-            document.getElementById('syncNowBtn').addEventListener('click', syncNow);
             
             document.getElementById('prevPage').addEventListener('click', function() {
                 if (currentPage > 1) {
