@@ -531,6 +531,25 @@
             border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
 
+        /* INFO DO CANAL */
+        .channel-info-section {
+            display: none;
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 12px;
+            border: 2px solid rgba(46, 204, 113, 0.3);
+        }
+
+        .channel-info-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+            color: #2ecc71;
+            font-size: 1.2rem;
+        }
+
         /* PIX SECTION */
         .pix-section {
             display: none;
@@ -853,6 +872,16 @@
                 <button class="modal-close" id="closeModal">×</button>
             </div>
             <div class="modal-body" id="modalBody"></div>
+            
+            <!-- INFO DO CANAL -->
+            <div class="channel-info-section" id="channelInfoSection">
+                <div class="channel-info-header">
+                    <span>📺</span> INFORMAÇÕES DO CANAL
+                </div>
+                <div id="channelInfoContent" style="padding: 10px;">
+                    <!-- Será preenchido via JavaScript -->
+                </div>
+            </div>
             
             <!-- SEÇÃO PIX DE REPASSE -->
             <div class="pix-section" id="pixSection">
@@ -1177,6 +1206,10 @@
                 const platformAmount = payment.split?.platform || (totalAmount * 0.08);
                 const channelAmount = payment.split?.channel || (totalAmount * 0.92);
                 
+                // Verificar se o canal tem chave PIX configurada
+                const hasPixKey = channel?.hasPixKey || false;
+                const hasAccessToken = channel?.mpAccessToken;
+                
                 // Construir modal
                 document.getElementById('modalBody').innerHTML = `
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px;">
@@ -1187,6 +1220,12 @@
                         <div class="modal-field">
                             <div class="field-label">Canal</div>
                             <div class="field-value">${channel?.name || payment.channelId || 'Não informado'}</div>
+                            ${channel ? `
+                            <div style="font-size: 0.9rem; margin-top: 5px; color: ${hasPixKey ? '#2ecc71' : '#f1c40f'}">
+                                ${hasPixKey ? '✅ Chave PIX configurada' : '⚠️ Sem chave PIX'}
+                                ${hasAccessToken ? ' | ✅ Autenticado MP' : ' | ❌ Não autenticado'}
+                            </div>
+                            ` : ''}
                         </div>
                     </div>
                     
@@ -1242,14 +1281,37 @@
                 const generatePixBtn = document.getElementById('generatePixBtn');
                 const pixSection = document.getElementById('pixSection');
                 const manualForm = document.getElementById('manualPixForm');
+                const channelInfoSection = document.getElementById('channelInfoSection');
+                const channelInfoContent = document.getElementById('channelInfoContent');
                 
                 // Ocultar tudo inicialmente
                 generatePixBtn.style.display = 'none';
                 pixSection.style.display = 'none';
                 manualForm.style.display = 'none';
+                channelInfoSection.style.display = 'none';
+                
+                // Mostrar informações do canal
+                if (channel) {
+                    channelInfoSection.style.display = 'block';
+                    channelInfoContent.innerHTML = `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div>
+                                <strong>Autenticação MP:</strong><br>
+                                ${hasAccessToken ? '✅ Conectado' : '❌ Não conectado'}
+                            </div>
+                            <div>
+                                <strong>Chave PIX:</strong><br>
+                                ${hasPixKey ? '✅ Configurada' : '❌ Não configurada'}
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.9rem; opacity: 0.8;">
+                            ${!hasAccessToken ? '• O canal precisa se autenticar em "Monetizar Canal"' : ''}
+                            ${!hasPixKey && hasAccessToken ? '• O canal precisa configurar chave PIX no Mercado Pago' : ''}
+                        </div>
+                    `;
+                }
                 
                 // Verificar condições para repasse
-                const hasAccessToken = channel?.mpAccessToken;
                 const isApproved = payment.displayStatus === 'approved' || payment.originalStatus === 'received';
                 const isTransferable = ['pending', 'failed'].includes(payment.transferStatus);
                 
@@ -1261,8 +1323,15 @@
                     // Mostrar botão para gerar PIX se o pagamento estiver aprovado e pendente
                     generatePixBtn.style.display = 'inline-flex';
                     generatePixBtn.onclick = () => generateRepassePix(paymentId);
-                    generatePixBtn.textContent = `💰 Gerar Cobrança PIX para Canal`;
-                    generatePixBtn.title = "Gera uma cobrança PIX em nome do canal para você pagar";
+                    
+                    // Alterar texto baseado no status do canal
+                    if (hasAccessToken && hasPixKey) {
+                        generatePixBtn.textContent = `💰 Gerar Cobrança PIX para o Canal`;
+                        generatePixBtn.title = "Gera uma cobrança PIX EM NOME DO CANAL para você pagar";
+                    } else {
+                        generatePixBtn.textContent = `🔧 Configurar Repasse Manual`;
+                        generatePixBtn.title = "O canal não tem chave PIX configurada. Insira manualmente.";
+                    }
                 }
                 
                 document.getElementById('paymentModal').style.display = 'flex';
@@ -1283,10 +1352,13 @@
             const channel = channels.find(c => c.id === payment.channelId);
             const channelAmount = payment.split?.channel || ((payment.amount || 0) * 0.92);
             
-            // Verificar se o canal tem token MP
-            if (channel?.mpAccessToken) {
+            // Verificar se o canal tem token MP E chave PIX
+            const hasAccessToken = channel?.mpAccessToken;
+            const hasPixKey = channel?.hasPixKey || false;
+            
+            if (hasAccessToken && hasPixKey) {
                 // Tentar gerar PIX automático em nome do canal
-                const confirmMsg = `GERAR COBRANÇA PIX EM NOME DO CANAL?\n\n• Valor: R$ ${channelAmount.toFixed(2)} (92% do total)\n• Você pagará esta cobrança com seu app bancário\n• O valor irá DIRETAMENTE para o canal\n\nContinuar?`;
+                const confirmMsg = `GERAR COBRANÇA PIX EM NOME DO CANAL?\n\n• Canal: ${channel.name}\n• Valor: R$ ${channelAmount.toFixed(2)} (92% do total)\n• Você pagará esta cobrança com seu app bancário\n• O valor irá DIRETAMENTE para o canal\n\nContinuar?`;
                 
                 if (!confirm(confirmMsg)) return;
                 
@@ -1309,7 +1381,7 @@
                         showAlert('✅ COBRANÇA PIX GERADA EM NOME DO CANAL!\n\nPague usando seu aplicativo bancário.\nO status será atualizado automaticamente.', 'success');
                         startRepasseCheck(paymentId);
                     } else {
-                        // Se não conseguiu gerar PIX automático (canal sem chave PIX), mostrar formulário manual
+                        // Se não conseguiu gerar PIX automático, mostrar formulário manual
                         showManualPixForm(paymentId, channelAmount);
                     }
                     
@@ -1321,7 +1393,7 @@
                     hideLoading();
                 }
             } else {
-                // Canal não tem token MP, mostrar formulário manual diretamente
+                // Canal não tem token MP ou não tem chave PIX, mostrar formulário manual diretamente
                 showManualPixForm(paymentId, channelAmount);
             }
         }
@@ -1338,6 +1410,7 @@
             // Ocultar outros botões
             document.getElementById('generatePixBtn').style.display = 'none';
             document.getElementById('pixSection').style.display = 'none';
+            document.getElementById('channelInfoSection').style.display = 'none';
             
             // Mostrar formulário
             const manualForm = document.getElementById('manualPixForm');
@@ -1411,6 +1484,7 @@
             // Ocultar outros elementos
             document.getElementById('generatePixBtn').style.display = 'none';
             document.getElementById('manualPixForm').style.display = 'none';
+            document.getElementById('channelInfoSection').style.display = 'none';
             
             // Mostrar seção PIX
             pixSection.style.display = 'block';
