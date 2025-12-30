@@ -958,6 +958,48 @@
         const itemsPerPage = 20;
         let currentModalPaymentId = null;
 
+        // 🛠️ FUNÇÃO AUXILIAR PARA EXTRAIR DADOS DO CANAL
+        function extractChannelData(docId, data) {
+            console.log(`🔍 Extraindo dados do canal ${docId}:`, data);
+            
+            // Extrair dados da estrutura aninhada monetization → pixDonations
+            let mpAccessToken = '';
+            let hasPixKey = false;
+            let mpUserId = '';
+            
+            // Primeiro verificar em pixDonations (para doações PIX)
+            if (data.monetization && data.monetization.pixDonations) {
+                mpAccessToken = data.monetization.pixDonations.mpAccessToken || '';
+                mpUserId = data.monetization.pixDonations.mpPlatformUserId || '';
+                hasPixKey = (mpAccessToken && mpAccessToken !== '' && mpAccessToken !== 'APP_USR-') ? true : false;
+            }
+            
+            // Se não encontrou em pixDonations, tentar em paidCommercials (para comerciais pagos)
+            if ((!mpAccessToken || mpAccessToken === '') && data.monetization && data.monetization.paidCommercials) {
+                mpAccessToken = data.monetization.paidCommercials.mpAccessToken || '';
+                mpUserId = data.monetization.paidCommercials.mpPlatformUserId || '';
+                hasPixKey = (mpAccessToken && mpAccessToken !== '' && mpAccessToken !== 'APP_USR-') ? true : false;
+            }
+            
+            // DEBUG: Log dos dados extraídos
+            console.log(`📊 Dados extraídos do canal ${docId}:`, {
+                mpAccessToken: mpAccessToken ? `${mpAccessToken.substring(0, 20)}...` : 'vazio',
+                hasPixKey: hasPixKey,
+                mpUserId: mpUserId
+            });
+            
+            return {
+                id: docId,
+                documentId: docId,
+                channelId: data.channelId || docId,
+                name: data.name || `Canal ${docId.substring(0, 8)}...`,
+                mpAccessToken: mpAccessToken,
+                mpUserId: mpUserId,
+                hasPixKey: hasPixKey,
+                monetization: data.monetization || null
+            };
+        }
+
         // 🔄 NORMALIZAR STATUS
         function normalizePayment(payment) {
             const displayStatus = (payment.status === 'received' || payment.status === 'approved') 
@@ -993,19 +1035,21 @@
                     }));
                 });
                 
-                // Carregar canais - AGORA BUSCANDO OS DADOS CORRETAMENTE
+                // Carregar canais - BUSCANDO NA ESTRUTURA ANINHADA CORRETA
                 const channelsSnapshot = await db.collection('channels').get();
                 channels = [];
                 channelsSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    channels.push({
-                        id: doc.id,
-                        name: data.name || `Canal ${doc.id.substring(0, 8)}...`,
-                        mpAccessToken: data.mpAccessToken,
-                        mpUserId: data.mpUserId,
-                        hasPixKey: data.hasPixKey || false
-                    });
+                    const channelData = extractChannelData(doc.id, doc.data());
+                    channels.push(channelData);
+                    
+                    // DEBUG: Mostrar canais com token
+                    if (channelData.mpAccessToken && channelData.mpAccessToken !== '') {
+                        console.log(`✅ Canal ${channelData.name} tem mpAccessToken`);
+                    }
                 });
+                
+                console.log(`✅ Total de canais carregados: ${channels.length}`);
+                console.log(`🔍 Canais com mpAccessToken: ${channels.filter(c => c.mpAccessToken && c.mpAccessToken !== '').length}`);
                 
                 applyFilters();
                 updateSummary();
@@ -1057,7 +1101,7 @@
                 
                 // Canal
                 if (channelSearch) {
-                    const channel = channels.find(c => c.id === payment.channelId);
+                    const channel = channels.find(c => c.id === payment.channelId || c.channelId === payment.channelId);
                     const channelName = channel?.name || '';
                     if (!channelName.toLowerCase().includes(channelSearch)) return false;
                 }
@@ -1098,7 +1142,7 @@
             let html = '';
             
             pagePayments.forEach(payment => {
-                const channel = channels.find(c => c.id === payment.channelId);
+                const channel = channels.find(c => c.id === payment.channelId || c.channelId === payment.channelId);
                 const channelName = channel?.name || `Canal ${payment.channelId?.substring(0, 8)}...`;
                 const date = payment.createdAt.toLocaleDateString('pt-BR');
                 const time = payment.createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -1188,7 +1232,7 @@
             document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
         }
 
-        // 👁️ VER DETALHES DO PAGAMENTO (AGORA COM BOTÃO PARA GERAR PIX)
+        // 👁️ VER DETALHES DO PAGAMENTO
         async function viewPaymentDetails(paymentId) {
             showLoading();
             try {
@@ -1200,7 +1244,60 @@
                 }
                 
                 currentModalPaymentId = paymentId;
-                const channel = channels.find(c => c.id === payment.channelId);
+                const paymentChannelId = payment.channelId;
+                
+                console.log(`🔍 Buscando canal para payment.channelId: ${paymentChannelId}`);
+                
+                // BUSCAR CANAL
+                let channel = null;
+                
+                if (paymentChannelId) {
+                    // Primeiro tentar encontrar pelo channelId
+                    channel = channels.find(c => c.channelId === paymentChannelId);
+                    
+                    // Se não encontrou, tentar pelo documentId
+                    if (!channel) {
+                        channel = channels.find(c => c.documentId === paymentChannelId);
+                    }
+                    
+                    // Se ainda não encontrou, tentar buscar diretamente no Firestore
+                    if (!channel) {
+                        console.log(`🔍 Buscando canal ${paymentChannelId} diretamente no Firestore...`);
+                        try {
+                            // Buscar por channelId (campo)
+                            const queryByChannelId = await db.collection('channels')
+                                .where('channelId', '==', paymentChannelId)
+                                .limit(1)
+                                .get();
+                            
+                            if (!queryByChannelId.empty) {
+                                const doc = queryByChannelId.docs[0];
+                                const data = doc.data();
+                                channel = extractChannelData(doc.id, data);
+                                channels.push(channel);
+                            } else {
+                                // Tentar buscar pelo ID do documento
+                                const docRef = db.collection('channels').doc(paymentChannelId);
+                                const docSnap = await docRef.get();
+                                
+                                if (docSnap.exists) {
+                                    const data = docSnap.data();
+                                    channel = extractChannelData(docSnap.id, data);
+                                    channels.push(channel);
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Erro ao buscar canal no Firestore:', error);
+                        }
+                    }
+                }
+                
+                // DEBUG: Mostrar informações encontradas
+                console.log('🔍 Informações do canal encontradas:', {
+                    channelFound: !!channel,
+                    channel: channel,
+                    paymentChannelId: paymentChannelId
+                });
                 
                 const totalAmount = payment.amount || 0;
                 const platformAmount = payment.split?.platform || (totalAmount * 0.08);
@@ -1208,7 +1305,8 @@
                 
                 // Verificar se o canal tem chave PIX configurada
                 const hasPixKey = channel?.hasPixKey || false;
-                const hasAccessToken = channel?.mpAccessToken;
+                const hasAccessToken = channel?.mpAccessToken && channel.mpAccessToken !== '' && channel.mpAccessToken !== 'APP_USR-';
+                const hasMpUserId = channel?.mpUserId && channel.mpUserId !== '';
                 
                 // Construir modal
                 document.getElementById('modalBody').innerHTML = `
@@ -1221,9 +1319,9 @@
                             <div class="field-label">Canal</div>
                             <div class="field-value">${channel?.name || payment.channelId || 'Não informado'}</div>
                             ${channel ? `
-                            <div style="font-size: 0.9rem; margin-top: 5px; color: ${hasPixKey ? '#2ecc71' : '#f1c40f'}">
-                                ${hasPixKey ? '✅ Chave PIX configurada' : '⚠️ Sem chave PIX'}
-                                ${hasAccessToken ? ' | ✅ Autenticado MP' : ' | ❌ Não autenticado'}
+                            <div style="font-size: 0.9rem; margin-top: 5px; color: ${hasAccessToken ? '#2ecc71' : '#f1c40f'}">
+                                ${hasAccessToken ? '✅ Conectado ao Mercado Pago' : '⚠️ Não conectado ao MP'}
+                                ${hasMpUserId ? ` | ID: ${channel.mpUserId}` : ''}
                             </div>
                             ` : ''}
                         </div>
@@ -1288,28 +1386,26 @@
                 generatePixBtn.style.display = 'none';
                 pixSection.style.display = 'none';
                 manualForm.style.display = 'none';
-                channelInfoSection.style.display = 'none';
+                channelInfoSection.style.display = 'block'; // Sempre mostrar informações do canal
                 
                 // Mostrar informações do canal
-                if (channel) {
-                    channelInfoSection.style.display = 'block';
-                    channelInfoContent.innerHTML = `
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <div>
-                                <strong>Autenticação MP:</strong><br>
-                                ${hasAccessToken ? '✅ Conectado' : '❌ Não conectado'}
-                            </div>
-                            <div>
-                                <strong>Chave PIX:</strong><br>
-                                ${hasPixKey ? '✅ Configurada' : '❌ Não configurada'}
-                            </div>
+                channelInfoContent.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div>
+                            <strong>Conexão MP:</strong><br>
+                            ${hasAccessToken ? '✅ Conectado' : '❌ Não conectado'}
+                            ${hasAccessToken && channel?.mpUserId ? `<br><small>ID: ${channel.mpUserId}</small>` : ''}
                         </div>
-                        <div style="margin-top: 10px; font-size: 0.9rem; opacity: 0.8;">
-                            ${!hasAccessToken ? '• O canal precisa se autenticar em "Monetizar Canal"' : ''}
-                            ${!hasPixKey && hasAccessToken ? '• O canal precisa configurar chave PIX no Mercado Pago' : ''}
+                        <div>
+                            <strong>Chave PIX:</strong><br>
+                            ${hasPixKey ? '✅ Configurada' : '❌ Não configurada'}
                         </div>
-                    `;
-                }
+                    </div>
+                    <div style="margin-top: 10px; font-size: 0.9rem; opacity: 0.8;">
+                        ${!hasAccessToken ? '• O canal precisa conectar com Mercado Pago em "Monetizar Canal"' : ''}
+                        ${hasAccessToken && !hasPixKey ? '• O canal precisa configurar chave PIX no app do Mercado Pago' : ''}
+                    </div>
+                `;
                 
                 // Verificar condições para repasse
                 const isApproved = payment.displayStatus === 'approved' || payment.originalStatus === 'received';
@@ -1349,12 +1445,22 @@
             const payment = allPayments.find(p => p.id === paymentId);
             if (!payment) return;
             
-            const channel = channels.find(c => c.id === payment.channelId);
+            const channel = channels.find(c => c.channelId === payment.channelId || c.documentId === payment.channelId);
             const channelAmount = payment.split?.channel || ((payment.amount || 0) * 0.92);
             
+            // DEBUG: Verificar dados do canal
+            console.log('🔍 Dados do canal para repasse:', {
+                channel: channel,
+                hasAccessToken: channel?.mpAccessToken,
+                mpAccessTokenLength: channel?.mpAccessToken?.length,
+                mpAccessTokenStart: channel?.mpAccessToken ? channel.mpAccessToken.substring(0, 20) + '...' : 'vazio'
+            });
+            
             // Verificar se o canal tem token MP E chave PIX
-            const hasAccessToken = channel?.mpAccessToken;
+            const hasAccessToken = channel?.mpAccessToken && channel.mpAccessToken !== '' && channel.mpAccessToken !== 'APP_USR-';
             const hasPixKey = channel?.hasPixKey || false;
+            
+            console.log(`🔍 Status do canal: hasAccessToken=${hasAccessToken}, hasPixKey=${hasPixKey}`);
             
             if (hasAccessToken && hasPixKey) {
                 // Tentar gerar PIX automático em nome do canal
@@ -1382,6 +1488,7 @@
                         startRepasseCheck(paymentId);
                     } else {
                         // Se não conseguiu gerar PIX automático, mostrar formulário manual
+                        console.log('❌ Erro ao gerar PIX automático:', result.error);
                         showManualPixForm(paymentId, channelAmount);
                     }
                     
@@ -1394,6 +1501,11 @@
                 }
             } else {
                 // Canal não tem token MP ou não tem chave PIX, mostrar formulário manual diretamente
+                console.log('⚠️ Canal sem token ou chave PIX:', {
+                    hasAccessToken: hasAccessToken,
+                    hasPixKey: hasPixKey,
+                    mpAccessToken: channel?.mpAccessToken ? 'presente' : 'ausente'
+                });
                 showManualPixForm(paymentId, channelAmount);
             }
         }
@@ -1410,7 +1522,6 @@
             // Ocultar outros botões
             document.getElementById('generatePixBtn').style.display = 'none';
             document.getElementById('pixSection').style.display = 'none';
-            document.getElementById('channelInfoSection').style.display = 'none';
             
             // Mostrar formulário
             const manualForm = document.getElementById('manualPixForm');
@@ -1484,7 +1595,6 @@
             // Ocultar outros elementos
             document.getElementById('generatePixBtn').style.display = 'none';
             document.getElementById('manualPixForm').style.display = 'none';
-            document.getElementById('channelInfoSection').style.display = 'none';
             
             // Mostrar seção PIX
             pixSection.style.display = 'block';
@@ -1744,6 +1854,31 @@
             document.getElementById('paymentModal').addEventListener('click', function(e) {
                 if (e.target === this) this.style.display = 'none';
             });
+            
+            // DEBUG: Adicionar função para verificar estrutura do Firestore
+            window.checkFirestoreStructure = async function() {
+                console.log('🔍 VERIFICANDO ESTRUTURA DO FIRESTORE...');
+                
+                try {
+                    const channelsSnapshot = await db.collection('channels').limit(5).get();
+                    console.log(`📊 Primeiros 5 canais:`);
+                    
+                    channelsSnapshot.forEach(doc => {
+                        const data = doc.data();
+                        console.log(`\n📄 Documento ID: ${doc.id}`);
+                        console.log('Dados completos:', data);
+                        console.log('monetization:', data.monetization);
+                        console.log('monetization.pixDonations:', data.monetization?.pixDonations);
+                        console.log('monetization.paidCommercials:', data.monetization?.paidCommercials);
+                    });
+                    
+                } catch (error) {
+                    console.error('Erro ao verificar Firestore:', error);
+                }
+            };
+            
+            console.log('🔄 Dashboard carregado com sucesso!');
+            console.log('📊 Para debug, use: checkFirestoreStructure() no console');
         });
     </script>
 </body>
