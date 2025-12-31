@@ -462,7 +462,7 @@
             background: rgba(255, 255, 255, 0.05);
         }
 
-        /* TABELA DE HISTÓRICO GERAL */
+        /* TABELA DE HISTÓRICO GERAL - SEM BOTÕES DE AÇÃO */
         .payments-section {
             background: rgba(255, 255, 255, 0.12);
             border-radius: var(--radius);
@@ -539,18 +539,6 @@
             border: 1px solid rgba(255, 107, 107, 0.3);
         }
 
-        .status-paid {
-            background: rgba(155, 89, 182, 0.15);
-            color: #9b59b6;
-            border: 1px solid rgba(155, 89, 182, 0.3);
-        }
-
-        .status-failed {
-            background: rgba(255, 107, 107, 0.15);
-            color: #ffcc00;
-            border: 1px solid rgba(255, 107, 107, 0.3);
-        }
-
         .status-repasse-pending {
             background: rgba(241, 196, 15, 0.15);
             color: var(--warning);
@@ -563,7 +551,7 @@
             border: 1px solid rgba(46, 204, 113, 0.3);
         }
 
-        /* BOTÕES DE AÇÃO */
+        /* BOTÕES DE AÇÃO - APENAS PARA REPASSES */
         .action-buttons {
             display: flex;
             gap: 10px;
@@ -583,17 +571,6 @@
             transition: all 0.3s ease;
             min-width: 120px;
             justify-content: center;
-        }
-
-        .action-btn.view {
-            background: rgba(52, 152, 219, 0.15);
-            color: var(--info);
-            border: 1px solid rgba(52, 152, 219, 0.3);
-        }
-
-        .action-btn.view:hover {
-            background: rgba(52, 152, 219, 0.25);
-            transform: translateY(-2px);
         }
 
         .action-btn.complete {
@@ -806,11 +783,12 @@
             </div>
         </div>
 
-        <!-- SEÇÃO 3: REPASSES PENDENTES AGRUPADOS POR CHAVE PIX -->
+        <!-- SEÇÃO 3: REPASSES PENDENTES AGRUPADOS POR CHAVE PIX (COM AÇÕES) -->
         <div class="repasse-section">
             <div class="section-header">
                 <div class="section-title">
                     <span class="section-title-icon">💰</span> Repasses Pendentes por Chave PIX
+                    <span style="font-size: 0.9rem; margin-left: 10px; opacity: 0.8;">(Ações disponíveis aqui)</span>
                 </div>
                 <div>
                     <span id="repasseStatusInfo" style="font-size: 0.95rem; opacity: 0.9;">
@@ -826,11 +804,12 @@
             </div>
         </div>
 
-        <!-- SEÇÃO 2: HISTÓRICO DE TRANSAÇÕES -->
+        <!-- SEÇÃO 2: HISTÓRICO DE TRANSAÇÕES (SEM AÇÕES) -->
         <div class="payments-section">
             <div class="section-header">
                 <div class="section-title">
                     <span class="section-title-icon">📋</span> Histórico de Transações
+                    <span style="font-size: 0.9rem; margin-left: 10px; opacity: 0.8;">(Apenas visualização)</span>
                 </div>
                 <div>
                     <span id="tableStatusInfo" style="font-size: 0.95rem; opacity: 0.9;">
@@ -852,12 +831,12 @@
                             <th>Status Pagamento</th>
                             <th>Status Repasse</th>
                             <th>Chave PIX</th>
-                            <th style="text-align: center;">Ações</th>
+                            <!-- SEM COLUNA DE AÇÕES -->
                         </tr>
                     </thead>
                     <tbody id="paymentsTableBody">
                         <tr>
-                            <td colspan="10" style="text-align: center; padding: 50px;">
+                            <td colspan="9" style="text-align: center; padding: 50px;">
                                 <div style="font-size: 1.2rem; opacity: 0.7;">Carregando transações...</div>
                             </td>
                         </tr>
@@ -897,133 +876,96 @@
 
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
-        const db = firebase.firestore();
-
+        
         // 📊 VARIÁVEIS
         let allPayments = [];
         let filteredPayments = [];
-        let channels = [];
+        let repasseGroups = [];
         let currentPage = 1;
         const itemsPerPage = 20;
-        let repasseGroups = [];
 
-        // 🔄 NORMALIZAR PAGAMENTO
-        function normalizePayment(payment) {
-            const totalAmount = payment.amount || 0;
-            const platformAmount = payment.split?.platform || (totalAmount * 0.08);
-            const channelAmount = payment.split?.channel || (totalAmount * 0.92);
-            
-            return {
-                ...payment,
-                totalAmount: totalAmount,
-                platformAmount: platformAmount,
-                channelAmount: channelAmount,
-                repasseStatus: payment.repasseStatus || 'pending',
-                pixKey: payment.pixKey || 'Não configurado',
-                createdAt: payment.createdAt?.toDate() || new Date()
-            };
-        }
-
-        // 📥 CARREGAR DADOS
+        // 📥 CARREGAR DADOS COMPLETOS
         async function loadDashboardData() {
             showLoading();
             try {
-                // Carregar pagamentos
-                const paymentsSnapshot = await db.collection('payment_history')
-                    .orderBy('createdAt', 'desc')
-                    .limit(1000)
-                    .get();
+                console.log('🔄 Carregando dados do dashboard...');
                 
-                allPayments = [];
-                paymentsSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    allPayments.push(normalizePayment({
-                        id: doc.id,
-                        ...data
-                    }));
-                });
+                // 1. Carregar estatísticas (cards de resumo)
+                await loadDashboardStats();
                 
-                console.log(`✅ ${allPayments.length} pagamentos carregados`);
+                // 2. Carregar repasses agrupados (Seção 3)
+                await loadGroupedRepasses();
                 
-                // Carregar canais para obter nomes
-                const channelsSnapshot = await db.collection('channels').get();
-                channels = [];
-                channelsSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    channels.push({
-                        id: doc.id,
-                        channelId: data.channelId || doc.id,
-                        name: data.name || `Canal ${doc.id.substring(0, 8)}...`
-                    });
-                });
+                // 3. Carregar histórico completo (Seção 2)
+                await loadPaymentHistory();
                 
-                console.log(`✅ ${channels.length} canais carregados`);
-                
-                // Agrupar repasses por chave PIX
-                groupRepassesByPixKey();
-                
-                applyFilters();
-                updateSummary();
-                
+                console.log('✅ Dashboard carregado com sucesso!');
                 hideLoading();
                 
             } catch (error) {
-                console.error('Erro ao carregar dados:', error);
+                console.error('❌ Erro ao carregar dados:', error);
                 showAlert('Erro ao carregar dados', 'error');
                 hideLoading();
             }
         }
 
-        // 🎯 AGRUPAR REPASSES POR CHAVE PIX
-        function groupRepassesByPixKey() {
-            console.log('🔍 Agrupando repasses por chave PIX...');
-            
-            const pendingPayments = allPayments.filter(p => 
-                p.status === 'approved' && 
-                p.repasseStatus === 'pending'
-            );
-            
-            console.log(`📊 ${pendingPayments.length} pagamentos pendentes de repasse`);
-            
-            // Agrupar por chave PIX
-            const groups = {};
-            
-            pendingPayments.forEach(payment => {
-                const pixKey = payment.pixKey || 'Não configurado';
-                const pixKeyType = payment.pixKeyType || 'Não identificado';
+        // 📈 CARREGAR ESTATÍSTICAS (CARDS DE RESUMO)
+        async function loadDashboardStats() {
+            try {
+                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getDashboardStats');
+                const result = await response.json();
                 
-                if (!groups[pixKey]) {
-                    groups[pixKey] = {
-                        pixKey: pixKey,
-                        pixKeyType: pixKeyType,
-                        totalAmount: 0,
-                        totalChannelAmount: 0,
-                        paymentCount: 0,
-                        payments: [],
-                        channels: new Set()
-                    };
+                if (result.success) {
+                    const stats = result.stats;
+                    
+                    document.getElementById('totalReceived').textContent = `R$ ${stats.totalReceived.toFixed(2)}`;
+                    document.getElementById('platformCommission').textContent = `R$ ${stats.platformCommission.toFixed(2)}`;
+                    document.getElementById('dueToChannels').textContent = `R$ ${stats.dueToChannels.toFixed(2)}`;
+                    document.getElementById('totalPayments').textContent = stats.totalPayments;
+                    document.getElementById('dueChange').textContent = `${stats.pendingRepasses} pendentes`;
+                    
+                    console.log(`📊 Estatísticas carregadas: R$ ${stats.totalReceived.toFixed(2)} recebidos, ${stats.pendingRepasses} repasses pendentes`);
                 }
-                
-                groups[pixKey].totalAmount += payment.totalAmount;
-                groups[pixKey].totalChannelAmount += payment.channelAmount;
-                groups[pixKey].paymentCount++;
-                groups[pixKey].payments.push(payment);
-                if (payment.channelId) {
-                    groups[pixKey].channels.add(payment.channelId);
-                }
-            });
-            
-            // Converter para array e ordenar pelo maior valor
-            repasseGroups = Object.values(groups);
-            repasseGroups.sort((a, b) => b.totalChannelAmount - a.totalChannelAmount);
-            
-            console.log(`💰 ${repasseGroups.length} grupos de repasse criados`);
-            
-            // Atualizar display
-            updateRepasseCards();
+            } catch (error) {
+                console.error('❌ Erro ao carregar estatísticas:', error);
+            }
         }
 
-        // 🎨 ATUALIZAR CARDS DE REPASSE
+        // 💰 CARREGAR REPASSES AGRUPADOS (SEÇÃO 3)
+        async function loadGroupedRepasses() {
+            try {
+                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getGroupedRepasses');
+                const result = await response.json();
+                
+                if (result.success) {
+                    repasseGroups = result.groups;
+                    updateRepasseCards();
+                    console.log(`💰 ${repasseGroups.length} grupos de repasse carregados`);
+                }
+            } catch (error) {
+                console.error('❌ Erro ao carregar repasses agrupados:', error);
+            }
+        }
+
+        // 📋 CARREGAR HISTÓRICO COMPLETO (SEÇÃO 2)
+        async function loadPaymentHistory() {
+            try {
+                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getAllPayments');
+                const result = await response.json();
+                
+                if (result.success) {
+                    allPayments = result.payments;
+                    console.log(`📋 ${allPayments.length} transações carregadas no histórico`);
+                    
+                    // Aplicar filtros iniciais
+                    applyFilters();
+                }
+            } catch (error) {
+                console.error('❌ Erro ao carregar histórico:', error);
+            }
+        }
+
+        // 🎨 ATUALIZAR CARDS DE REPASSE (SEÇÃO 3)
         function updateRepasseCards() {
             const container = document.getElementById('pixCardsContainer');
             const totalRepasseCount = document.getElementById('totalRepasseCount');
@@ -1044,8 +986,8 @@
             let html = '<div class="pix-cards-grid">';
             
             repasseGroups.forEach((group, index) => {
-                const channelCount = group.channels.size;
-                const averageAmount = group.totalChannelAmount / group.paymentCount;
+                const channelCount = group.channels.length;
+                const averageAmount = group.paymentCount > 0 ? group.totalChannelAmount / group.paymentCount : 0;
                 
                 html += `
                     <div class="pix-card" id="pixCard_${index}">
@@ -1072,16 +1014,16 @@
                             </div>
                             <div class="stat-item">
                                 <div class="stat-value">R$ ${averageAmount.toFixed(2)}</div>
-                                <div class="stat-label">Média por pagamento</div>
+                                <div class="stat-label">Média/pagamento</div>
                             </div>
                         </div>
                         
                         <div class="btn-group" style="margin-top: 15px;">
                             <button class="btn btn-primary" onclick="togglePixPayments(${index})" id="toggleBtn_${index}">
-                                📋 Ver Detalhes
+                                📋 Ver Detalhes (${group.paymentCount})
                             </button>
-                            <button class="btn btn-success" onclick="markRepasseCompleted('${group.pixKey}')">
-                                ✅ Marcar como Repassado
+                            <button class="btn btn-success" onclick="markAllRepasseCompleted('${group.pixKey}')">
+                                ✅ Marcar TODOS como Repassado
                             </button>
                             <button class="btn btn-secondary" onclick="copyPixKey('${group.pixKey}')">
                                 📋 Copiar Chave
@@ -1095,27 +1037,30 @@
                                     <th>Data</th>
                                     <th>Valor Total</th>
                                     <th>Devido (92%)</th>
-                                    <th>Status</th>
                                     <th>Ações</th>
                                 </tr>
                             </thead>
                             <tbody id="pixTableBody_${index}">
                                 ${group.payments.map(payment => {
-                                    const channel = channels.find(c => c.id === payment.channelId || c.channelId === payment.channelId);
-                                    const channelName = channel?.name || `Canal ${payment.channelId?.substring(0, 8)}...`;
-                                    const date = payment.createdAt.toLocaleDateString('pt-BR');
+                                    const date = payment.createdAt?.toDate ? 
+                                        new Date(payment.createdAt.toDate()).toLocaleDateString('pt-BR') : 
+                                        new Date(payment.createdAt).toLocaleDateString('pt-BR');
                                     
                                     return `
                                         <tr>
-                                            <td>${channelName}</td>
+                                            <td>${payment.channelName}</td>
                                             <td>${date}</td>
-                                            <td><strong>R$ ${payment.totalAmount.toFixed(2)}</strong></td>
+                                            <td><strong>R$ ${payment.amount.toFixed(2)}</strong></td>
                                             <td><strong style="color: #3498db;">R$ ${payment.channelAmount.toFixed(2)}</strong></td>
-                                            <td><span class="status-badge status-repasse-pending">⏳ Pendente</span></td>
                                             <td>
-                                                <button class="action-btn complete" onclick="markSingleRepasseCompleted('${payment.id}')">
-                                                    ✅ Concluir
-                                                </button>
+                                                <div class="action-buttons">
+                                                    <button class="action-btn complete" onclick="markSingleRepasseCompleted('${payment.id}', '${payment.channelAmount}')">
+                                                        ✅ Concluir Este
+                                                    </button>
+                                                    <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="copyPaymentInfo(${payment.amount}, ${payment.channelAmount}, '${payment.channelName}')">
+                                                        📋 Copiar Info
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     `;
@@ -1130,14 +1075,14 @@
             container.innerHTML = html;
         }
 
-        // 📋 ATUALIZAR TABELA DE HISTÓRICO
+        // 📋 ATUALIZAR TABELA DE HISTÓRICO (SEÇÃO 2 - SEM AÇÕES)
         function updatePaymentsTable() {
             const tbody = document.getElementById('paymentsTableBody');
             
             if (filteredPayments.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="10" style="text-align: center; padding: 60px;">
+                        <td colspan="9" style="text-align: center; padding: 60px;">
                             <div style="font-size: 1.3rem; opacity: 0.7;">Nenhuma transação encontrada</div>
                         </td>
                     </tr>`;
@@ -1151,10 +1096,8 @@
             let html = '';
             
             pagePayments.forEach(payment => {
-                const channel = channels.find(c => c.id === payment.channelId || c.channelId === payment.channelId);
-                const channelName = channel?.name || `Canal ${payment.channelId?.substring(0, 8)}...`;
-                const date = payment.createdAt.toLocaleDateString('pt-BR');
-                const time = payment.createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                const date = new Date(payment.createdAt).toLocaleDateString('pt-BR');
+                const time = new Date(payment.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                 
                 // Status badge
                 let statusBadge = '';
@@ -1177,20 +1120,13 @@
                     <tr>
                         <td>${payment.mpPaymentId || payment.id}</td>
                         <td>${date}<br><small>${time}</small></td>
-                        <td>${channelName}<br><small>${payment.payerEmail || ''}</small></td>
-                        <td><strong>R$ ${payment.totalAmount.toFixed(2)}</strong></td>
+                        <td>${payment.channelName}</td>
+                        <td><strong>R$ ${payment.amount.toFixed(2)}</strong></td>
                         <td>R$ ${payment.platformAmount.toFixed(2)}</td>
                         <td><strong style="color: #3498db;">R$ ${payment.channelAmount.toFixed(2)}</strong></td>
                         <td>${statusBadge}</td>
                         <td>${repasseBadge}</td>
                         <td>${payment.pixKey}</td>
-                        <td style="text-align: center;">
-                            <div class="action-buttons">
-                                <button class="action-btn complete" onclick="markSingleRepasseCompleted('${payment.id}')">
-                                    ✅ Concluir Repasse
-                                </button>
-                            </div>
-                        </td>
                     </tr>
                 `;
             });
@@ -1198,31 +1134,6 @@
             tbody.innerHTML = html;
             document.getElementById('showingCount').textContent = filteredPayments.length;
             document.getElementById('totalCount').textContent = allPayments.length;
-        }
-
-        // 📈 ATUALIZAR RESUMO
-        function updateSummary() {
-            const approvedPayments = allPayments.filter(p => p.status === 'approved');
-            
-            if (approvedPayments.length === 0) {
-                document.getElementById('totalReceived').textContent = 'R$ 0,00';
-                document.getElementById('platformCommission').textContent = 'R$ 0,00';
-                document.getElementById('dueToChannels').textContent = 'R$ 0,00';
-                document.getElementById('totalPayments').textContent = '0';
-                return;
-            }
-            
-            const totalReceived = approvedPayments.reduce((sum, p) => sum + p.totalAmount, 0);
-            const totalPlatform = approvedPayments.reduce((sum, p) => sum + p.platformAmount, 0);
-            
-            const pending = approvedPayments.filter(p => p.repasseStatus === 'pending');
-            const totalPending = pending.reduce((sum, p) => sum + p.channelAmount, 0);
-            
-            document.getElementById('totalReceived').textContent = `R$ ${totalReceived.toFixed(2)}`;
-            document.getElementById('platformCommission').textContent = `R$ ${totalPlatform.toFixed(2)}`;
-            document.getElementById('dueToChannels').textContent = `R$ ${totalPending.toFixed(2)}`;
-            document.getElementById('totalPayments').textContent = approvedPayments.length;
-            document.getElementById('dueChange').textContent = `${pending.length} pendentes`;
         }
 
         // 🎯 APLICAR FILTROS
@@ -1237,11 +1148,11 @@
             filteredPayments = allPayments.filter(payment => {
                 // Data
                 if (startDate) {
-                    const paymentDate = payment.createdAt.toISOString().split('T')[0];
+                    const paymentDate = new Date(payment.createdAt).toISOString().split('T')[0];
                     if (paymentDate < startDate) return false;
                 }
                 if (endDate) {
-                    const paymentDate = payment.createdAt.toISOString().split('T')[0];
+                    const paymentDate = new Date(payment.createdAt).toISOString().split('T')[0];
                     if (paymentDate > endDate) return false;
                 }
                 
@@ -1257,8 +1168,7 @@
                 
                 // Canal
                 if (channelSearch) {
-                    const channel = channels.find(c => c.id === payment.channelId || c.channelId === payment.channelId);
-                    const channelName = channel?.name || '';
+                    const channelName = payment.channelName || '';
                     if (!channelName.toLowerCase().includes(channelSearch)) return false;
                 }
                 
@@ -1285,23 +1195,26 @@
             document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
         }
 
-        // 🎯 FUNÇÕES DE REPASSE
+        // 🎯 FUNÇÕES DE REPASSE (APENAS NA SEÇÃO 3)
         function togglePixPayments(index) {
             const table = document.getElementById(`pixTable_${index}`);
             const toggleBtn = document.getElementById(`toggleBtn_${index}`);
             
             if (table.classList.contains('active')) {
                 table.classList.remove('active');
-                toggleBtn.textContent = '📋 Ver Detalhes';
+                toggleBtn.innerHTML = `📋 Ver Detalhes (${repasseGroups[index].paymentCount})`;
             } else {
                 table.classList.add('active');
-                toggleBtn.textContent = '👁️ Ocultar Detalhes';
+                toggleBtn.innerHTML = `👁️ Ocultar Detalhes (${repasseGroups[index].paymentCount})`;
             }
         }
 
-        // ✅ MARCAR REPASSE COMO CONCLUÍDO (TODOS OS PAGAMENTOS DE UMA CHAVE)
-        async function markRepasseCompleted(pixKey) {
-            if (!confirm(`Confirmar repasse para a chave PIX:\n${pixKey}\n\nEsta ação marcará TODOS os repasses pendentes para esta chave como concluídos.`)) {
+        // ✅ MARCAR TODOS OS REPASSES DE UMA CHAVE COMO CONCLUÍDOS
+        async function markAllRepasseCompleted(pixKey) {
+            const group = repasseGroups.find(g => g.pixKey === pixKey);
+            if (!group) return;
+            
+            if (!confirm(`Confirmar repasse para TODOS os pagamentos da chave PIX:\n\n${pixKey}\n\n• Total a repassar: R$ ${group.totalChannelAmount.toFixed(2)}\n• ${group.paymentCount} pagamentos\n• ${group.channelCount} canais\n\nEsta ação marcará TODOS os repasses pendentes para esta chave como concluídos.`)) {
                 return;
             }
             
@@ -1316,18 +1229,10 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showAlert(`✅ ${result.message}`, 'success');
-                    // Atualizar localmente
-                    allPayments.forEach(payment => {
-                        if (payment.pixKey === pixKey && payment.repasseStatus === 'pending') {
-                            payment.repasseStatus = 'completed';
-                        }
-                    });
+                    showAlert(`✅ ${result.updatedCount} repasses marcados como concluídos!\nTotal: R$ ${result.totalAmount.toFixed(2)}`, 'success');
                     
-                    // Recarregar dados
-                    groupRepassesByPixKey();
-                    updateSummary();
-                    applyFilters();
+                    // Recarregar todos os dados
+                    await loadDashboardData();
                 } else {
                     throw new Error(result.error);
                 }
@@ -1341,11 +1246,8 @@
         }
 
         // ✅ MARCAR REPASSE INDIVIDUAL COMO CONCLUÍDO
-        async function markSingleRepasseCompleted(paymentId) {
-            const payment = allPayments.find(p => p.id === paymentId);
-            if (!payment) return;
-            
-            if (!confirm(`Confirmar repasse individual:\n\nValor: R$ ${payment.channelAmount.toFixed(2)}\nPara: ${payment.pixKey || 'Chave não informada'}`)) {
+        async function markSingleRepasseCompleted(paymentId, amount) {
+            if (!confirm(`Confirmar repasse individual:\n\nValor: R$ ${parseFloat(amount).toFixed(2)}\n\nEsta ação marcará este repasse específico como concluído.`)) {
                 return;
             }
             
@@ -1354,23 +1256,16 @@
                 const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/markRepasseCompleted', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        pixKey: payment.pixKey,
-                        repasseId: paymentId 
-                    })
+                    body: JSON.stringify({ repasseId: paymentId })
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
-                    showAlert('✅ Repasse marcado como concluído', 'success');
-                    // Atualizar localmente
-                    payment.repasseStatus = 'completed';
+                    showAlert(`✅ Repasse marcado como concluído!\nValor: R$ ${parseFloat(amount).toFixed(2)}`, 'success');
                     
-                    // Recarregar dados
-                    groupRepassesByPixKey();
-                    updateSummary();
-                    applyFilters();
+                    // Recarregar todos os dados
+                    await loadDashboardData();
                 } else {
                     throw new Error(result.error);
                 }
@@ -1386,13 +1281,22 @@
         // 📋 COPIAR CHAVE PIX
         function copyPixKey(pixKey) {
             navigator.clipboard.writeText(pixKey)
-                .then(() => showAlert('✅ Chave PIX copiada!', 'success'))
+                .then(() => showAlert('✅ Chave PIX copiada para a área de transferência!', 'success'))
+                .catch(() => showAlert('❌ Erro ao copiar chave', 'error'));
+        }
+
+        // 📋 COPIAR INFORMAÇÕES DO PAGAMENTO
+        function copyPaymentInfo(totalAmount, channelAmount, channelName) {
+            const text = `Canal: ${channelName}\nValor total: R$ ${parseFloat(totalAmount).toFixed(2)}\nDevido (92%): R$ ${parseFloat(channelAmount).toFixed(2)}`;
+            
+            navigator.clipboard.writeText(text)
+                .then(() => showAlert('✅ Informações copiadas!', 'success'))
                 .catch(() => showAlert('❌ Erro ao copiar', 'error'));
         }
 
         // 📥 EXPORTAR CSV
         async function exportToCSV() {
-            if (filteredPayments.length === 0) {
+            if (allPayments.length === 0) {
                 showAlert('Não há dados para exportar', 'error');
                 return;
             }
@@ -1401,14 +1305,12 @@
             try {
                 const startDate = document.getElementById('startDate').value || '';
                 const endDate = document.getElementById('endDate').value || '';
-                const statusFilter = document.getElementById('statusFilter').value || 'all';
                 
                 let url = `https://us-central1-playtronic-tv.cloudfunctions.net/exportPaymentsCSV`;
                 const params = [];
                 
                 if (startDate) params.push(`startDate=${startDate}`);
                 if (endDate) params.push(`endDate=${endDate}`);
-                if (statusFilter !== 'all') params.push(`status=${statusFilter}`);
                 
                 if (params.length > 0) {
                     url += `?${params.join('&')}`;
