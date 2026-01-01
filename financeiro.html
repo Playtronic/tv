@@ -390,6 +390,12 @@
             border: 1px solid rgba(155, 89, 182, 0.3);
         }
 
+        .status-na {
+            background: rgba(149, 165, 166, 0.15);
+            color: #95a5a6;
+            border: 1px solid rgba(149, 165, 166, 0.3);
+        }
+
         /* SEÇÃO 3: REPASSES PENDENTES AGRUPADOS POR CANAL */
         .repasses-section {
             background: rgba(255, 255, 255, 0.12);
@@ -732,7 +738,7 @@
             <div class="card">
                 <div class="card-title">💰 Total Recebido</div>
                 <div class="card-value" id="totalReceived">R$ 0,00</div>
-                <div class="card-change positive" id="totalChange">Carregando...</div>
+                <div class="card-change" id="totalChange">Carregando...</div>
             </div>
             <div class="card">
                 <div class="card-title">🏢 Sua Comissão (8%)</div>
@@ -793,10 +799,6 @@
                     <label class="filter-label">Pesquisar Canal</label>
                     <input type="text" class="filter-input" id="channelSearch" placeholder="Nome do canal...">
                 </div>
-                <div class="filter-group">
-                    <label class="filter-label">Chave PIX</label>
-                    <input type="text" class="filter-input" id="pixKeyFilter" placeholder="CPF, email, telefone...">
-                </div>
             </div>
 
             <div class="btn-group">
@@ -804,7 +806,6 @@
                 <button class="btn btn-secondary" id="resetFilters">🔄 Limpar Filtros</button>
                 <button class="btn btn-secondary" id="refreshData">📊 Atualizar Dados</button>
                 <button class="btn btn-success" id="exportBtn">📥 Exportar CSV</button>
-                <button class="btn btn-info" id="addPixBtn">🔧 Adicionar PIX</button>
             </div>
             
             <div class="table-container">
@@ -814,18 +815,16 @@
                             <th>ID Pagamento</th>
                             <th>Data</th>
                             <th>Canal</th>
-                            <th>Chave PIX</th>
                             <th>Valor Total</th>
                             <th>Sua Parte (8%)</th>
                             <th>Devido (92%)</th>
                             <th>Status Pagamento</th>
                             <th>Status Repasse</th>
-                            <th>Ações</th>
                         </tr>
                     </thead>
                     <tbody id="paymentsTableBody">
                         <tr>
-                            <td colspan="10" style="text-align: center; padding: 50px;">
+                            <td colspan="8" style="text-align: center; padding: 50px;">
                                 <div style="font-size: 1.2rem; opacity: 0.7;">Carregando dados...</div>
                             </td>
                         </tr>
@@ -860,7 +859,7 @@
         </div>
     </div>
 
-    <!-- MODAL PARA ADICIONAR/EDITAR PIX -->
+    <!-- MODAL PARA ADICIONAR PIX -->
     <div class="modal-overlay" id="addPixModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -870,8 +869,7 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label class="form-label">ID do Canal</label>
-                    <input type="text" class="form-input" id="manualChannelId" placeholder="ID do canal (ex: canal123)">
-                    <small style="opacity: 0.7; font-size: 0.9rem;">Este PIX será aplicado a TODOS os pagamentos pendentes deste canal</small>
+                    <input type="text" class="form-input" id="manualChannelId" placeholder="ID do canal" readonly>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Chave PIX</label>
@@ -950,56 +948,61 @@
         let currentPage = 1;
         const itemsPerPage = 20;
 
-        // 📥 CARREGAR DADOS COMPLETOS
+        // 📥 CARREGAR DADOS DO DASHBOARD
         async function loadDashboardData() {
             showLoading();
             try {
-                // Carregar pagamentos
-                const paymentsSnapshot = await db.collection('payment_history')
-                    .orderBy('createdAt', 'desc')
-                    .limit(500)
-                    .get();
+                // Carregar dados do dashboard via API
+                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getDashboardData');
+                const result = await response.json();
                 
-                allPayments = [];
-                paymentsSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    // Converter status "failed" para "pending"
-                    const transferStatus = data.transferStatus === 'failed' ? 'pending' : data.transferStatus;
+                if (result.success) {
+                    // Atualizar cards de resumo
+                    updateSummaryCards(result.summary);
                     
-                    allPayments.push({
-                        id: doc.id,
-                        ...data,
-                        transferStatus: transferStatus, // Status corrigido
-                        createdAt: data.createdAt?.toDate() || new Date(),
-                        status: data.status || 'unknown',
-                        displayStatus: (data.status === 'received' || data.status === 'approved') ? 'approved' : data.status
+                    // Processar pagamentos
+                    allPayments = result.payments;
+                    
+                    // Carregar canais
+                    const channelsSnapshot = await db.collection('channels').limit(100).get();
+                    channels = [];
+                    channelsSnapshot.forEach(doc => {
+                        const data = doc.data();
+                        channels.push({
+                            id: doc.id,
+                            name: data.name || `Canal ${doc.id.substring(0, 8)}...`
+                        });
                     });
-                });
-                
-                // Carregar canais
-                const channelsSnapshot = await db.collection('channels').limit(100).get();
-                channels = [];
-                channelsSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    channels.push({
-                        id: doc.id,
-                        name: data.name || `Canal ${doc.id.substring(0, 8)}...`
-                    });
-                });
-                
-                applyFilters();
-                updateSummary();
-                
-                hideLoading();
-                
-                // Carregar repasses pendentes separadamente
-                loadPendingRepasses();
+                    
+                    applyFilters();
+                    
+                    hideLoading();
+                    
+                    // Carregar repasses pendentes separadamente
+                    loadPendingRepasses();
+                } else {
+                    throw new Error(result.error);
+                }
                 
             } catch (error) {
                 console.error('Erro:', error);
-                showAlert('Erro ao carregar dados', 'error');
+                showAlert('Erro ao carregar dados do dashboard', 'error');
                 hideLoading();
             }
+        }
+
+        // 📈 ATUALIZAR CARDS DE RESUMO
+        function updateSummaryCards(summary) {
+            document.getElementById('totalReceived').textContent = `R$ ${summary.totalReceived.toFixed(2)}`;
+            document.getElementById('platformCommission').textContent = `R$ ${summary.platformCommission.toFixed(2)}`;
+            document.getElementById('dueToChannels').textContent = `R$ ${summary.dueToChannels.toFixed(2)}`;
+            document.getElementById('totalPayments').textContent = summary.totalPayments;
+            document.getElementById('dueChange').textContent = `${summary.pendingTransfers} pendentes`;
+            
+            // Atualizar texto dos cards
+            document.getElementById('totalChange').textContent = 'Total recebido dos espectadores';
+            document.getElementById('commissionChange').textContent = 'Sua parte dos recebimentos';
+            document.getElementById('paymentsChange').textContent = 'Pagamentos aprovados';
         }
 
         // 📊 CARREGAR REPASSES PENDENTES
@@ -1050,11 +1053,13 @@
                 <div class="repasses-grid">
             `;
             
-            pendingRepasses.forEach((repasse, index) => {
+            pendingRepasses.forEach((repasse) => {
                 // Formatar chave PIX para exibição
                 let pixKeyDisplay = 'Não configurado';
+                let hasPixKey = false;
                 if (repasse.pixKey) {
                     pixKeyDisplay = `${repasse.pixKeyType || 'PIX'}: ${repasse.pixKey}`;
+                    hasPixKey = true;
                 }
                 
                 html += `
@@ -1076,29 +1081,37 @@
                         <div class="repasse-details">
                             <div class="repasse-detail-row">
                                 <span>Chave PIX:</span>
-                                <span>${repasse.pixKey ? '✅ Configurada' : '❌ Não configurada'}</span>
+                                <span>${hasPixKey ? '✅ Configurada' : '❌ Não configurada'}</span>
                             </div>
-                            <div class="repasse-detail-row">
-                                <span>Titular:</span>
-                                <span>${repasse.accountHolderName || 'Não informado'}</span>
-                            </div>
+                            ${hasPixKey ? `
+                                <div class="repasse-detail-row">
+                                    <span>Titular:</span>
+                                    <span>${repasse.accountHolderName || 'Não informado'}</span>
+                                </div>
+                            ` : ''}
                             <div class="repasse-detail-row">
                                 <span>Valor por pagamento:</span>
                                 <span>R$ ${(repasse.totalAmount / repasse.paymentCount).toFixed(2)}</span>
                             </div>
                         </div>
                         
-                        ${repasse.pixKey ? `
+                        ${hasPixKey ? `
                             <div class="repasse-pix-info">
                                 <div class="field-label">Chave PIX do Canal:</div>
                                 <div class="pix-key">${pixKeyDisplay}</div>
-                                <div class="field-label">Titular:</div>
-                                <div class="field-value">${repasse.accountHolderName || 'Não informado'}</div>
+                                ${repasse.accountHolderName ? `
+                                    <div class="field-label">Titular:</div>
+                                    <div class="field-value">${repasse.accountHolderName}</div>
+                                ` : ''}
                             </div>
                         ` : `
                             <div style="padding: 15px; background: rgba(241, 196, 15, 0.1); border-radius: 10px; margin: 15px 0; text-align: center;">
                                 <div style="color: #f1c40f; font-weight: 700;">⚠️ CANAL SEM CHAVE PIX</div>
                                 <div style="font-size: 0.9rem; margin-top: 5px;">Configure uma chave PIX para este canal antes de repassar.</div>
+                                <button class="btn btn-warning" style="margin-top: 10px; padding: 8px 16px;" 
+                                        onclick="addPixForChannel('${repasse.channelId}', '${repasse.channelName}')">
+                                    🔧 Configurar PIX
+                                </button>
                             </div>
                         `}
                         
@@ -1120,22 +1133,18 @@
                         </div>
                         
                         <div class="btn-group" style="margin-top: 20px;">
-                            ${!repasse.pixKey ? `
-                                <button class="btn btn-warning" onclick="addPixForChannel('${repasse.channelId}')">
-                                    🔧 Configurar PIX
+                            ${hasPixKey ? `
+                                <button class="btn btn-success" onclick="confirmRepasse(
+                                    '${repasse.channelId}', 
+                                    '${repasse.channelName}',
+                                    ${repasse.totalAmount}, 
+                                    ${JSON.stringify(repasse.payments.map(p => p.paymentId)).replace(/"/g, '&quot;')},
+                                    '${repasse.pixKey || ''}',
+                                    '${repasse.accountHolderName || ''}'
+                                )">
+                                    ✅ Marcar como Repassado
                                 </button>
                             ` : ''}
-                            
-                            <button class="btn btn-success" onclick="confirmRepasse(
-                                '${repasse.channelId}', 
-                                '${repasse.channelName}',
-                                ${repasse.totalAmount}, 
-                                ${JSON.stringify(repasse.payments.map(p => p.paymentId)).replace(/"/g, '&quot;')},
-                                '${repasse.pixKey || ''}',
-                                '${repasse.accountHolderName || ''}'
-                            )" ${!repasse.pixKey ? 'disabled style="opacity: 0.5;"' : ''}>
-                                ✅ Marcar como Repassado
-                            </button>
                         </div>
                     </div>
                 `;
@@ -1146,17 +1155,13 @@
         }
 
         // 🔧 ADICIONAR PIX PARA CANAL
-        function addPixForChannel(channelId) {
-            const channel = pendingRepasses.find(r => r.channelId === channelId);
+        function addPixForChannel(channelId, channelName) {
+            document.getElementById('manualChannelId').value = channelId;
+            document.getElementById('manualPixKey').value = '';
+            document.getElementById('manualPixKeyType').value = 'CPF';
+            document.getElementById('manualAccountHolder').value = '';
             
-            if (channel) {
-                document.getElementById('manualChannelId').value = channelId;
-                document.getElementById('manualPixKey').value = channel.pixKey || '';
-                document.getElementById('manualPixKeyType').value = channel.pixKeyType || 'CPF';
-                document.getElementById('manualAccountHolder').value = channel.accountHolderName || '';
-                
-                document.getElementById('addPixModal').style.display = 'flex';
-            }
+            document.getElementById('addPixModal').style.display = 'flex';
         }
 
         // 🎯 APLICAR FILTROS
@@ -1166,7 +1171,6 @@
             const statusFilter = document.getElementById('statusFilter').value;
             const transferFilter = document.getElementById('transferStatusFilter').value;
             const channelSearch = document.getElementById('channelSearch').value.toLowerCase();
-            const pixKeyFilter = document.getElementById('pixKeyFilter').value.toLowerCase();
             
             filteredPayments = allPayments.filter(payment => {
                 // Data
@@ -1186,9 +1190,17 @@
                     }
                 }
                 
-                // Transfer Status
-                if (transferFilter !== 'all' && payment.transferStatus !== transferFilter) {
-                    return false;
+                // Status do repasse
+                if (transferFilter !== 'all') {
+                    let transferStatus = payment.transferStatus || 'pending';
+                    // Converter 'failed' para 'pending'
+                    if (transferStatus === 'failed') transferStatus = 'pending';
+                    
+                    if (transferFilter === 'completed') {
+                        if (transferStatus !== 'completed') return false;
+                    } else if (transferFilter === 'pending') {
+                        if (transferStatus === 'completed' || !payment.isApproved) return false;
+                    }
                 }
                 
                 // Canal
@@ -1196,11 +1208,6 @@
                     const channel = channels.find(c => c.id === payment.channelId);
                     const channelName = channel?.name || '';
                     if (!channelName.toLowerCase().includes(channelSearch)) return false;
-                }
-                
-                // Chave PIX
-                if (pixKeyFilter && payment.pixKey) {
-                    if (!payment.pixKey.toLowerCase().includes(pixKeyFilter)) return false;
                 }
                 
                 return true;
@@ -1218,7 +1225,7 @@
             if (filteredPayments.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="10" style="text-align: center; padding: 60px;">
+                        <td colspan="8" style="text-align: center; padding: 60px;">
                             <div style="font-size: 1.3rem; opacity: 0.7;">Nenhum pagamento encontrado</div>
                         </td>
                     </tr>`;
@@ -1237,62 +1244,48 @@
                 const date = payment.createdAt.toLocaleDateString('pt-BR');
                 const time = payment.createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                 
-                const totalAmount = payment.amount || 0;
-                const platformAmount = payment.split?.platform || (totalAmount * 0.08);
-                const channelAmount = payment.split?.channel || (totalAmount * 0.92);
-                
-                // Chave PIX
-                let pixKeyDisplay = 'Não configurado';
-                if (payment.pixKey) {
-                    pixKeyDisplay = `${payment.pixKeyType || 'PIX'}: ${payment.pixKey.substring(0, 20)}...`;
-                }
-                
-                // Status badge
+                // Status do pagamento
                 let statusBadge = '';
                 switch(payment.displayStatus) {
-                    case 'pending': statusBadge = '<span class="status-badge status-pending">⏳ Pendente</span>'; break;
-                    case 'approved': statusBadge = '<span class="status-badge status-approved">✅ Aprovado</span>'; break;
-                    case 'cancelled': statusBadge = '<span class="status-badge status-cancelled">❌ Cancelado</span>'; break;
-                    default: statusBadge = `<span class="status-badge status-pending">${payment.displayStatus}</span>`;
+                    case 'pending': 
+                        statusBadge = '<span class="status-badge status-pending">⏳ Pendente</span>'; 
+                        break;
+                    case 'approved': 
+                        statusBadge = '<span class="status-badge status-approved">✅ Aprovado</span>'; 
+                        break;
+                    case 'cancelled': 
+                        statusBadge = '<span class="status-badge status-cancelled">❌ Cancelado</span>'; 
+                        break;
+                    default: 
+                        statusBadge = '<span class="status-badge status-pending">⏳ Pendente</span>';
                 }
                 
-                // Transfer status badge (convertido de 'failed' para 'pending')
-                let transferStatus = payment.transferStatus === 'failed' ? 'pending' : payment.transferStatus;
+                // Status do repasse
                 let transferBadge = '';
-                switch(transferStatus) {
-                    case 'pending': transferBadge = '<span class="status-badge status-pending">⏳ Pendente</span>'; break;
-                    case 'completed': transferBadge = '<span class="status-badge status-completed">✅ Concluído</span>'; break;
-                    default: transferBadge = `<span class="status-badge status-pending">${transferStatus}</span>`;
+                if (payment.isApproved) {
+                    let transferStatus = payment.transferStatus || 'pending';
+                    // Converter 'failed' para 'pending'
+                    if (transferStatus === 'failed') transferStatus = 'pending';
+                    
+                    if (transferStatus === 'completed') {
+                        transferBadge = '<span class="status-badge status-completed">✅ Concluído</span>';
+                    } else {
+                        transferBadge = '<span class="status-badge status-pending">⏳ Pendente</span>';
+                    }
+                } else {
+                    transferBadge = '<span class="status-badge status-na">-</span>';
                 }
-                
-                // Botões de ação
-                const actions = `
-                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-                        <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;" 
-                                onclick="editPixForPayment('${payment.id}')">
-                            🔧 Editar PIX
-                        </button>
-                        ${payment.transferStatus === 'pending' ? `
-                            <button class="btn btn-success" style="padding: 5px 10px; font-size: 0.8rem;" 
-                                    onclick="markSingleAsCompleted('${payment.id}')">
-                                ✅ Concluir
-                            </button>
-                        ` : ''}
-                    </div>
-                `;
                 
                 html += `
                     <tr>
                         <td>${payment.paymentId || payment.id}</td>
                         <td>${date}<br><small>${time}</small></td>
                         <td>${channelName}<br><small>${payment.payerEmail || ''}</small></td>
-                        <td>${pixKeyDisplay}</td>
-                        <td><strong>R$ ${totalAmount.toFixed(2)}</strong></td>
-                        <td>R$ ${platformAmount.toFixed(2)}</td>
-                        <td><strong style="color: #3498db;">R$ ${channelAmount.toFixed(2)}</strong></td>
+                        <td><strong>R$ ${payment.amount.toFixed(2)}</strong></td>
+                        <td>R$ ${payment.platformAmount.toFixed(2)}</td>
+                        <td><strong style="color: #3498db;">R$ ${payment.channelAmount.toFixed(2)}</strong></td>
                         <td>${statusBadge}</td>
                         <td>${transferBadge}</td>
-                        <td>${actions}</td>
                     </tr>
                 `;
             });
@@ -1302,52 +1295,15 @@
             document.getElementById('totalCount').textContent = allPayments.length;
         }
 
-        // 🔧 EDITAR PIX PARA PAGAMENTO ESPECÍFICO
-        function editPixForPayment(paymentId) {
-            const payment = allPayments.find(p => p.id === paymentId);
-            if (!payment) return;
-            
-            document.getElementById('manualChannelId').value = payment.channelId || '';
-            document.getElementById('manualPixKey').value = payment.pixKey || '';
-            document.getElementById('manualPixKeyType').value = payment.pixKeyType || 'CPF';
-            document.getElementById('manualAccountHolder').value = payment.accountHolderName || '';
-            
-            document.getElementById('addPixModal').style.display = 'flex';
+        // 🔢 PAGINAÇÃO
+        function updatePagination() {
+            const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
+            document.getElementById('prevPage').disabled = currentPage === 1;
+            document.getElementById('nextPage').disabled = currentPage === totalPages || totalPages === 0;
+            document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
         }
 
-        // ✅ MARCAR ÚNICO PAGAMENTO COMO CONCLUÍDO
-        async function markSingleAsCompleted(paymentId) {
-            if (!confirm('Marcar este pagamento individual como repassado?')) return;
-            
-            showLoading();
-            try {
-                const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/markRepasseAsCompleted', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        channelId: 'individual',
-                        paymentIds: [paymentId]
-                    })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showAlert('✅ PAGAMENTO MARCADO COMO REPASSADO!', 'success');
-                    await loadDashboardData();
-                } else {
-                    throw new Error(result.error);
-                }
-                
-                hideLoading();
-            } catch (error) {
-                console.error('Erro marcar como concluído:', error);
-                showAlert(`❌ Erro: ${error.message}`, 'error');
-                hideLoading();
-            }
-        }
-
-        // ✅ CONFIRMAR REPASSE (MÚLTIPLOS PAGAMENTOS)
+        // ✅ CONFIRMAR REPASSE
         async function confirmRepasse(channelId, channelName, amount, paymentIds, pixKey, accountHolder) {
             const modalBody = document.getElementById('confirmModalBody');
             
@@ -1394,10 +1350,6 @@
                             <li>Após concluir a transferência, clique em "Marcar como Repassado"</li>
                         </ol>
                     </div>
-                    
-                    <div style="margin-top: 20px; padding: 15px; background: rgba(241, 196, 15, 0.1); border-radius: 8px; border: 1px solid rgba(241, 196, 15, 0.3);">
-                        <strong>⚠️ IMPORTANTE:</strong> Esta ação marcará todos os ${paymentIds.length} pagamentos como repassados.
-                    </div>
                 </div>
             `;
             
@@ -1435,39 +1387,6 @@
             };
         }
 
-        // 📈 ATUALIZAR RESUMO
-        function updateSummary() {
-            const approvedPayments = allPayments.filter(p => p.displayStatus === 'approved');
-            
-            if (approvedPayments.length === 0) {
-                document.getElementById('totalReceived').textContent = 'R$ 0,00';
-                document.getElementById('platformCommission').textContent = 'R$ 0,00';
-                document.getElementById('dueToChannels').textContent = 'R$ 0,00';
-                document.getElementById('totalPayments').textContent = '0';
-                return;
-            }
-            
-            const totalReceived = approvedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-            const totalPlatform = approvedPayments.reduce((sum, p) => sum + (p.split?.platform || ((p.amount || 0) * 0.08)), 0);
-            
-            const pending = approvedPayments.filter(p => p.transferStatus === 'pending');
-            const totalPending = pending.reduce((sum, p) => sum + (p.split?.channel || ((p.amount || 0) * 0.92)), 0);
-            
-            document.getElementById('totalReceived').textContent = `R$ ${totalReceived.toFixed(2)}`;
-            document.getElementById('platformCommission').textContent = `R$ ${totalPlatform.toFixed(2)}`;
-            document.getElementById('dueToChannels').textContent = `R$ ${totalPending.toFixed(2)}`;
-            document.getElementById('totalPayments').textContent = approvedPayments.length;
-            document.getElementById('dueChange').textContent = `${pending.length} pendentes`;
-        }
-
-        // 🔢 PAGINAÇÃO
-        function updatePagination() {
-            const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
-            document.getElementById('prevPage').disabled = currentPage === 1;
-            document.getElementById('nextPage').disabled = currentPage === totalPages || totalPages === 0;
-            document.getElementById('pageInfo').textContent = `Página ${currentPage} de ${totalPages}`;
-        }
-
         // 🔧 SALVAR PIX MANUALMENTE
         async function saveManualPix() {
             const channelId = document.getElementById('manualChannelId').value.trim();
@@ -1498,11 +1417,6 @@
                 if (result.success) {
                     showAlert('✅ CHAVE PIX SALVA COM SUCESSO!', 'success');
                     document.getElementById('addPixModal').style.display = 'none';
-                    
-                    // Limpar formulário
-                    document.getElementById('manualChannelId').value = '';
-                    document.getElementById('manualPixKey').value = '';
-                    document.getElementById('manualAccountHolder').value = '';
                     
                     // Recarregar dados
                     await loadDashboardData();
@@ -1626,21 +1540,12 @@
                 document.getElementById('statusFilter').value = 'approved';
                 document.getElementById('transferStatusFilter').value = 'all';
                 document.getElementById('channelSearch').value = '';
-                document.getElementById('pixKeyFilter').value = '';
                 applyFilters();
             });
             
             document.getElementById('refreshData').addEventListener('click', loadDashboardData);
             document.getElementById('refreshRepasses').addEventListener('click', loadPendingRepasses);
             document.getElementById('exportBtn').addEventListener('click', exportToCSV);
-            
-            document.getElementById('addPixBtn').addEventListener('click', function() {
-                document.getElementById('manualChannelId').value = '';
-                document.getElementById('manualPixKey').value = '';
-                document.getElementById('manualPixKeyType').value = 'CPF';
-                document.getElementById('manualAccountHolder').value = '';
-                document.getElementById('addPixModal').style.display = 'flex';
-            });
             
             document.getElementById('saveManualPix').addEventListener('click', saveManualPix);
             
