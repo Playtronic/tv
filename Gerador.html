@@ -2349,6 +2349,26 @@ function determinarDataEstreia(dadosGerador) {
         // Função para gerar HTML do canal (ATUALIZADA COM NOVA LÓGICA DE DATA)
 function gerarHTMLdoCanal(dados, documentId) {
 
+// 🔥 NÃO MAIS EMBUTIR URLs NO HTML
+// Em vez disso, vamos criar um sistema de IDs de vídeo
+const TV_PROGRAMS_IDS = dados.programas ? dados.programas.map((program, index) => ({
+    id: index,
+    name: program.name,
+    videoCount: program.videos ? program.videos.length : 0
+})) : [];
+
+const TV_PLAYLIST_IDS = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
+    id: index,
+    name: video.name
+})) : [];
+
+const TV_COMMERCIALS_IDS = dados.comerciais ? dados.comerciais.map((com, index) => ({
+    id: index,
+    name: com.name || `Comercial ${index + 1}`
+})) : [];
+
+const CHANNEL_ID_FOR_VIDEOS = documentId; // Usar o ID do documento como referência
+
     const isOffline = dados.isOffline || false;
     const visibility = dados.visibility || 'brazil';
     const isAdultContent = dados.isAdultContent || false;
@@ -2510,24 +2530,12 @@ console.log('CHANNEL_ID final:', channelId);
             checkCountry();
         });
     <\/script>` : '';
-
-    // Gerar IDs únicos para cada vídeo (NÃO enviar URLs)
-const programasArray = dados.programas ? dados.programas.map((program, index) => ({
-    id: index,
-    name: program.name,
-    videoIds: program.videos ? program.videos.map((_, i) => `prog_${index}_${i}`) : []
-})) : [];
-
-const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
-    id: index,
-    name: video.name,
-    videoId: `playlist_${index}`
-})) : [];
-
-const comerciaisArray = dados.comerciais ? dados.comerciais.map((com, index) => 
-    `comercial_${index}`
-) : [];
-
+    
+    // Gerar lista de programas (modo grade)// 🔥 NÃO ENVIAR URLs - APENAS IDs
+// As URLs serão buscadas do Firebase via Cloud Function
+const programasArray = TV_PROGRAMS_IDS;
+const playlistArray = TV_PLAYLIST_IDS;
+const comerciaisArray = TV_COMMERCIALS_IDS;
     
     // Redes sociais
     let socialMediaHTML = '';
@@ -5269,132 +5277,7 @@ ${supportButtonHTML}${customButtonHTML}
         
             // ==================== FUNÇÕES PRINCIPAIS ====================
 
-// Função para buscar URLs do Firebase (global para ser acessível)
-window.buscarUrlDoFirebase = async function(tipo, videoId) {
-    if (!videoId || !CHANNEL_ID) {
-        console.log('ID do vídeo ou canal não fornecido');
-        return null;
-    }
-    
-    try {
-        // Cache simples para evitar múltiplas requisições
-        if (!window.cacheUrls) window.cacheUrls = {};
-        const cacheKey = tipo + '_' + videoId;
-        
-        if (window.cacheUrls[cacheKey]) {
-            return window.cacheUrls[cacheKey];
-        }
-        
-        const urlsRef = firebase.firestore().collection('channelUrls').doc(CHANNEL_ID);
-        const doc = await urlsRef.get();
-        
-        if (doc.exists) {
-            const data = doc.data();
-            
-            // Buscar no objeto correto
-            let url = null;
-            if (tipo === 'programas' && data.programas) {
-                url = data.programas[videoId];
-            } else if (tipo === 'playlist' && data.playlist) {
-                url = data.playlist[videoId];
-            } else if (tipo === 'comerciais' && data.comerciais) {
-                url = data.comerciais[videoId];
-            }
-            
-            if (url) {
-                window.cacheUrls[cacheKey] = url;
-                console.log('URL encontrada no Firebase para:', videoId);
-                return url;
-            }
-        }
-        
-        console.warn('URL não encontrada no Firebase:', videoId, 'Tipo:', tipo);
-        return null;
-        
-    } catch (error) {
-        console.error('Erro ao buscar URL do Firebase:', error);
-        return null;
-    }
-};
-
-  // Sistema de proteção de URLs - Buscar do Firebase
-let cachedVideoUrls = {
-    programas: {},
-    playlist: {},
-    comerciais: {}
-};
-
-// Função para buscar URLs do Firebase
-async function buscarUrlDoFirebase(tipo, videoId) {
-    if (!videoId) return null;
-    
-    // Verificar cache primeiro
-    if (cachedVideoUrls[tipo] && cachedVideoUrls[tipo][videoId]) {
-        return cachedVideoUrls[tipo][videoId];
-    }
-    
-    try {
-        const urlsRef = firebase.firestore().collection('channelUrls').doc(CHANNEL_ID);
-        const doc = await urlsRef.get();
-        
-        if (doc.exists) {
-            const data = doc.data();
-            cachedVideoUrls.programas = data.programas || {};
-            cachedVideoUrls.playlist = data.playlist || {};
-            cachedVideoUrls.comerciais = data.comerciais || {};
-            
-            if (cachedVideoUrls[tipo] && cachedVideoUrls[tipo][videoId]) {
-                console.log('URL encontrada no Firebase para:', videoId);
-                return cachedVideoUrls[tipo][videoId];
-            }
-        }
-        
-        console.warn('URL não encontrada no Firebase:', videoId);
-        return null;
-        
-    } catch (error) {
-        console.error('Erro ao buscar URL do Firebase:', error);
-        return null;
-    }
-}
-
-// Modificar função carregarVideoHTML5 para usar URLs protegidas
-async function carregarVideoHTML5Protegido(videoId, tipo = 'programas', iniciarNoPercentual = 0, autoplay = true) {
-    const videoUrl = await buscarUrlDoFirebase(tipo, videoId);
-    
-    if (!videoUrl) {
-        console.error('Não foi possível obter a URL do vídeo:', videoId);
-        
-        // Tentar próximo vídeo
-        if (currentState === 'program') {
-            const proximoSlot = getNextSlot();
-            reproduzirPrograma(proximoSlot, 0);
-        }
-        return;
-    }
-    
-    // Usar a função original com a URL obtida do Firebase
-    carregarVideoHTML5(videoUrl, iniciarNoPercentual, autoplay);
-}
-
-// Modificar função carregarVideoYouTube para usar URLs protegidas
-async function carregarVideoYouTubeProtegido(videoId, tipo = 'programas', iniciarNoPercentual = 0, autoplay = true) {
-    const videoUrl = await buscarUrlDoFirebase(tipo, videoId);
-    
-    if (!videoUrl) {
-        console.error('Não foi possível obter a URL do vídeo:', videoId);
-        
-        // Tentar próximo vídeo
-        if (currentState === 'program') {
-            const proximoSlot = getNextSlot();
-            reproduzirPrograma(proximoSlot, 0);
-        }
-        return;
-    }
-    
-    // Usar a função original com a URL obtida do Firebase
-    carregarVideoYouTube(videoUrl, iniciarNoPercentual, autoplay);
-}
+  
 
         // Calcular percentual decorrido do slot atual (COM LOGS) - VERSÃO EM SEGUNDOS
 function calcularPercentualSlot() {
@@ -5693,8 +5576,6 @@ function atualizarIconeVolume(volume) {
 
 
               function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-
-
         // Evitar múltiplos carregamentos simultâneos
         if (isLoadingVideo) {
             console.log('Já está carregando um vídeo, ignorando chamada duplicada');
@@ -5893,7 +5774,7 @@ videoElement.playsInline = true;
 }
 
         
-        async function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
+        function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
             const videoInfo = obterVideoParaSlot(slotIndex);
             
             if (!videoInfo) {
@@ -5972,55 +5853,17 @@ if (ENABLE_DEBUG) {
             if (customControls) {
                 customControls.classList.remove('commercial-controls');
             }
-            // Sistema de URLs protegidas
-let videoUrlParaUsar = '';
-let usarSistemaProtegido = false;
-
-// Verificar se o sistema protegido está disponível
-if (typeof window.buscarUrlDoFirebase === 'function') {
-    usarSistemaProtegido = true;
-    
-    // Gerar ID do vídeo baseado no modo
-    let videoId = '';
-    let tipo = 'programas';
-    
-    if (PROGRAMMING_MODE === 'grade') {
-        // Modo grade
-        if (videoInfo.programaIndex !== undefined && videoInfo.videoIndex !== undefined) {
-            videoId = 'prog_' + videoInfo.programaIndex + '_' + videoInfo.videoIndex;
-            tipo = 'programas';
-        }
-    } else {
-        // Modo playlist
-        if (videoInfo.slotAjustado !== undefined) {
-            videoId = 'playlist_' + videoInfo.slotAjustado;
-            tipo = 'playlist';
-        }
-    }
-    
-    // Se conseguiu gerar um ID válido
-    if (videoId) {
-        // Buscar URL do Firebase
-        const urlProtegida = await window.buscarUrlDoFirebase(tipo, videoId);
-        if (urlProtegida) {
-            videoUrlParaUsar = urlProtegida;
-        }
-    }
-}
-
-// Se não conseguiu usar sistema protegido, usar URL original
-if (!videoUrlParaUsar) {
-    videoUrlParaUsar = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex || 0] : '');
-}
-
-// Carregar o vídeo
-if (videoUrlParaUsar && (videoUrlParaUsar.includes('youtube.com') || videoUrlParaUsar.includes('youtu.be'))) {
-    carregarVideoYouTube(videoUrlParaUsar, iniciarNoPercentual, true);
-} else if (videoUrlParaUsar) {
-    carregarVideoHTML5(videoUrlParaUsar, iniciarNoPercentual, true);
-}
+            
+            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            
+            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+            } else {
+                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+            }
             
             currentState = 'program';
+        }
         
     // ==================== ATUALIZAÇÃO PERIÓDICA DO DEBUG ====================
     
@@ -6094,14 +5937,6 @@ if (videoUrlParaUsar && (videoUrlParaUsar.includes('youtube.com') || videoUrlPar
         
         // Obter próximo comercial
         let commercialUrl = obterProximoComercial();
-
-// Converter ID para URL real
-if (commercialUrl && commercialUrl.startsWith('comercial_')) {
-    const comercialReal = await buscarUrlDoFirebase('comerciais', commercialUrl);
-    if (comercialReal) {
-        commercialUrl = comercialReal;
-    }
-}
         
         if (!commercialUrl) {
             console.log('Nenhum comercial disponível, indo para próximo programa');
@@ -7011,67 +6846,6 @@ console.log('📌 HTML gerado com ID do documento:', currentChannelId);
                 return false;
             }
         }
-
-        // ==================== FUNÇÃO PARA SALVAR URLs NO FIREBASE (PROTEÇÃO) ====================
-        // Função para salvar URLs no Firebase (separado do HTML)
-        async function salvarUrlsNoFirebase(channelId, videosData) {
-            if (!currentUser) {
-                console.error("Usuário não autenticado para salvar URLs");
-                return false;
-            }
-            
-            try {
-                const urlsRef = db.collection('channelUrls').doc(channelId);
-                
-                const urlsToSave = {
-                    programas: {},
-                    playlist: {},
-                    comerciais: {},
-                    userId: currentUser.uid,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-                
-                // Salvar URLs dos programas
-                if (videosData.programas && videosData.programas.length > 0) {
-                    videosData.programas.forEach((program, programIndex) => {
-                        if (program.videos && program.videos.length > 0) {
-                            program.videos.forEach((url, videoIndex) => {
-                                urlsToSave.programas[`prog_${programIndex}_${videoIndex}`] = url;
-                            });
-                        }
-                    });
-                }
-                
-                // Salvar URLs da playlist
-                if (videosData.playlistVideos && videosData.playlistVideos.length > 0) {
-                    videosData.playlistVideos.forEach((video, index) => {
-                        urlsToSave.playlist[`playlist_${index}`] = video.url;
-                    });
-                }
-                
-                // Salvar URLs dos comerciais
-                if (videosData.comerciais && videosData.comerciais.length > 0) {
-                    videosData.comerciais.forEach((com, index) => {
-                        if (typeof com === 'object' && com.url) {
-                            urlsToSave.comerciais[`comercial_${index}`] = com.url;
-                        } else if (typeof com === 'string') {
-                            urlsToSave.comerciais[`comercial_${index}`] = com;
-                        }
-                    });
-                }
-                
-                await urlsRef.set(urlsToSave, { merge: true });
-                console.log("URLs salvas no Firebase com sucesso para o canal:", channelId);
-                return true;
-                
-            } catch (error) {
-                console.error("Erro ao salvar URLs no Firebase:", error);
-                return false;
-            }
-        }
-        
-
-
 // ==================== FUNÇÕES DE VERIFICAÇÃO DE MONETIZAÇÃO ====================
 
 // 🔥 FUNÇÃO ATUALIZADA: Verificar se canal tem monetização ativa (SEMPRE busca atual)
@@ -7618,30 +7392,12 @@ const dadosParaEnvio = {
     monetization: monetizationData || dadosNormalizados.monetization || null
 };
 
-
-try {
-    // Salvar URLs no Firebase (separadamente do HTML)
-    if (currentChannelId) {
-        console.log("💾 Salvando URLs no Firebase para o canal:", currentChannelId);
-        await salvarUrlsNoFirebase(currentChannelId, {
-            programas: tvData.programs,
-            playlistVideos: tvData.playlistVideos,
-            comerciais: tvData.commercials
-        });
-    } else {
-        console.warn("⚠️ currentChannelId não definido, não foi possível salvar URLs no Firebase");
-    }
-} catch (urlError) {
-    console.error("❌ Erro ao salvar URLs no Firebase:", urlError);
-    // Não interrompe a publicação, apenas loga o erro
-}
-
 // 🔥 LOG ADICIONAL PARA VERIFICAR OS DADOS ENVIADOS
 console.log("dadosParaEnvio.customButton:", dadosParaEnvio.customButton);
 console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
 
-try {
-    const publishingStatus = document.getElementById('publishingStatus');
+    try {
+        const publishingStatus = document.getElementById('publishingStatus');
         const processingMessage = document.getElementById('processingMessage');
         const successMessage = document.getElementById('successMessage');
         const serverResult = document.getElementById('serverResult');
