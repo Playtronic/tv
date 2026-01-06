@@ -2436,17 +2436,7 @@ function gerarHTMLdoCanal(dados, documentId) {
         releaseDate: dados.release || ''
     });
     
-    const channelId = documentId || dados.name.toLowerCase()
-    .replace(/[^a-z0-9]/g, '-')
-    .replace(/-+/g, '-');
-const CHANNEL_ID = "${channelId}";
-
-// 🔥 NOVO: Adicionar log para debug
-console.log('=== PIX PAYMENT DEBUG ===');
-console.log('Document ID (Firestore):', documentId);
-console.log('Channel Name:', dados.name);
-console.log('CHANNEL_ID final:', channelId);
-    
+        
     const debugSection = (!isOffline && dados.enableDebug) ? `
     <div class="debug-info">
         <div class="program-item">
@@ -3439,40 +3429,48 @@ const syncSystemScript = `
 
                 
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-                function cleanupInactiveViewers() {
-                    if (!CHANNEL_ID) return;
-                    
-                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                    
-                    viewersRef.once('value').then(snapshot => {
-                        if (!snapshot.exists()) return;
-                        
-                        const viewers = snapshot.val();
-                        const now = Date.now();
-                        const updates = {};
-                        
-                        Object.keys(viewers).forEach(key => {
-                            const viewer = viewers[key];
-                            if (viewer && viewer.lastHeartbeat) {
-                                const timeDiff = now - viewer.lastHeartbeat;
-                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
-                                    updates[key] = null;
-                                }
-                            } else if (viewer && viewer.timestamp) {
-                                const timeDiff = now - viewer.timestamp;
-                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
-                                    updates[key] = null;
-                                }
-                            }
-                        });
-                        
-                        if (Object.keys(updates).length > 0) {
-                            viewersRef.update(updates)
-                                .then(() => console.log('Espectadores inativos removidos'))
-                                .catch(err => console.log('Não foi possível limpar espectadores'));
-                        }
-                    });
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
