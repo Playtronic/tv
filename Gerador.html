@@ -2583,10 +2583,6 @@ console.log('CHANNEL_ID final:', channelId);
         });
     <\/script>` : '';
     
-    // ==================== SISTEMA DE VÍDEOS PROTEGIDOS ====================
-    ${videoSecuritySystem}
-    
-
     // Gerar lista de programas (modo grade)
     const programasArray = dados.programas ? dados.programas.map((program, index) => ({
         id: index,
@@ -3693,6 +3689,19 @@ const syncSystemScript = `
                         // NOVO: FUNÇÃO DE CÁLCULO DE DIAS NO CANAL
 const diasScript = `
 <script>
+    // ==================== DEFINIÇÕES DE FUNÇÕES DE VÍDEO ====================
+    if (typeof getGradeVideo === 'undefined') {
+        function getGradeVideo(programIndex, dayIndex) {
+            return 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + dayIndex;
+        }
+    }
+    
+    if (typeof getPlaylistVideoByIndex === 'undefined') {
+        function getPlaylistVideoByIndex(index) {
+            return 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + index;
+        }
+    }
+    
     // ==================== NOVAS FUNÇÕES DE CÁLCULO ====================
     
     // Função para calcular dias desde a estreia (PARA TODOS OS MODOS)
@@ -3738,69 +3747,67 @@ const diasScript = `
     }
     
     // Função para calcular slot atual no modo PLAYLIST (CORRIGIDA - BASE 1)
-    // Função para calcular slot atual no modo PLAYLIST (CORRIGIDA - BASE 1)
-function calcularSlotAtualPlaylist() {
-    const agora = new Date();
-    
-    // Log para debug
-    console.log('=== calcularSlotAtualPlaylist() ===');
-    console.log('RELEASE_DATE:', RELEASE_DATE);
-    console.log('Agora:', agora.toLocaleString());
-    
-    const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
-    const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
-    
-    console.log('Data de estreia (6h):', dataEstreia.toLocaleString());
-    
-    const diferencaMs = agora.getTime() - dataEstreia.getTime();
-    const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
-    
-    console.log('Diferença em ms:', diferencaMs);
-    console.log('Minutos desde estreia:', minutosDesdeEstreia);
-    
-    if (minutosDesdeEstreia < 0) {
-        console.log('Ainda não começou a estreia, retornando slot 1');
-        return 1;
+    function calcularSlotAtualPlaylist() {
+        const agora = new Date();
+        
+        // Log para debug
+        console.log('=== calcularSlotAtualPlaylist() ===');
+        console.log('RELEASE_DATE:', RELEASE_DATE);
+        console.log('Agora:', agora.toLocaleString());
+        
+        const [anoEstreia, mesEstreia, diaEstreia] = RELEASE_DATE.split('-').map(Number);
+        const dataEstreia = new Date(anoEstreia, mesEstreia - 1, diaEstreia, 6, 0, 0);
+        
+        console.log('Data de estreia (6h):', dataEstreia.toLocaleString());
+        
+        const diferencaMs = agora.getTime() - dataEstreia.getTime();
+        const minutosDesdeEstreia = Math.floor(diferencaMs / (1000 * 60));
+        
+        console.log('Diferença em ms:', diferencaMs);
+        console.log('Minutos desde estreia:', minutosDesdeEstreia);
+        
+        if (minutosDesdeEstreia < 0) {
+            console.log('Ainda não começou a estreia, retornando slot 1');
+            return 1;
+        }
+        
+        const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
+        const totalVideos = TV_PLAYLIST.length;
+        
+        console.log('Slot bruto (antes da normalização):', slotAtualBruto);
+        console.log('Total de vídeos na playlist:', totalVideos);
+        
+        if (totalVideos <= 0) {
+            console.log('Playlist vazia, retornando slot 1');
+            return 1;
+        }
+        
+        const slotNormalizado = ((slotAtualBruto - 1) % totalVideos) + 1;
+        
+        console.log('Slot normalizado (final):', slotNormalizado);
+        console.log('=============================');
+        
+        return slotNormalizado;
     }
-    
-    const slotAtualBruto = Math.floor(minutosDesdeEstreia / 25) + 1;
-    const totalVideos = TV_PLAYLIST.length;
-    
-    console.log('Slot bruto (antes da normalização):', slotAtualBruto);
-    console.log('Total de vídeos na playlist:', totalVideos);
-    
-    if (totalVideos <= 0) {
-        console.log('Playlist vazia, retornando slot 1');
-        return 1;
-    }
-    
-    const slotNormalizado = ((slotAtualBruto - 1) % totalVideos) + 1;
-    
-    console.log('Slot normalizado (final):', slotNormalizado);
-    console.log('=============================');
-    
-    return slotNormalizado;
-}
-
     
     // Função para ajustar slot no modo PLAYLIST quando excede o total (base 0)
     function ajustarSlotPlaylist(slotAtual, totalSlotsCanal) {
-    if (totalSlotsCanal <= 0) return 0;
-    
-    let slotAjustado = slotAtual;
-    
-    // Se for negativo, retorna 0 (que será convertido para slot 1)
-    if (slotAjustado < 0) {
-        return 0;
+        if (totalSlotsCanal <= 0) return 0;
+        
+        let slotAjustado = slotAtual;
+        
+        // Se for negativo, retorna 0 (que será convertido para slot 1)
+        if (slotAjustado < 0) {
+            return 0;
+        }
+        
+        // Subtrair o total de slots até que seja menor que o total
+        while (slotAjustado >= totalSlotsCanal) {
+            slotAjustado -= totalSlotsCanal;
+        }
+        
+        return slotAjustado; // Retorna base 0
     }
-    
-    // Subtrair o total de slots até que seja menor que o total
-    while (slotAjustado >= totalSlotsCanal) {
-        slotAjustado -= totalSlotsCanal;
-    }
-    
-    return slotAjustado; // Retorna base 0
-}
     
     // Função para calcular slot atual no modo GRADE
     function calcularSlotAtualGrade() {
@@ -3861,57 +3868,40 @@ function calcularSlotAtualPlaylist() {
         return videoAjustado;
     }
     
-    
     // Função unificada para calcular slot atual baseado no modo
-function calcularSlotAtual() {
-    if (PROGRAMMING_MODE === 'grade') {
-        return calcularSlotAtualGrade();
-    } else {
-        return calcularSlotAtualPlaylist();
-    }
-}
-    function obterSlotParaExibicao() {
-    // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
-    if (currentState === 'commercial') {
-        console.log('Em intervalo comercial, mantendo slot atual:', currentPlayingSlot);
-        return currentPlayingSlot;
-    }
-    
-    if (PROGRAMMING_MODE === 'grade') {
-        return calcularSlotAtual();
-    } else {
-        // Modo Playlist: calcular slot usando a função que já normaliza
-        return calcularSlotAtualPlaylist();
-    }
-}
-    
-    // Função para verificar se precisa recarregar a página no modo GRADE
-    function verificarRecarregamentoGrade() {
-        if (PROGRAMMING_MODE !== 'grade') return;
-        
-        const agora = new Date();
-        const horas = agora.getHours();
-        const minutos = agora.getMinutes();
-        const segundos = agora.getSeconds();
-        
-        // Se estiver entre 06:00:00 e 06:24:59
-        if (horas === 6 && minutos >= 0 && minutos <= 24) {
-            // E o canal não estiver no slot 1
-            if (currentPlayingSlot !== 1) {
-                console.log('Recarregando página para iniciar novo dia com slot 1');
-                location.reload();
-            }
+    function calcularSlotAtual() {
+        if (PROGRAMMING_MODE === 'grade') {
+            return calcularSlotAtualGrade();
+        } else {
+            return calcularSlotAtualPlaylist();
         }
     }
+    
+    function obterSlotParaExibicao() {
+        // SE ESTIVER EM INTERVALO COMERCIAL, NÃO MUDAR O SLOT
+        if (currentState === 'commercial') {
+            console.log('Em intervalo comercial, mantendo slot atual:', currentPlayingSlot);
+            return currentPlayingSlot;
+        }
+        
+        if (PROGRAMMING_MODE === 'grade') {
+            return calcularSlotAtual();
+        } else {
+            // Modo Playlist: calcular slot usando a função que já normaliza
+            return calcularSlotAtualPlaylist();
+        }
+    }
+    
     // Função principal para obter vídeo para o slot atual (ATUALIZADA)
     function obterVideoParaSlot(slotIndex) {
-    if (PROGRAMMING_MODE === 'grade') {
-        // Modo Grade
-        const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
+        if (PROGRAMMING_MODE === 'grade') {
+            // Modo Grade
+            const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
             currentDay = diasDesdeEstreia;
+            
             if (slotIndex === currentPlayingSlot) {
-    currentPlayingSlot = slotIndex;
-}
+                currentPlayingSlot = slotIndex;
+            }
             
             if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
                 return null;
@@ -3933,7 +3923,7 @@ function calcularSlotAtual() {
             
             return {
                 programa: programa,
-                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
+                videoUrl: getGradeVideo(programIndex, currentVideoIndex),
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -3982,24 +3972,43 @@ function calcularSlotAtual() {
             }
             
             // ATENÇÃO: Só atualiza se for o slot principal, não para "A Seguir" ou "Depois"
-// Verifica se é o slot atual que está sendo reproduzido
-if (slotIndex === currentPlayingSlot) {
-    currentPlayingSlot = slotAjustadoBase1;
-}
+            // Verifica se é o slot atual que está sendo reproduzido
+            if (slotIndex === currentPlayingSlot) {
+                currentPlayingSlot = slotAjustadoBase1;
+            }
             
             console.log('Vídeo selecionado:', videoInfo.name || 'Sem nome');
             console.log('Slot exibido (base 1):', currentPlayingSlot);
             console.log('===============================');
             
             return {
-                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
+                videoUrl: getPlaylistVideoByIndex(indiceArray),
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
         }
     }
+    
+    // Função para verificar se precisa recarregar a página no modo GRADE
+    function verificarRecarregamentoGrade() {
+        if (PROGRAMMING_MODE !== 'grade') return;
+        
+        const agora = new Date();
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        const segundos = agora.getSeconds();
+        
+        // Se estiver entre 06:00:00 e 06:24:59
+        if (horas === 6 && minutos >= 0 && minutos <= 24) {
+            // E o canal não estiver no slot 1
+            if (currentPlayingSlot !== 1) {
+                console.log('Recarregando página para iniciar novo dia com slot 1');
+                location.reload();
+            }
+        }
+    }
 <\/script>
-`;    
+`;  
 
            
             // HTML do canal
