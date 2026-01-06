@@ -2441,16 +2441,24 @@ function gerarHTMLdoCanal(dados, documentId) {
     .replace(/-+/g, '-');
 const CHANNEL_ID = "${channelId}";
 
-// 🔥 🔥 🔥 NOVO: Sistema de carregamento de vídeos protegidos
+
+
+    // ==================== SISTEMA DE VÍDEOS PROTEGIDOS ====================
+
 const videoSecuritySystem = `
 <script>
-    // ==================== SISTEMA DE VÍDEOS PROTEGIDOS ====================
     let channelVideosCache = {};
     let videosLoaded = false;
     
     async function loadProtectedVideos() {
         try {
-            const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getChannelVideos?channelId=${channelId}');
+            console.log('🔍 Carregando vídeos protegidos para canal: ${dados.name}');
+            const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getChannelVideos?channelId=${dados.name}');
+            
+            if (!response.ok) {
+                throw new Error('Erro na resposta: ' + response.status);
+            }
+            
             const result = await response.json();
             
             if (result.success) {
@@ -2461,6 +2469,12 @@ const videoSecuritySystem = `
                 // Iniciar player após carregar vídeos
                 if (typeof iniciarPlayer === 'function') {
                     setTimeout(iniciarPlayer, 500);
+                }
+            } else {
+                console.error('❌ Erro ao carregar vídeos:', result.error);
+                // Fallback: tentar carregar player mesmo sem vídeos
+                if (typeof iniciarPlayer === 'function') {
+                    setTimeout(iniciarPlayer, 1000);
                 }
             }
         } catch (error) {
@@ -2488,17 +2502,50 @@ const videoSecuritySystem = `
     }
     
     // Função para obter vídeo por ID (para modo playlist)
-    function getPlaylistVideoByIndex(index) {
-    // URL direta da Cloud Function
-    return 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + index;
-}
-
+    async function getPlaylistVideoByIndex(index) {
+        try {
+            const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=${dados.name}&videoType=playlist&index1=' + index);
+            
+            if (!response.ok) {
+                throw new Error('Erro na resposta: ' + response.status);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                return result.url;
+            } else {
+                console.error('❌ Erro ao obter vídeo:', result.error);
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao obter vídeo:', error);
+            return null;
+        }
+    }
     
     // Função para obter vídeo por programa e dia (para modo grade)
-function getGradeVideo(programIndex, dayIndex) {
-    // URL direta da Cloud Function
-    return 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + dayIndex;
-}
+    async function getGradeVideo(programIndex, dayIndex) {
+        try {
+            const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=${dados.name}&videoType=grade&index1=' + programIndex + '&index2=' + dayIndex);
+            
+            if (!response.ok) {
+                throw new Error('Erro na resposta: ' + response.status);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                return result.url;
+            } else {
+                console.error('❌ Erro ao obter vídeo:', result.error);
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao obter vídeo:', error);
+            return null;
+        }
+    }
     
     // Carregar vídeos quando a página carregar
     document.addEventListener('DOMContentLoaded', function() {
@@ -6843,10 +6890,12 @@ async function publicarCanal(nomeCanal, dadosGerador) {
     try {
         console.log("Iniciando publicação do canal:", nomeCanal);
         
-        // 🔥 NOVO: Salvar vídeos no Firestore antes de gerar HTML
+        // 🔥 NOVO: Salvar vídeos no Firestore ANTES de gerar HTML
         const videosParaSalvar = dadosGerador.programmingMode === 'grade' 
             ? dadosGerador.programas 
             : dadosGerador.playlistVideos;
+        
+        console.log("📤 Enviando vídeos para proteção...");
         
         const saveVideosResponse = await fetch("https://us-central1-playtronic-tv.cloudfunctions.net/saveChannelVideos", {
             method: "POST",
@@ -6854,7 +6903,7 @@ async function publicarCanal(nomeCanal, dadosGerador) {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
-                channelId: currentChannelId,
+                channelId: nomeCanal, // 🔥 ENVIAR NOME DO CANAL, não o ID do Firestore
                 videos: videosParaSalvar,
                 programmingMode: dadosGerador.programmingMode
             })
@@ -6865,7 +6914,7 @@ async function publicarCanal(nomeCanal, dadosGerador) {
         }
         
         const saveVideosResult = await saveVideosResponse.json();
-        console.log("Vídeos salvos no Firestore:", saveVideosResult);
+        console.log("✅ Vídeos salvos no Firestore:", saveVideosResult);
         
         // Gerar HTML do canal (agora sem URLs expostas)
         const htmlCanal = gerarHTMLdoCanal(dadosGerador, currentChannelId);
