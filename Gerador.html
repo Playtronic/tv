@@ -2349,26 +2349,6 @@ function determinarDataEstreia(dadosGerador) {
         // Função para gerar HTML do canal (ATUALIZADA COM NOVA LÓGICA DE DATA)
 function gerarHTMLdoCanal(dados, documentId) {
 
-// 🔥 NÃO MAIS EMBUTIR URLs NO HTML
-// Em vez disso, vamos criar um sistema de IDs de vídeo
-const TV_PROGRAMS_IDS = dados.programas ? dados.programas.map((program, index) => ({
-    id: index,
-    name: program.name,
-    videoCount: program.videos ? program.videos.length : 0
-})) : [];
-
-const TV_PLAYLIST_IDS = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
-    id: index,
-    name: video.name
-})) : [];
-
-const TV_COMMERCIALS_IDS = dados.comerciais ? dados.comerciais.map((com, index) => ({
-    id: index,
-    name: com.name || `Comercial ${index + 1}`
-})) : [];
-
-const CHANNEL_ID_FOR_VIDEOS = documentId; // Usar o ID do documento como referência
-
     const isOffline = dados.isOffline || false;
     const visibility = dados.visibility || 'brazil';
     const isAdultContent = dados.isAdultContent || false;
@@ -2432,7 +2412,6 @@ const CHANNEL_ID_FOR_VIDEOS = documentId; // Usar o ID do documento como referê
         console.log("customButtonHTML:", customButtonHTML ? "Sim" : "Não");
     }
     
-    // Resto do código da função permanece igual...
     // Gerar grade de programação (apenas para modo grade)
     let GRADE = [];
     let totalPrograms = 0;
@@ -2461,6 +2440,73 @@ const CHANNEL_ID_FOR_VIDEOS = documentId; // Usar o ID do documento como referê
     .replace(/[^a-z0-9]/g, '-')
     .replace(/-+/g, '-');
 const CHANNEL_ID = "${channelId}";
+
+// 🔥 🔥 🔥 NOVO: Sistema de carregamento de vídeos protegidos
+const videoSecuritySystem = `
+<script>
+    // ==================== SISTEMA DE VÍDEOS PROTEGIDOS ====================
+    let channelVideosCache = {};
+    let videosLoaded = false;
+    
+    async function loadProtectedVideos() {
+        try {
+            const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/getChannelVideos?channelId=${channelId}');
+            const result = await response.json();
+            
+            if (result.success) {
+                channelVideosCache = result.videos;
+                videosLoaded = true;
+                console.log('✅ Vídeos carregados do Firestore:', Object.keys(channelVideosCache).length);
+                
+                // Iniciar player após carregar vídeos
+                if (typeof iniciarPlayer === 'function') {
+                    setTimeout(iniciarPlayer, 500);
+                }
+            }
+        } catch (error) {
+            console.error('❌ Erro ao carregar vídeos:', error);
+            // Fallback: tentar carregar player mesmo sem vídeos
+            if (typeof iniciarPlayer === 'function') {
+                setTimeout(iniciarPlayer, 1000);
+            }
+        }
+    }
+    
+    function getProtectedVideoUrl(videoId) {
+        if (!videosLoaded) {
+            console.warn('⚠️ Vídeos ainda não carregados');
+            return null;
+        }
+        
+        const videoData = channelVideosCache[videoId];
+        if (!videoData) {
+            console.error('❌ Vídeo não encontrado:', videoId);
+            return null;
+        }
+        
+        return videoData.url;
+    }
+    
+    // Função para obter vídeo por ID (para modo playlist)
+    function getPlaylistVideoByIndex(index) {
+    // URL direta da Cloud Function
+    return 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + index;
+}
+
+    
+    // Função para obter vídeo por programa e dia (para modo grade)
+function getGradeVideo(programIndex, dayIndex) {
+    // URL direta da Cloud Function
+    return 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + dayIndex;
+}
+    
+    // Carregar vídeos quando a página carregar
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 Inicializando sistema de vídeos protegidos...');
+        loadProtectedVideos();
+    });
+<\/script>
+`;
 
 // 🔥 NOVO: Adicionar log para debug
 console.log('=== PIX PAYMENT DEBUG ===');
@@ -2531,11 +2577,22 @@ console.log('CHANNEL_ID final:', channelId);
         });
     <\/script>` : '';
     
-    // Gerar lista de programas (modo grade)// 🔥 NÃO ENVIAR URLs - APENAS IDs
-// As URLs serão buscadas do Firebase via Cloud Function
-const programasArray = TV_PROGRAMS_IDS;
-const playlistArray = TV_PLAYLIST_IDS;
-const comerciaisArray = TV_COMMERCIALS_IDS;
+    // Gerar lista de programas (modo grade)
+    const programasArray = dados.programas ? dados.programas.map((program, index) => ({
+        id: index,
+        name: program.name,
+        videos: program.videos || []
+    })) : [];
+    
+    // Gerar lista de vídeos da playlist (modo playlist)
+    const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
+        id: index,
+        name: video.name,
+        url: video.url
+    })) : [];
+    
+    // Gerar lista de comerciais
+    const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
     
     // Redes sociais
     let socialMediaHTML = '';
@@ -2836,6 +2893,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 <\/script>
 `;
+
+
 
 // ==================== SISTEMA DE SINCRONIZAÇÃO HIPER-AGUERRIDO + VIGILÂNCIA CONSTANTE ====================
 const syncSystemScript = `
@@ -3864,7 +3923,7 @@ function calcularSlotAtual() {
             
             return {
                 programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
+                    videoUrl: getGradeVideo(programIndex, currentVideoIndex),
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -3923,7 +3982,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: videoInfo.url,
+                videoUrl: getPlaylistVideoByIndex(indiceArray),
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -5854,7 +5913,12 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            const videoUrl = videoInfo.videoUrl;
+
+if (!videoUrl) {
+    console.error('URL do vídeo não disponível');
+    return;
+}
             
             if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
                 carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
@@ -6691,6 +6755,7 @@ function verificarFimDoVideo() {
     <\/script>
     ` : ''}
 
+
 </body>
 </html>`;
             
@@ -6772,57 +6837,82 @@ function verificarFimDoVideo() {
             };
         }
 
-        // Função para publicar canal (ATUALIZADA COM NOVA LÓGICA DE DATA)
-        async function publicarCanal(nomeCanal, dadosGerador) {
-            try {
-                console.log("Iniciando publicação do canal:", nomeCanal);
-                
-                const htmlCanal = gerarHTMLdoCanal(dadosGerador, currentChannelId);
-console.log('📌 HTML gerado com ID do documento:', currentChannelId);
-                
-                const dadosEnvio = {
-                    nomeCanal: nomeCanal,
-                    htmlContent: htmlCanal,
-                    dadosConfig: dadosGerador,
-                    isNewChannel: !editingChannel
-                };
+        // Função para publicar canal
 
-                console.log("Enviando para o servidor...");
-                
-                const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify(dadosEnvio)
-                });
-                
-                if (!resposta.ok) {
-                    throw new Error(`Erro do servidor: ${resposta.status}`);
-                }
-
-                const resultado = await resposta.json();
-                console.log("Resposta do servidor:", resultado);
-                
-                if (resultado.success) {
-                    const nomeArquivo = nomeCanal.toLowerCase()
-                        .replace(/[^a-z0-9]/g, '-')
-                        .replace(/-+/g, '-') + '.html';
-                    const urlCanal = `https://canaisdetv.online/canais/${nomeArquivo}`;
-                    
-                    return {
-                        url: urlCanal,
-                        message: resultado.message,
-                        nomeArquivo: nomeArquivo
-                    };
-                } else {
-                    throw new Error(resultado.error || "Erro desconhecido do servidor");
-                }
-            } catch (error) {
-                console.error("Erro na publicação:", error);
-                throw error;
-            }
+async function publicarCanal(nomeCanal, dadosGerador) {
+    try {
+        console.log("Iniciando publicação do canal:", nomeCanal);
+        
+        // 🔥 NOVO: Salvar vídeos no Firestore antes de gerar HTML
+        const videosParaSalvar = dadosGerador.programmingMode === 'grade' 
+            ? dadosGerador.programas 
+            : dadosGerador.playlistVideos;
+        
+        const saveVideosResponse = await fetch("https://us-central1-playtronic-tv.cloudfunctions.net/saveChannelVideos", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                channelId: currentChannelId,
+                videos: videosParaSalvar,
+                programmingMode: dadosGerador.programmingMode
+            })
+        });
+        
+        if (!saveVideosResponse.ok) {
+            throw new Error(`Erro ao salvar vídeos: ${saveVideosResponse.status}`);
         }
+        
+        const saveVideosResult = await saveVideosResponse.json();
+        console.log("Vídeos salvos no Firestore:", saveVideosResult);
+        
+        // Gerar HTML do canal (agora sem URLs expostas)
+        const htmlCanal = gerarHTMLdoCanal(dadosGerador, currentChannelId);
+        
+        const dadosEnvio = {
+            nomeCanal: nomeCanal,
+            htmlContent: htmlCanal,
+            dadosConfig: dadosGerador,
+            isNewChannel: !editingChannel
+        };
+
+        console.log("Enviando para o servidor...");
+        
+        const resposta = await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(dadosEnvio)
+        });
+        
+        if (!resposta.ok) {
+            throw new Error(`Erro do servidor: ${resposta.status}`);
+        }
+
+        const resultado = await resposta.json();
+        console.log("Resposta do servidor:", resultado);
+        
+        if (resultado.success) {
+            const nomeArquivo = nomeCanal.toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-') + '.html';
+            const urlCanal = `https://canaisdetv.online/canais/${nomeArquivo}`;
+            
+            return {
+                url: urlCanal,
+                message: resultado.message,
+                nomeArquivo: nomeArquivo
+            };
+        } else {
+            throw new Error(resultado.error || "Erro desconhecido do servidor");
+        }
+    } catch (error) {
+        console.error("Erro na publicação:", error);
+        throw error;
+    }
+}
 
         // Função para apagar canal do servidor
         async function apagarCanalServidor(nomeCanal) {
@@ -9827,4 +9917,4 @@ toScreen3Btn.addEventListener('click', () => {
         });
     </script>
 </body>
-</html>
+</html> 
