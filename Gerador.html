@@ -5704,12 +5704,44 @@ videoElement.playsInline = true;
         // Remover event listeners antigos para evitar duplicação
         videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
         videoElement.removeEventListener('canplay', handleCanPlay);
+        // Configurar nova URL - verificar se é uma URL da Cloud Function
+if (url.includes('cloudfunctions.net/getProtectedVideo')) {
+    // Para URLs da Cloud Function, fazer uma requisição para obter a URL real
+    console.log('Buscando URL protegida da Cloud Function:', url);
+    
+    try {
+        const response = await fetch(url);
+        const result = await response.json();
         
-        // Configurar nova URL
-        videoElement.style.display = 'block';
-        videoElement.src = url;
-        
-        // ... continue com o resto do código existente ...
+        if (result.success && result.url) {
+            if (result.type === 'youtube') {
+                // Se for YouTube, usar o player do YouTube
+                carregarVideoYouTube(result.url, iniciarNoPercentual, autoplay);
+                return;
+            } else {
+                // Se for vídeo direto, usar a URL retornada
+                videoElement.style.display = 'block';
+                videoElement.src = result.url;
+            }
+        } else {
+            throw new Error('URL não retornada pela Cloud Function');
+        }
+    } catch (error) {
+        console.error('Erro ao obter URL protegida:', error);
+        // Tentar próximo vídeo
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+        return;
+    }
+} else {
+    // URL normal
+    videoElement.style.display = 'block';
+    videoElement.src = url;
+}
+
+
             // Resetar mensagem de loading apenas se não for comercial
         if (loadingMessage && currentState !== 'commercial') {
             loadingMessage.style.display = 'block';
@@ -5810,15 +5842,39 @@ videoElement.playsInline = true;
         videoElement.src = '';
     }
     
-    // Extrair ID do vídeo
-    let videoId = '';
-    if (url.includes('v=')) {
-        videoId = url.split('v=')[1].split('&')[0];
-    } else if (url.includes('youtu.be/')) {
-        videoId = url.split('youtu.be/')[1].split('?')[0];
-    } else if (url.includes('youtube.com/embed/')) {
-        videoId = url.split('embed/')[1].split('?')[0];
+    // Se for uma URL da Cloud Function, precisamos buscar a URL real do YouTube
+if (url.includes('cloudfunctions.net/getProtectedVideo')) {
+    console.log('Buscando URL do YouTube da Cloud Function:', url);
+    
+    try {
+        const response = await fetch(url);
+        const result = await response.json();
+        
+        if (result.success && result.url && result.type === 'youtube') {
+            url = result.url;
+        } else {
+            throw new Error('URL do YouTube não retornada pela Cloud Function');
+        }
+    } catch (error) {
+        console.error('Erro ao obter URL do YouTube:', error);
+        // Tentar próximo vídeo
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+        return;
     }
+}
+
+// Extrair ID do vídeo
+let videoId = '';
+if (url.includes('v=')) {
+    videoId = url.split('v=')[1].split('&')[0];
+} else if (url.includes('youtu.be/')) {
+    videoId = url.split('youtu.be/')[1].split('?')[0];
+} else if (url.includes('youtube.com/embed/')) {
+    videoId = url.split('embed/')[1].split('?')[0];
+}
     
     if (!videoId) {
         console.error('ID do vídeo do YouTube não encontrado:', url);
