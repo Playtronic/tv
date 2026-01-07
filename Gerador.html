@@ -1888,27 +1888,28 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
-    <script>
-        // ==================== CONFIGURAÇÃO DO FIREBASE ====================
-        const firebaseConfig = {
-            apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
-            authDomain: "playtronic-tv.firebaseapp.com",
-            projectId: "playtronic-tv",
-            storageBucket: "playtronic-tv.firebasestorage.app",
-            messagingSenderId: "272337341020",
-            appId: "1:272337341020:web:a30d949985fd614b5c7499",
-            measurementId: "G-1QRKY0NN0W",
-            databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
-        };
+    <script>// ==================== CONFIGURAÇÃO DO FIREBASE ====================
 
-        // Inicializar Firebase
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
+if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+    const firebaseConfig = {
+        apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
+        authDomain: "playtronic-tv.firebaseapp.com",
+        projectId: "playtronic-tv",
+        storageBucket: "playtronic-tv.firebasestorage.app",
+        messagingSenderId: "272337341020",
+        appId: "1:272337341020:web:a30d949985fd614b5c7499",
+        measurementId: "G-1QRKY0NN0W",
+        databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    console.log('✅ Firebase inicializado no canal');
+}
 
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-        const rtdb = firebase.database();
+// 🔥 GARANTA que as variáveis existem mesmo se Firebase falhar
+const auth = typeof firebase !== 'undefined' ? firebase.auth() : null;
+const database = typeof firebase !== 'undefined' ? firebase.database() : null;
+
 
         // ==================== VARIÁVEIS GLOBAIS ====================
         let currentUser = null;
@@ -2504,14 +2505,14 @@ function gerarHTMLdoCanal(dados, channelId) {
 const programasArray = dados.programas ? dados.programas.map((program, index) => ({
     id: index,
     name: program.name,
-    videoCount: program.videos ? program.videos.length : 0
+    videos: program.videos || []  
 })) : [];
 
 const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
     id: index,
-    name: video.name
+    name: video.name,
+    url: video.url  
 })) : [];
-
 
     
     // Gerar lista de comerciais
@@ -3824,101 +3825,96 @@ function calcularSlotAtual() {
             }
         }
     }
-    // Função principal para obter vídeo para o slot atual (ATUALIZADA)
-    function obterVideoParaSlot(slotIndex) {
+    // Função principal para obter vídeo para o slot atual (ATUALIZADA)function obterVideoParaSlot(slotIndex) {
+    console.log('🔍 Buscando vídeo para slot:', slotIndex, 'Modo:', PROGRAMMING_MODE);
+    
     if (PROGRAMMING_MODE === 'grade') {
         // Modo Grade
         const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
-            currentDay = diasDesdeEstreia;
-            if (slotIndex === currentPlayingSlot) {
-    currentPlayingSlot = slotIndex;
-}
-            
-            if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
-                return null;
-            }
-            
-            // Obter o programa do slot
-            const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
-            const programa = TV_PROGRAMS[programIndex];
-            
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
-            }
-            
-            // Ajustar o vídeo baseado nos dias desde a estreia
-            const totalVideosSlot = programa.videos.length;
-            const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
-            
-            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
-            
-            return {
-                programa: programa,
-                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
-                programaIndex: programIndex,
-                videoIndex: currentVideoIndex,
-                dia: currentDay,
-                nome: programa.name
-            };
-        } else {
-            // Modo Playlist: slotIndex é base 1 (retornado por calcularSlotAtualPlaylist)
-            const totalSlotsCanal = TV_PLAYLIST.length;
-            
-            console.log('=== OBTENDO VÍDEO - MODO PLAYLIST ===');
-            console.log('Slot bruto recebido (base 1):', slotIndex);
-            console.log('Total de slots no canal:', totalSlotsCanal);
-            
-            // FÓRMULA CORRETA: subtrair slots totais múltiplas vezes
-            let slotAjustadoBase1 = slotIndex;
-            
-            if (totalSlotsCanal > 0 && slotIndex > totalSlotsCanal) {
-                console.log('Aplicando fórmula: slot atual (' + slotIndex + ') - slots totais (' + totalSlotsCanal + ')');
-                
-                // Calcular quantos ciclos completos já passaram
-                const ciclosCompletos = Math.floor((slotIndex - 1) / totalSlotsCanal);
-                console.log('Ciclos completos:', ciclosCompletos);
-                
-                // Subtrair múltiplos do total
-                slotAjustadoBase1 = slotIndex - (ciclosCompletos * totalSlotsCanal);
-                
-                console.log('Slot após redução:', slotAjustadoBase1);
-            }
-            
-            // Garantir que fique entre 1 e totalSlotsCanal
-            if (slotAjustadoBase1 <= 0) {
-                slotAjustadoBase1 = 1;
-            }
-            
-            // Converter para base 0 para array
-            const indiceArray = slotAjustadoBase1 - 1;
-            
-            console.log('Slot ajustado (base 1):', slotAjustadoBase1);
-            console.log('Índice no array:', indiceArray);
-            
-            const videoInfo = TV_PLAYLIST[indiceArray];
-            
-            if (!videoInfo) {
-                console.log('ERRO: Vídeo não encontrado para slot', slotAjustadoBase1);
-                return null;
-            }
-            
-            // ATENÇÃO: Só atualiza se for o slot principal, não para "A Seguir" ou "Depois"
-// Verifica se é o slot atual que está sendo reproduzido
-if (slotIndex === currentPlayingSlot) {
-    currentPlayingSlot = slotAjustadoBase1;
-}
-            
-            console.log('Vídeo selecionado:', videoInfo.name || 'Sem nome');
-            console.log('Slot exibido (base 1):', currentPlayingSlot);
-            console.log('===============================');
-            
-            return {
-                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
-                nome: videoInfo.name,
-                slotAjustado: indiceArray
-            };
+        currentDay = diasDesdeEstreia;
+        
+        if (slotIndex === currentPlayingSlot) {
+            currentPlayingSlot = slotIndex;
         }
+        
+        if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
+            console.error('❌ Grade ou programas vazios');
+            return null;
+        }
+        
+        // Obter o programa do slot
+        const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
+        const programa = TV_PROGRAMS[programIndex];
+        
+        if (!programa) {
+            console.error('❌ Programa não encontrado para índice:', programIndex);
+            return null;
+        }
+        
+        // Ajustar o vídeo baseado nos dias desde a estreia
+        const totalVideosSlot = programa.videoCount || 1;
+        const videoIndexAjustado = ((diasDesdeEstreia - 1) % totalVideosSlot) + 1;
+        currentVideoIndex = videoIndexAjustado - 1;
+        
+        console.log('📊 Dados Grade:', {
+            slotIndex,
+            programIndex,
+            programaNome: programa.name,
+            diasDesdeEstreia,
+            videoIndexAjustado,
+            totalVideosSlot
+        });
+        
+        // 🔥 CRÍTICO: Use Cloud Functions para obter a URL
+        return {
+            programa: programa,
+            videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + 
+                      CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
+            programaIndex: programIndex,
+            videoIndex: currentVideoIndex,
+            dia: currentDay,
+            nome: programa.name
+        };
+    } else {
+        // Modo Playlist
+        const totalSlotsCanal = TV_PLAYLIST.length;
+        
+        if (totalSlotsCanal === 0) {
+            console.error('❌ Playlist vazia');
+            return null;
+        }
+        
+        // Calcular slot normalizado
+        const slotNormalizado = ((slotIndex - 1) % totalSlotsCanal) + 1;
+        const indiceArray = slotNormalizado - 1;
+        const videoInfo = TV_PLAYLIST[indiceArray];
+        
+        if (!videoInfo) {
+            console.error('❌ Vídeo não encontrado para índice:', indiceArray);
+            return null;
+        }
+        
+        if (slotIndex === currentPlayingSlot) {
+            currentPlayingSlot = slotNormalizado;
+        }
+        
+        console.log('📊 Dados Playlist:', {
+            slotIndex,
+            slotNormalizado,
+            indiceArray,
+            videoNome: videoInfo.name,
+            totalSlotsCanal
+        });
+        
+        // 🔥 CRÍTICO: Use Cloud Functions para obter a URL
+        return {
+            videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + 
+                      CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
+            nome: videoInfo.name,
+            slotAjustado: indiceArray
+        };
     }
+}
 <\/script>
 `;    
 
@@ -4927,9 +4923,19 @@ ${supportButtonHTML}${customButtonHTML}
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "${programmingMode}";
-        const TV_PROGRAMS = ${JSON.stringify(programasArray)};
-        const TV_PLAYLIST = ${JSON.stringify(playlistArray)};
+        const PROGRAMMING_MODE = "${programmingMode}";const TV_PROGRAMS = ${JSON.stringify(
+    programasArray.map(program => ({
+        id: program.id,
+        name: program.name,
+        videoCount: program.videos ? program.videos.length : 0
+    }))
+)};
+const TV_PLAYLIST = ${JSON.stringify(
+    playlistArray.map(video => ({
+        id: video.id,
+        name: video.name
+    }))
+)};
         const TV_COMMERCIALS = ${JSON.stringify(comerciaisArray)};
         const ENABLE_COMMERCIALS = ${dados.enableCommercials || false};
         const COMMERCIALS_PER_BREAK = ${dados.commercialsPerBreak || 2};
@@ -4948,6 +4954,7 @@ ${supportButtonHTML}${customButtonHTML}
         const IS_OFFLINE = ${isOffline};
         const CHANNEL_VERSION = "${version}";
         const CHANNEL_ID = "${channelId}";
+
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
         const firebaseConfig = {
