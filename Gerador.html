@@ -5565,196 +5565,155 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-    console.log('🎬 CARREGANDO VÍDEO HTML5:', url.substring(0, 80) + '...');
-    
-    // Evitar múltiplos carregamentos simultâneos
-    if (isLoadingVideo) {
-        console.log('⚠️ Já está carregando um vídeo, ignorando chamada duplicada');
-        return;
-    }
-    isLoadingVideo = true;
-    
-    // Esconder player do YouTube se estiver visível
-    if (youtubeContainer) {
-        youtubeContainer.style.display = 'none';
-        if (youtubePlayer) {
-            try {
+
+              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+
+  console.log('🔄 Forçando pré-carregamento para resolver autoplay...');
+    const preloadLink = document.createElement('link');
+    preloadLink.rel = 'preload';
+    preloadLink.as = 'video';
+    preloadLink.href = url;
+    document.head.appendChild(preloadLink);
+
+        // Evitar múltiplos carregamentos simultâneos
+        if (isLoadingVideo) {
+            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
+            return;
+        }
+        isLoadingVideo = true;
+        
+        
+        // Esconder player do YouTube se estiver visível
+        if (youtubeContainer) {
+            youtubeContainer.style.display = 'none';
+            if (youtubePlayer) {
                 youtubePlayer.stopVideo();
-            } catch (e) {
-                console.log('YouTube player já parado');
             }
         }
-    }
-    isYoutubeVideo = false;
+        isYoutubeVideo = false;
+        
+        // Limpar container do YouTube se existir
+        if (youtubeContainer) {
+            youtubeContainer.style.display = 'none';
+            youtubeContainer.innerHTML = '';
+        }
+        
+        // Verificar se temos elemento de vídeo
+        if (!videoElement) {
+            console.error('Elemento de vídeo não encontrado');
+            isLoadingVideo = false; // Resetar flag
+            return;
+        }
+        
+        // Parar qualquer vídeo atual ANTES de carregar novo
+        if (videoElement.src) {
+            videoElement.pause();
+            videoElement.src = '';
+        }
+        
+        // Configurações básicas
+videoElement.preload = 'auto';
+videoElement.playsInline = true;
+        
+        
+
+        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
+        if (loadingMessage && currentState !== 'commercial') {
+            loadingMessage.style.display = 'block';
+        }
+        
+        // Remover event listeners antigos para evitar duplicação
+        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
+        videoElement.removeEventListener('canplay', handleCanPlay);
+        
+        // Configurar nova URL
+        videoElement.style.display = 'block';
+        videoElement.src = url;
+        
+        // ... continue com o resto do código existente ...
+            // Resetar mensagem de loading apenas se não for comercial
+        if (loadingMessage && currentState !== 'commercial') {
+            loadingMessage.style.display = 'block';
+        }
+
+
+            // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
+            if (loadingMessage && currentState !== 'commercial') {
+                loadingMessage.style.display = 'block';
+            }
     
-    // Verificar se temos elemento de vídeo
-    if (!videoElement) {
-        console.error('❌ Elemento de vídeo não encontrado');
-        isLoadingVideo = false;
-        return;
-    }
+    // Remover event listeners antigos para evitar duplicação
+    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
+    videoElement.removeEventListener('canplay', handleCanPlay);
     
-    // 🔥 CRÍTICO: Configurar CORS para URLs externas
-    if (url.includes('http')) {
-        videoElement.crossOrigin = 'anonymous';
-        videoElement.setAttribute('crossorigin', 'anonymous');
-    }
-    
-    // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-    if (loadingMessage && currentState !== 'commercial') {
-        loadingMessage.style.display = 'block';
-    }
-    
-    // 🔥 CRÍTICO: Parar e resetar o vídeo CORRETAMENTE
-    videoElement.pause();
-    
-    // Criar um NOVO elemento de vídeo para evitar problemas de cache/estado
-    const newVideoElement = document.createElement('video');
-    newVideoElement.id = 'myVideo';
-    newVideoElement.playsInline = true;
-    newVideoElement.preload = 'auto';
-    
-    if (url.includes('http')) {
-        newVideoElement.crossOrigin = 'anonymous';
-        newVideoElement.setAttribute('crossorigin', 'anonymous');
-    }
-    
-    // Copiar estilos e atributos
-    newVideoElement.style.cssText = videoElement.style.cssText;
-    newVideoElement.className = videoElement.className;
-    
-    // Substituir o elemento antigo pelo novo
-    videoElement.parentNode.replaceChild(newVideoElement, videoElement);
-    videoElement = newVideoElement;
-    
-    // Configurar URL
-    console.log('📥 Configurando URL do vídeo...');
+    // Configurar nova URL
+    videoElement.style.display = 'block';
     videoElement.src = url;
     
-    // Configurar eventos UMA VEZ
-    const handleLoadedMetadata = function() {
-        console.log('✅ Metadados carregados, duração:', videoElement.duration);
-        
+    // Função para quando os metadados são carregados
+    function handleMetadataLoaded() {
         if (loadingMessage) {
             loadingMessage.style.display = 'none';
         }
         
-        // Calcular tempo inicial
+        // Calcular tempo inicial baseado no percentual do slot
         let startTime = 0;
         if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
             const videoDuration = videoElement.duration || 0;
             if (videoDuration > 0) {
                 startTime = videoDuration * iniciarNoPercentual;
                 startTime = Math.min(startTime, videoDuration - 1);
-                console.log(`⏱️ Iniciando em: ${startTime.toFixed(2)}s`);
             }
         }
         
+        // Definir tempo inicial
         videoElement.currentTime = startTime;
         
-        // Reproduzir se permitido
+        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
         if (autoplay && userStartedPlayback) {
-            console.log('▶️ Tentando reproduzir...');
-            
-            // Primeiro tenta sem mute
             videoElement.muted = false;
-            const playPromise = videoElement.play();
             
+            const playPromise = videoElement.play();
             if (playPromise !== undefined) {
-                playPromise
-                    .then(() => {
-                        console.log('✅ Vídeo reproduzindo');
-                        isLoadingVideo = false;
-                    })
-                    .catch(error => {
-                        console.log('❌ Autoplay bloqueado, tentando com mute...');
-                        videoElement.muted = true;
-                        videoElement.play()
-                            .then(() => {
-                                console.log('✅ Vídeo reproduzindo (muted)');
-                                isLoadingVideo = false;
-                            })
-                            .catch(e => {
-                                console.error('❌ Falha ao reproduzir:', e);
-                                isLoadingVideo = false;
-                            });
-                    });
+                playPromise.catch(error => {
+                    console.log('Autoplay bloqueado:', error);
+                });
             }
         } else {
-            console.log('⏸️ Vídeo carregado mas não reproduzindo (userStartedPlayback:', userStartedPlayback, ')');
             videoElement.pause();
-            isLoadingVideo = false;
         }
-    };
+    }
     
-    const handleCanPlay = function() {
-        console.log('✅ Vídeo pronto para reprodução');
+    // Função para quando o vídeo pode começar a tocar
+    function handleCanPlay() {
         if (loadingMessage) {
             loadingMessage.style.display = 'none';
         }
-    };
+    }
     
-    const handleError = function(e) {
-        console.error('❌ ERRO NO VÍDEO:');
-        console.error('Código:', videoElement.error?.code);
-        console.error('Mensagem:', videoElement.error?.message);
-        console.error('URL:', url);
-        
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
-        }
-        
-        isLoadingVideo = false;
-        
-        // Tentar próximo vídeo após erro
-        setTimeout(() => {
-            if (currentState === 'program') {
-                const proximoSlot = getNextSlot();
-                console.log(`🔄 Tentando próximo slot devido a erro: ${proximoSlot}`);
-                reproduzirPrograma(proximoSlot, 0);
-            }
-        }, 3000);
-    };
-    
-    const handlePlaying = function() {
-        console.log('▶️ Vídeo começou a tocar');
-        isLoadingVideo = false;
-    };
-    
-    // Adicionar event listeners
-    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    // Adicionar novos event listeners
+    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
-    videoElement.addEventListener('error', handleError, { once: true });
-    videoElement.addEventListener('playing', handlePlaying, { once: true });
+    
+    // Resetar flag de carregamento quando o vídeo estiver pronto
+    const resetLoadingFlag = function() {
+        isLoadingVideo = false;
+    };
+    
+    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
+    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
+    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
+    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
     
     // Iniciar carregamento
     videoElement.load();
     
-    // Timeout de segurança
-    const timeoutId = setTimeout(() => {
-        if (videoElement.readyState < 2) { // HAVE_CURRENT_DATA
-            console.warn('⚠️ Vídeo demorando muito para carregar');
-            
-            // Tentar recarregar
-            videoElement.load();
-            
-            // Se ainda não carregar, tentar próximo
-            setTimeout(() => {
-                if (videoElement.readyState < 2 && currentState === 'program') {
-                    console.log('🔄 Pulando para próximo vídeo (timeout)');
-                    isLoadingVideo = false;
-                    const proximoSlot = getNextSlot();
-                    reproduzirPrograma(proximoSlot, 0);
-                }
-            }, 5000);
+    // Timeout de segurança para vídeos que não carregam
+    setTimeout(() => {
+        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
+            console.warn('Vídeo demorando para carregar:', url);
         }
-    }, 15000);
-    
-    // Limpar timeout quando carregar
-    videoElement.addEventListener('loadedmetadata', () => {
-        clearTimeout(timeoutId);
-    }, { once: true });
+    }, 10000);
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
@@ -6462,6 +6421,15 @@ function verificarFimDoVideo() {
         }
         
         function inicializarPlayer() {
+    // 🔥 FORÇAR o navegador a permitir vídeo
+    if (videoElement) {
+        // Adicionar atributos obrigatórios
+        videoElement.setAttribute('playsinline', '');
+        videoElement.setAttribute('webkit-playsinline', '');
+        videoElement.setAttribute('muted', '');
+        videoElement.muted = true;
+        videoElement.autoplay = true;
+    }
         // INICIALIZAR SLOT CORRETAMENTE PARA MODO PLAYLIST
         if (PROGRAMMING_MODE === 'playlist') {
             currentPlayingSlot = calcularSlotAtualPlaylist();
