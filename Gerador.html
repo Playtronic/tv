@@ -1888,28 +1888,27 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
-    <script>// ==================== CONFIGURAÇÃO DO FIREBASE ====================
+    <script>
+        // ==================== CONFIGURAÇÃO DO FIREBASE ====================
+        const firebaseConfig = {
+            apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
+            authDomain: "playtronic-tv.firebaseapp.com",
+            projectId: "playtronic-tv",
+            storageBucket: "playtronic-tv.firebasestorage.app",
+            messagingSenderId: "272337341020",
+            appId: "1:272337341020:web:a30d949985fd614b5c7499",
+            measurementId: "G-1QRKY0NN0W",
+            databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
+        };
 
-if (typeof firebase !== 'undefined' && !firebase.apps.length) {
-    const firebaseConfig = {
-        apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
-        authDomain: "playtronic-tv.firebaseapp.com",
-        projectId: "playtronic-tv",
-        storageBucket: "playtronic-tv.firebasestorage.app",
-        messagingSenderId: "272337341020",
-        appId: "1:272337341020:web:a30d949985fd614b5c7499",
-        measurementId: "G-1QRKY0NN0W",
-        databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
-    };
-    
-    firebase.initializeApp(firebaseConfig);
-    console.log('✅ Firebase inicializado no canal');
-}
+        // Inicializar Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
 
-// 🔥 GARANTA que as variáveis existem mesmo se Firebase falhar
-const auth = typeof firebase !== 'undefined' ? firebase.auth() : null;
-const database = typeof firebase !== 'undefined' ? firebase.database() : null;
-
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const rtdb = firebase.database();
 
         // ==================== VARIÁVEIS GLOBAIS ====================
         let currentUser = null;
@@ -2500,20 +2499,20 @@ function gerarHTMLdoCanal(dados, channelId) {
             checkCountry();
         });
     <\/script>` : '';
-    
+
+
     // Gerar lista de programas (modo grade)
 const programasArray = dados.programas ? dados.programas.map((program, index) => ({
     id: index,
-    name: program.name,
-    videos: program.videos || []  
+    name: program.name
 })) : [];
 
+// Gerar lista de vídeos da playlist (modo playlist)
 const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
     id: index,
-    name: video.name,
-    url: video.url  
+    name: video.name
+    
 })) : [];
-
     
     // Gerar lista de comerciais
     const comerciaisArray = dados.comerciais ? dados.comerciais.map(com => com.url) : [];
@@ -3502,73 +3501,134 @@ function cleanupInactiveViewers() {
                 }
                 
                 async function handleVote(voteType) {
-                    if (!currentUserChannel) {
-                        document.getElementById('loginOverlayChannel').style.display = 'flex';
-                        return;
-                    }
-                    
-                    if (!channelStatsRef) return;
-                    
-                    const userId = currentUserChannel.uid;
-                    const userVoteRef = userVotesRef.child(userId);
-                    
-                    try {
-                        const snapshot = await userVoteRef.once('value');
-                        const currentVote = snapshot.val();
-                        
-                        if (currentVote === voteType) {
-                            await userVoteRef.remove();
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            currentUserVote = null;
-                        } else {
-                            if (currentVote === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else if (currentVote === 'dislike') {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            await userVoteRef.set(voteType);
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            }
-                            
-                            currentUserVote = voteType;
-                        }
-                        
-                        if (window.showControls) {
-                            window.showControls();
-                        }
-                        
-                        if (window.resetControlsTimer) {
-                            window.resetControlsTimer();
-                        }
-                        
-                    } catch (error) {
-                        console.error('Erro ao processar voto:', error);
-                        alert('Erro ao registrar voto. Tente novamente.');
-                    }
-                }
+    // 🔥 CORREÇÃO 1: Bloquear múltiplos cliques imediatamente
+    const likeBtn = document.getElementById('likeBtn');
+    const dislikeBtn = document.getElementById('dislikeBtn');
+    
+    // Desabilitar ambos os botões
+    if (likeBtn) likeBtn.disabled = true;
+    if (dislikeBtn) dislikeBtn.disabled = true;
+    
+    // 🔥 CORREÇÃO 2: Feedback visual imediato
+    if (voteType === 'like' && likeBtn) {
+        likeBtn.style.opacity = '0.7';
+    } else if (voteType === 'dislike' && dislikeBtn) {
+        dislikeBtn.style.opacity = '0.7';
+    }
+    
+    if (!currentUserChannel) {
+        document.getElementById('loginOverlayChannel').style.display = 'flex';
+        
+        // Reabilitar botões após 500ms
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    if (!channelStatsRef) {
+        // Reabilitar botões
+        if (likeBtn) {
+            likeBtn.disabled = false;
+            likeBtn.style.opacity = '1';
+        }
+        if (dislikeBtn) {
+            dislikeBtn.disabled = false;
+            dislikeBtn.style.opacity = '1';
+        }
+        return;
+    }
+    
+    const userId = currentUserChannel.uid;
+    const userVoteRef = userVotesRef.child(userId);
+    
+    try {
+        const snapshot = await userVoteRef.once('value');
+        const currentVote = snapshot.val();
+        
+        if (currentVote === voteType) {
+            // Remover voto existente
+            await userVoteRef.remove();
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            currentUserVote = null;
+        } else {
+            // Mudar voto
+            if (currentVote === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else if (currentVote === 'dislike') {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            await userVoteRef.set(voteType);
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            }
+            
+            currentUserVote = voteType;
+        }
+        
+        if (window.showControls) {
+            window.showControls();
+        }
+        
+        if (window.resetControlsTimer) {
+            window.resetControlsTimer();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar voto:', error);
+        alert('Erro ao registrar voto. Tente novamente.');
+    } finally {
+        // 🔥 CORREÇÃO 4: Sempre reabilitar botões após processamento
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 1000); // Delay de 1 segundo para evitar spam
+    }
+}
                 
                 function updateLikeDislikeUI() {
                     const likeCount = document.getElementById('likeCount');
@@ -3825,96 +3885,101 @@ function calcularSlotAtual() {
             }
         }
     }
-    // Função principal para obter vídeo para o slot atual (ATUALIZADA)function obterVideoParaSlot(slotIndex) {
-    console.log('🔍 Buscando vídeo para slot:', slotIndex, 'Modo:', PROGRAMMING_MODE);
-    
+    // Função principal para obter vídeo para o slot atual (ATUALIZADA)
+    function obterVideoParaSlot(slotIndex) {
     if (PROGRAMMING_MODE === 'grade') {
         // Modo Grade
         const diasDesdeEstreia = calcularDiasDesdeEstreiaCanal();
-        currentDay = diasDesdeEstreia;
-        
-        if (slotIndex === currentPlayingSlot) {
-            currentPlayingSlot = slotIndex;
-        }
-        
-        if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
-            console.error('❌ Grade ou programas vazios');
-            return null;
-        }
-        
-        // Obter o programa do slot
-        const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
-        const programa = TV_PROGRAMS[programIndex];
-        
-        if (!programa) {
-            console.error('❌ Programa não encontrado para índice:', programIndex);
-            return null;
-        }
-        
-        // Ajustar o vídeo baseado nos dias desde a estreia
-        const totalVideosSlot = programa.videoCount || 1;
-        const videoIndexAjustado = ((diasDesdeEstreia - 1) % totalVideosSlot) + 1;
-        currentVideoIndex = videoIndexAjustado - 1;
-        
-        console.log('📊 Dados Grade:', {
-            slotIndex,
-            programIndex,
-            programaNome: programa.name,
-            diasDesdeEstreia,
-            videoIndexAjustado,
-            totalVideosSlot
-        });
-        
-        // 🔥 CRÍTICO: Use Cloud Functions para obter a URL
-        return {
-            programa: programa,
-            videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + 
-                      CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
-            programaIndex: programIndex,
-            videoIndex: currentVideoIndex,
-            dia: currentDay,
-            nome: programa.name
-        };
-    } else {
-        // Modo Playlist
-        const totalSlotsCanal = TV_PLAYLIST.length;
-        
-        if (totalSlotsCanal === 0) {
-            console.error('❌ Playlist vazia');
-            return null;
-        }
-        
-        // Calcular slot normalizado
-        const slotNormalizado = ((slotIndex - 1) % totalSlotsCanal) + 1;
-        const indiceArray = slotNormalizado - 1;
-        const videoInfo = TV_PLAYLIST[indiceArray];
-        
-        if (!videoInfo) {
-            console.error('❌ Vídeo não encontrado para índice:', indiceArray);
-            return null;
-        }
-        
-        if (slotIndex === currentPlayingSlot) {
-            currentPlayingSlot = slotNormalizado;
-        }
-        
-        console.log('📊 Dados Playlist:', {
-            slotIndex,
-            slotNormalizado,
-            indiceArray,
-            videoNome: videoInfo.name,
-            totalSlotsCanal
-        });
-        
-        // 🔥 CRÍTICO: Use Cloud Functions para obter a URL
-        return {
-            videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + 
-                      CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
-            nome: videoInfo.name,
-            slotAjustado: indiceArray
-        };
-    }
+            currentDay = diasDesdeEstreia;
+            if (slotIndex === currentPlayingSlot) {
+    currentPlayingSlot = slotIndex;
 }
+            
+            if (GRADE.length === 0 || TV_PROGRAMS.length === 0) {
+                return null;
+            }
+            
+            // Obter o programa do slot
+            const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
+            const programa = TV_PROGRAMS[programIndex];
+            
+            if (!programa || !programa.videos || programa.videos.length === 0) {
+                return null;
+            }
+            
+            // Ajustar o vídeo baseado nos dias desde a estreia
+            const totalVideosSlot = programa.videos.length;
+            const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
+            
+            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            
+            return {
+                programa: programa,
+                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
+                programaIndex: programIndex,
+                videoIndex: currentVideoIndex,
+                dia: currentDay,
+                nome: programa.name
+            };
+        } else {
+            // Modo Playlist: slotIndex é base 1 (retornado por calcularSlotAtualPlaylist)
+            const totalSlotsCanal = TV_PLAYLIST.length;
+            
+            console.log('=== OBTENDO VÍDEO - MODO PLAYLIST ===');
+            console.log('Slot bruto recebido (base 1):', slotIndex);
+            console.log('Total de slots no canal:', totalSlotsCanal);
+            
+            // FÓRMULA CORRETA: subtrair slots totais múltiplas vezes
+            let slotAjustadoBase1 = slotIndex;
+            
+            if (totalSlotsCanal > 0 && slotIndex > totalSlotsCanal) {
+                console.log('Aplicando fórmula: slot atual (' + slotIndex + ') - slots totais (' + totalSlotsCanal + ')');
+                
+                // Calcular quantos ciclos completos já passaram
+                const ciclosCompletos = Math.floor((slotIndex - 1) / totalSlotsCanal);
+                console.log('Ciclos completos:', ciclosCompletos);
+                
+                // Subtrair múltiplos do total
+                slotAjustadoBase1 = slotIndex - (ciclosCompletos * totalSlotsCanal);
+                
+                console.log('Slot após redução:', slotAjustadoBase1);
+            }
+            
+            // Garantir que fique entre 1 e totalSlotsCanal
+            if (slotAjustadoBase1 <= 0) {
+                slotAjustadoBase1 = 1;
+            }
+            
+            // Converter para base 0 para array
+            const indiceArray = slotAjustadoBase1 - 1;
+            
+            console.log('Slot ajustado (base 1):', slotAjustadoBase1);
+            console.log('Índice no array:', indiceArray);
+            
+            const videoInfo = TV_PLAYLIST[indiceArray];
+            
+            if (!videoInfo) {
+                console.log('ERRO: Vídeo não encontrado para slot', slotAjustadoBase1);
+                return null;
+            }
+            
+            // ATENÇÃO: Só atualiza se for o slot principal, não para "A Seguir" ou "Depois"
+// Verifica se é o slot atual que está sendo reproduzido
+if (slotIndex === currentPlayingSlot) {
+    currentPlayingSlot = slotAjustadoBase1;
+}
+            
+            console.log('Vídeo selecionado:', videoInfo.name || 'Sem nome');
+            console.log('Slot exibido (base 1):', currentPlayingSlot);
+            console.log('===============================');
+            
+            return {
+                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
+                nome: videoInfo.name,
+                slotAjustado: indiceArray
+            };
+        }
+    }
 <\/script>
 `;    
 
@@ -4923,19 +4988,9 @@ ${supportButtonHTML}${customButtonHTML}
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "${programmingMode}";const TV_PROGRAMS = ${JSON.stringify(
-    programasArray.map(program => ({
-        id: program.id,
-        name: program.name,
-        videoCount: program.videos ? program.videos.length : 0
-    }))
-)};
-const TV_PLAYLIST = ${JSON.stringify(
-    playlistArray.map(video => ({
-        id: video.id,
-        name: video.name
-    }))
-)};
+        const PROGRAMMING_MODE = "${programmingMode}";
+        const TV_PROGRAMS = ${JSON.stringify(programasArray)};
+        const TV_PLAYLIST = ${JSON.stringify(playlistArray)};
         const TV_COMMERCIALS = ${JSON.stringify(comerciaisArray)};
         const ENABLE_COMMERCIALS = ${dados.enableCommercials || false};
         const COMMERCIALS_PER_BREAK = ${dados.commercialsPerBreak || 2};
@@ -4954,7 +5009,6 @@ const TV_PLAYLIST = ${JSON.stringify(
         const IS_OFFLINE = ${isOffline};
         const CHANNEL_VERSION = "${version}";
         const CHANNEL_ID = "${channelId}";
-
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
         const firebaseConfig = {
@@ -4972,10 +5026,8 @@ const TV_PLAYLIST = ${JSON.stringify(
             firebase.initializeApp(firebaseConfig);
         }
         
- const auth = firebase.auth();
-const db = firebase.firestore();
-const database = firebase.database();
-
+        const auth = firebase.auth();
+        const database = firebase.database();
         
         // VARIÁVEIS DE ESTADO
         let currentState = 'program';
@@ -5629,20 +5681,43 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
         // Reproduzir se necessário
         if (autoplay && userStartedPlayback) {
             console.log('▶️ Tentando reproduzir...');
-            // CORREÇÃO - substitua o trecho acima por:
-videoElement.muted = false; // NUNCA iniciar mudo
-
-const playPromise = videoElement.play();
-if (playPromise !== undefined) {
-    playPromise.catch(error => {
-        console.error('❌ Erro ao reproduzir:', error);
-        // Se falhar, tenta com mute como fallback
-        videoElement.muted = true;
-        videoElement.play();
-    });
-}
+            
+            // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
+            videoElement.muted = false;
+            videoElement.volume = 1.0;
+            
+            videoElement.play()
+                .then(() => {
+                    console.log('✅ Vídeo reproduzindo (áudio ativo imediatamente)');
+                })
                 .catch(error => {
                     console.error('❌ play() falhou:', error.name, error.message);
+                    
+                    // Se falhar por políticas de autoplay, tentar com mute e pedir interação
+                    if (error.name === 'NotAllowedError') {
+                        console.log('⚠️ Autoplay bloqueado. Tentando com mute...');
+                        videoElement.muted = true;
+                        videoElement.play()
+                            .then(() => {
+                                console.log('✅ Vídeo reproduzindo (muted por política)');
+                                // Mostrar botão para ativar áudio
+                                if (autoplayOverlay) {
+                                    // 🔥 CORREÇÃO: Use strings normais, não template literals aninhados
+                                    autoplayOverlay.classList.remove('hidden');
+                                    autoplayOverlay.innerHTML = 
+                                        '<h3>Clique para ativar o áudio</h3>' +
+                                        '<button class="autoplay-button" id="activateAudioBtn">' +
+                                        'Ativar Áudio' +
+                                        '</button>';
+                                    
+                                    // Adicionar evento separadamente
+                                    document.getElementById('activateAudioBtn').addEventListener('click', function() {
+                                        videoElement.muted = false;
+                                        autoplayOverlay.classList.add('hidden');
+                                    });
+                                }
+                            });
+                    }
                 });
         }
     }
@@ -5670,6 +5745,10 @@ if (playPromise !== undefined) {
     
     function handlePlaying() {
         console.log('▶️ playing - Vídeo começou a tocar');
+        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
+        if (videoElement.muted) {
+            videoElement.muted = false;
+        }
     }
     
     // Remover listeners antigos
@@ -5693,8 +5772,16 @@ if (playPromise !== undefined) {
         console.log('⏱️ Estado após 3s:', {
             readyState: videoElement.readyState,
             error: videoElement.error,
+            muted: videoElement.muted,
+            volume: videoElement.volume,
             src: videoElement.src?.substring(0, 100)
         });
+        
+        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
+        if (videoElement.muted && userStartedPlayback) {
+            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
+            videoElement.muted = false;
+        }
     }, 3000);
 }
 
@@ -9873,4 +9960,3 @@ toScreen3Btn.addEventListener('click', () => {
     </script>
 </body>
 </html> 
- 
