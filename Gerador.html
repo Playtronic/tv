@@ -6915,17 +6915,26 @@ async function publicarCanal(nomeCanal, dadosGerador) {
     try {
         console.log("Iniciando publicação do canal:", nomeCanal);
         
-        // 🔥 CORREÇÃO: Garantir que temos um channelId válido
+        // 🔥 NOVA CORREÇÃO: Obter channelId REAL (não temporário)
         let channelIdParaVideos = currentChannelId;
         
-        // Se não temos um channelId (novo canal), criar um temporário baseado no nome
+        // Se o ID é temporário, criar um baseado no nome REAL
+        if (channelIdParaVideos && channelIdParaVideos.startsWith('temp-')) {
+            channelIdParaVideos = nomeCanal.toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-');
+            console.log("🔄 Convertendo ID temporário para:", channelIdParaVideos);
+        }
+        
+        // Se ainda não tem ID, criar um
         if (!channelIdParaVideos) {
             channelIdParaVideos = nomeCanal.toLowerCase()
                 .replace(/[^a-z0-9]/g, '-')
                 .replace(/-+/g, '-');
-            
-            console.log("Usando channelId temporário:", channelIdParaVideos);
+            console.log("📝 Criando novo channelId:", channelIdParaVideos);
         }
+        
+
         
         // 🔥 CORREÇÃO: Preparar os vídeos para salvar
         const videosParaSalvar = dadosGerador.programmingMode === 'grade' 
@@ -7270,59 +7279,81 @@ async function carregarConfiguracoesMonetizacao(channelId) {
         }
 
         // Função para salvar canal no banco de dados
-        async function salvarCanalBancoDados(channelData, isPublication = false) {
-            if (!currentUser) {
-                console.error("Usuário não autenticado para salvar canal");
-                return null;
-            }
-            
-            try {
-                const userId = currentUser.uid;
-                const now = firebase.firestore.FieldValue.serverTimestamp();
-                
-                const dadosNormalizados = normalizarDadosCanal(channelData);
-                
-                if (!editingChannel || originalChannelName !== dadosNormalizados.name) {
-                    const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
-                    if (canalExistente) {
-                        throw new Error(`Já existe um canal com o nome "${dadosNormalizados.name}" para este usuário.`);
-                    }
-                }
-                
-                const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
-                
-                if (canalExistente && canalExistente.id !== currentChannelId) {
-                    currentChannelId = canalExistente.id;
-                    editingChannel = true;
-                }
-                
-                const channelToSave = {
-    ...dadosNormalizados,
-    userId: userId,
-    updatedAt: now,
-    published: !!dadosNormalizados.url,
-    // 🔥 NOVO: Salvar dados de monetização no canal
-    monetization: dadosNormalizados.monetization || null
-};
-                
-                if (currentChannelId) {
-                    await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).update(channelToSave);
-                    console.log("Canal atualizado no banco de dados:", currentChannelId);
-                    return currentChannelId;
-                } else {
-                    const docRef = await db.collection('users').doc(userId).collection('channels').add({
-                        ...channelToSave,
-                        createdAt: now
-                    });
-                    console.log("Novo canal criado no banco de dados:", docRef.id);
-                    currentChannelId = docRef.id;
-                    return docRef.id;
-                }
-            } catch (error) {
-                console.error("Erro ao salvar canal no banco de dados:", error);
-                throw error;
+async function salvarCanalBancoDados(channelData, isPublication = false) {
+    if (!currentUser) {
+        console.error("Usuário não autenticado para salvar canal");
+        return null;
+    }
+    
+    try {
+        const userId = currentUser.uid;
+        const now = firebase.firestore.FieldValue.serverTimestamp();
+        
+        const dadosNormalizados = normalizarDadosCanal(channelData);
+        
+        // 🔥 CORREÇÃO: Verificar se é um canal novo (ID temporário)
+        const isTemporaryId = currentChannelId && currentChannelId.startsWith('temp-');
+        
+        // Verificar nome duplicado (só se não for edição)
+        if (!editingChannel || originalChannelName !== dadosNormalizados.name || isTemporaryId) {
+            const canalExistente = await buscarCanalPorNome(dadosNormalizados.name, userId);
+            if (canalExistente) {
+                throw new Error(`Já existe um canal com o nome "${dadosNormalizados.name}" para este usuário.`);
             }
         }
+        
+        // Se é um ID temporário, NÃO é edição - é um canal novo
+        if (isTemporaryId) {
+            editingChannel = false;
+        }
+        
+        const channelToSave = {
+            ...dadosNormalizados,
+            userId: userId,
+            updatedAt: now,
+            published: !!dadosNormalizados.url,
+            monetization: dadosNormalizados.monetization || null
+        };
+        
+        console.log("💾 Salvando canal no Firestore...");
+        console.log("currentChannelId:", currentChannelId);
+        console.log("isTemporaryId:", isTemporaryId);
+        console.log("editingChannel:", editingChannel);
+        
+        // 🔥 CORREÇÃO: Se for ID temporário OU não temos ID, criar documento novo
+        if (isTemporaryId || !currentChannelId) {
+            console.log("📝 Criando NOVO documento no Firestore");
+            const docRef = await db.collection('users').doc(userId).collection('channels').add({
+                ...channelToSave,
+                createdAt: now
+            });
+            console.log("✅ Novo canal criado no Firestore:", docRef.id);
+            currentChannelId = docRef.id;
+            return docRef.id;
+        }
+        // Se temos um ID válido e estamos editando, atualizar
+        else if (currentChannelId && editingChannel) {
+            console.log("✏️ Atualizando documento existente:", currentChannelId);
+            await db.collection('users').doc(userId).collection('channels').doc(currentChannelId).update(channelToSave);
+            console.log("✅ Canal atualizado no Firestore:", currentChannelId);
+            return currentChannelId;
+        }
+        // Fallback: sempre criar novo se não sabemos
+        else {
+            console.log("⚠️ Situação não prevista, criando novo documento");
+            const docRef = await db.collection('users').doc(userId).collection('channels').add({
+                ...channelToSave,
+                createdAt: now
+            });
+            console.log("✅ Novo canal criado (fallback):", docRef.id);
+            currentChannelId = docRef.id;
+            return docRef.id;
+        }
+    } catch (error) {
+        console.error("Erro ao salvar canal no banco de dados:", error);
+        throw error;
+    }
+}
 
         // Função para carregar canais do banco de dados
         async function carregarCanaisBancoDados() {
