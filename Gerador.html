@@ -6915,39 +6915,63 @@ async function publicarCanal(nomeCanal, dadosGerador) {
     try {
         console.log("Iniciando publicação do canal:", nomeCanal);
         
-        // 🔥 NOVO: Salvar vídeos no Firestore ANTES de gerar HTML
+        // 🔥 CORREÇÃO: Garantir que temos um channelId válido
+        let channelIdParaVideos = currentChannelId;
+        
+        // Se não temos um channelId (novo canal), criar um temporário baseado no nome
+        if (!channelIdParaVideos) {
+            channelIdParaVideos = nomeCanal.toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-');
+            
+            console.log("Usando channelId temporário:", channelIdParaVideos);
+        }
+        
+        // 🔥 CORREÇÃO: Preparar os vídeos para salvar
         const videosParaSalvar = dadosGerador.programmingMode === 'grade' 
             ? dadosGerador.programas 
             : dadosGerador.playlistVideos;
         
         console.log("📤 Enviando vídeos para proteção...");
+        console.log("Channel ID:", channelIdParaVideos);
+        console.log("Quantidade de vídeos:", videosParaSalvar.length);
         
-        const saveVideosResponse = await fetch("https://us-central1-playtronic-tv.cloudfunctions.net/saveChannelVideos", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },body: JSON.stringify({
-    channelId: currentChannelId,
-    videos: videosParaSalvar,
-    programmingMode: dadosGerador.programmingMode
-})
-        });
-        
-        if (!saveVideosResponse.ok) {
-            throw new Error(`Erro ao salvar vídeos: ${saveVideosResponse.status}`);
+        // 🔥 CORREÇÃO: Verificar se há vídeos antes de enviar
+        if (videosParaSalvar.length === 0) {
+            console.warn("⚠️ Nenhum vídeo para salvar. Pulando proteção de vídeos.");
+        } else {
+            const saveVideosResponse = await fetch("https://us-central1-playtronic-tv.cloudfunctions.net/saveChannelVideos", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    channelId: channelIdParaVideos,
+                    videos: videosParaSalvar,
+                    programmingMode: dadosGerador.programmingMode
+                })
+            });
+            
+            if (!saveVideosResponse.ok) {
+                const errorText = await saveVideosResponse.text();
+                console.error("❌ Erro ao salvar vídeos:", errorText);
+                throw new Error(`Erro ao salvar vídeos: ${saveVideosResponse.status} - ${errorText}`);
+            }
+            
+            const saveVideosResult = await saveVideosResponse.json();
+            console.log("✅ Vídeos salvos no Firestore:", saveVideosResult);
         }
         
-        const saveVideosResult = await saveVideosResponse.json();
-        console.log("✅ Vídeos salvos no Firestore:", saveVideosResult);
-        
-        // Gerar HTML do canal (agora sem URLs expostas)
-        const htmlCanal = gerarHTMLdoCanal(dadosGerador, currentChannelId);
+        // Gerar HTML do canal
+        const htmlCanal = gerarHTMLdoCanal(dadosGerador, channelIdParaVideos);
         
         const dadosEnvio = {
             nomeCanal: nomeCanal,
             htmlContent: htmlCanal,
             dadosConfig: dadosGerador,
-            isNewChannel: !editingChannel
+            isNewChannel: !editingChannel,
+            // 🔥 NOVO: Incluir o channelId no envio
+            channelId: channelIdParaVideos
         };
 
         console.log("Enviando para o servidor...");
@@ -7391,7 +7415,8 @@ async function carregarConfiguracoesMonetizacao(channelId) {
         }
 
         // Função principal de publicação (ATUALIZADA COM NOVA LÓGICA DE DATA)
-        async function iniciarPublicacao() {
+
+async function iniciarPublicacao() {
     console.log("Iniciando publicação...");
     
     if (!currentUser) {
@@ -7402,8 +7427,17 @@ async function carregarConfiguracoesMonetizacao(channelId) {
     
     publicationStarted = true;
     
-    // 🔥🔥🔥 CARREGAMENTO OBRIGATÓRIO DAS CONFIGURAÇÕES DE MONETIZAÇÃO
-    // SEMPRE, independentemente de como chegou na tela 6
+    // 🔥 CORREÇÃO: Garantir que temos um channelId antes de prosseguir
+    if (!currentChannelId && !editingChannel) {
+        // Para novo canal, criar um ID baseado no nome
+        const nomeNormalizado = tvData.name.toLowerCase()
+            .replace(/[^a-z0-9]/g, '-')
+            .replace(/-+/g, '-');
+        
+        // Usar um prefixo para evitar conflitos
+        currentChannelId = `temp-${Date.now()}-${nomeNormalizado}`;
+        console.log("📝 Criando channelId temporário para novo canal:", currentChannelId);
+    }
     
     if (editingChannel) {
         tvData.version = incrementarVersao(tvData.version);
@@ -7415,42 +7449,16 @@ async function carregarConfiguracoesMonetizacao(channelId) {
     
     const dadosNormalizados = normalizarDadosCanal(tvData);
     
-    // 1. Se estamos editando um canal existente
+    // Carregar monetização se existir
     if (editingChannel && currentChannelId) {
-        console.log("🔍 EDITANDO CANAL EXISTENTE - Carregando monetização...");
-        
-        // Carrega do Firestore (sempre a versão mais recente)
         const monetizationData = await carregarConfiguracoesMonetizacao(currentChannelId);
-        
         if (monetizationData) {
-            console.log("✅ Monetização carregada do Firestore:", monetizationData);
             dadosNormalizados.monetization = monetizationData;
-        } else {
-            console.log("⚠️ Nenhuma configuração de monetização encontrada para este canal");
-            // Inicializa estrutura vazia
-            dadosNormalizados.monetization = {
-                adsTerraBanner: { enabled: false, code: '' },
-                adsTerraInterstitial: { enabled: false, code: '' },
-                pixDonations: { 
-                    enabled: false, 
-                    mpAccessToken: '',
-                    mpPlatformUserId: '282224393'
-                },
-                paidCommercials: { 
-                    enabled: false, 
-                    pricePerSecond: 0.05, 
-                    maxDuration: 90,
-                    mpAccessToken: '',
-                    mpPlatformUserId: '282224393'
-                }
-            };
         }
     }
-    // 2. Se é um canal novo
-    else if (!editingChannel) {
-        console.log("🆕 CANAL NOVO - Inicializando monetização...");
-        
-        // Inicializa estrutura vazia para novo canal
+    
+    // Se não tem monetização, inicializar estrutura vazia
+    if (!dadosNormalizados.monetization) {
         dadosNormalizados.monetization = {
             adsTerraBanner: { enabled: false, code: '' },
             adsTerraInterstitial: { enabled: false, code: '' },
@@ -7469,22 +7477,6 @@ async function carregarConfiguracoesMonetizacao(channelId) {
         };
     }
     
-    // 3. Verificar se dadosNormalizados.monetization existe (fallback final)
-    if (!dadosNormalizados.monetization) {
-        console.warn("❌ dadosNormalizados.monetization não definido! Inicializando estrutura vazia...");
-        dadosNormalizados.monetization = {
-            adsTerraBanner: { enabled: false, code: '' },
-            adsTerraInterstitial: { enabled: false, code: '' },
-            pixDonations: { enabled: false, mpAccessToken: '' },
-            paidCommercials: { enabled: false, mpAccessToken: '' }
-        };
-    }
-    
-    // Log para depuração
-    console.log("📊 Configurações de monetização que serão usadas:", dadosNormalizados.monetization);
-    console.log("📊 AdsTerra Banner habilitado?", dadosNormalizados.monetization?.adsTerraBanner?.enabled);
-    console.log("📊 PIX Donations habilitado?", dadosNormalizados.monetization?.pixDonations?.enabled);
-    
     let GRADE = [];
     if (dadosNormalizados.programmingMode === 'grade') {
         const totalPrograms = dadosNormalizados.programs.length;
@@ -7500,7 +7492,6 @@ async function carregarConfiguracoesMonetizacao(channelId) {
         }
     }
     
-    // NOVA LÓGICA: Determinar data de estreia usando a função determinarDataEstreia
     const releaseDate = determinarDataEstreia({
         customReleaseDate: dadosNormalizados.customReleaseDate,
         releaseDate: dadosNormalizados.releaseDate
@@ -7508,56 +7499,40 @@ async function carregarConfiguracoesMonetizacao(channelId) {
     
     console.log(`Data de estreia determinada: ${releaseDate}`);
     
-    // 🔥 NOVO: Carregar configurações de monetização
-let monetizationData = null;
-if (currentChannelId) {
-    monetizationData = await carregarConfiguracoesMonetizacao(currentChannelId);
-}
-
-// 🔥 ADICIONE ESTES LOGS PARA DEPURAÇÃO
-console.log("=== DADOS PARA ENVIO ===");
-console.log("customButton (dadosNormalizados):", dadosNormalizados.customButton);
-console.log("monetizationData:", monetizationData);
-console.log("dadosNormalizados.monetization:", dadosNormalizados.monetization);
-
-const dadosParaEnvio = {
-    name: dadosNormalizados.name,
-    email: dadosNormalizados.email,
-    slogan: dadosNormalizados.slogan,
-    logo: dadosNormalizados.logo || DEFAULT_LOGO,
-    visibility: dadosNormalizados.visibility,
-    showChannelNameWithLogo: dadosNormalizados.showChannelNameWithLogo,
-    programmingMode: dadosNormalizados.programmingMode,
-    programas: dadosNormalizados.programs.map(program => ({
-        name: program.name,
-        videos: program.videos || []
-    })),
-    playlistVideos: dadosNormalizados.playlistVideos.map(video => ({
-        name: video.name,
-        url: video.url
-    })),
-    grade: GRADE,
-    comerciais: dadosNormalizados.commercials,
-    release: releaseDate,
-    showTime: dadosNormalizados.showTime,
-    enableRewind10: dadosNormalizados.enableRewind10,
-    enableRestart: dadosNormalizados.enableRestart,
-    enableLive: dadosNormalizados.enableLive,
-    enableDebug: dadosNormalizados.enableDebug,
-    enableCommercials: dadosNormalizados.enableCommercials,
-    commercialsPerBreak: dadosNormalizados.commercialsPerBreak,
-    commercialsOrder: dadosNormalizados.commercialsOrder,
-    isOffline: dadosNormalizados.isOffline || false,
-    isAdultContent: dadosNormalizados.isAdultContent || false,
-    socialMedia: dadosNormalizados.socialMedia,
-    customButton: dadosNormalizados.customButton,
-    version: dadosNormalizados.version,
-    monetization: monetizationData || dadosNormalizados.monetization || null
-};
-
-// 🔥 LOG ADICIONAL PARA VERIFICAR OS DADOS ENVIADOS
-console.log("dadosParaEnvio.customButton:", dadosParaEnvio.customButton);
-console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
+    const dadosParaEnvio = {
+        name: dadosNormalizados.name,
+        email: dadosNormalizados.email,
+        slogan: dadosNormalizados.slogan,
+        logo: dadosNormalizados.logo || DEFAULT_LOGO,
+        visibility: dadosNormalizados.visibility,
+        showChannelNameWithLogo: dadosNormalizados.showChannelNameWithLogo,
+        programmingMode: dadosNormalizados.programmingMode,
+        programas: dadosNormalizados.programs.map(program => ({
+            name: program.name,
+            videos: program.videos || []
+        })),
+        playlistVideos: dadosNormalizados.playlistVideos.map(video => ({
+            name: video.name,
+            url: video.url
+        })),
+        grade: GRADE,
+        comerciais: dadosNormalizados.commercials,
+        release: releaseDate,
+        showTime: dadosNormalizados.showTime,
+        enableRewind10: dadosNormalizados.enableRewind10,
+        enableRestart: dadosNormalizados.enableRestart,
+        enableLive: dadosNormalizados.enableLive,
+        enableDebug: dadosNormalizados.enableDebug,
+        enableCommercials: dadosNormalizados.enableCommercials,
+        commercialsPerBreak: dadosNormalizados.commercialsPerBreak,
+        commercialsOrder: dadosNormalizados.commercialsOrder,
+        isOffline: dadosNormalizados.isOffline || false,
+        isAdultContent: dadosNormalizados.isAdultContent || false,
+        socialMedia: dadosNormalizados.socialMedia,
+        customButton: dadosNormalizados.customButton,
+        version: dadosNormalizados.version,
+        monetization: dadosNormalizados.monetization || null
+    };
 
     try {
         const publishingStatus = document.getElementById('publishingStatus');
@@ -7594,6 +7569,11 @@ console.log("dadosParaEnvio.monetization:", dadosParaEnvio.monetization);
         const channelId = await salvarCanalBancoDados(tvData, true);
         
         if (channelId) {
+            if (currentChannelId && currentChannelId.startsWith('temp-')) {
+                console.log(`🔄 Atualizando de ID temporário ${currentChannelId} para ID real ${channelId}`);
+                currentChannelId = channelId;
+            }
+            
             const versaoAtual = tvData.version;
             
             processingMessage.innerHTML = `
