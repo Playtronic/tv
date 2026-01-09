@@ -13,8 +13,9 @@
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 
+
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.2.1">
+    <meta name="version" content="1.0.2.2">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -1047,7 +1048,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.2.1
+            Versão 1.0.2.2
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1140,40 +1141,48 @@
 
                 
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-                function cleanupInactiveViewers() {
-                    if (!CHANNEL_ID) return;
-                    
-                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                    
-                    viewersRef.once('value').then(snapshot => {
-                        if (!snapshot.exists()) return;
-                        
-                        const viewers = snapshot.val();
-                        const now = Date.now();
-                        const updates = {};
-                        
-                        Object.keys(viewers).forEach(key => {
-                            const viewer = viewers[key];
-                            if (viewer && viewer.lastHeartbeat) {
-                                const timeDiff = now - viewer.lastHeartbeat;
-                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
-                                    updates[key] = null;
-                                }
-                            } else if (viewer && viewer.timestamp) {
-                                const timeDiff = now - viewer.timestamp;
-                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
-                                    updates[key] = null;
-                                }
-                            }
-                        });
-                        
-                        if (Object.keys(updates).length > 0) {
-                            viewersRef.update(updates)
-                                .then(() => console.log('Espectadores inativos removidos'))
-                                .catch(err => console.log('Não foi possível limpar espectadores'));
-                        }
-                    });
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -1204,73 +1213,134 @@
                 }
                 
                 async function handleVote(voteType) {
-                    if (!currentUserChannel) {
-                        document.getElementById('loginOverlayChannel').style.display = 'flex';
-                        return;
-                    }
-                    
-                    if (!channelStatsRef) return;
-                    
-                    const userId = currentUserChannel.uid;
-                    const userVoteRef = userVotesRef.child(userId);
-                    
-                    try {
-                        const snapshot = await userVoteRef.once('value');
-                        const currentVote = snapshot.val();
-                        
-                        if (currentVote === voteType) {
-                            await userVoteRef.remove();
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            currentUserVote = null;
-                        } else {
-                            if (currentVote === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else if (currentVote === 'dislike') {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            await userVoteRef.set(voteType);
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            }
-                            
-                            currentUserVote = voteType;
-                        }
-                        
-                        if (window.showControls) {
-                            window.showControls();
-                        }
-                        
-                        if (window.resetControlsTimer) {
-                            window.resetControlsTimer();
-                        }
-                        
-                    } catch (error) {
-                        console.error('Erro ao processar voto:', error);
-                        alert('Erro ao registrar voto. Tente novamente.');
-                    }
-                }
+    // 🔥 CORREÇÃO 1: Bloquear múltiplos cliques imediatamente
+    const likeBtn = document.getElementById('likeBtn');
+    const dislikeBtn = document.getElementById('dislikeBtn');
+    
+    // Desabilitar ambos os botões
+    if (likeBtn) likeBtn.disabled = true;
+    if (dislikeBtn) dislikeBtn.disabled = true;
+    
+    // 🔥 CORREÇÃO 2: Feedback visual imediato
+    if (voteType === 'like' && likeBtn) {
+        likeBtn.style.opacity = '0.7';
+    } else if (voteType === 'dislike' && dislikeBtn) {
+        dislikeBtn.style.opacity = '0.7';
+    }
+    
+    if (!currentUserChannel) {
+        document.getElementById('loginOverlayChannel').style.display = 'flex';
+        
+        // Reabilitar botões após 500ms
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    if (!channelStatsRef) {
+        // Reabilitar botões
+        if (likeBtn) {
+            likeBtn.disabled = false;
+            likeBtn.style.opacity = '1';
+        }
+        if (dislikeBtn) {
+            dislikeBtn.disabled = false;
+            dislikeBtn.style.opacity = '1';
+        }
+        return;
+    }
+    
+    const userId = currentUserChannel.uid;
+    const userVoteRef = userVotesRef.child(userId);
+    
+    try {
+        const snapshot = await userVoteRef.once('value');
+        const currentVote = snapshot.val();
+        
+        if (currentVote === voteType) {
+            // Remover voto existente
+            await userVoteRef.remove();
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            currentUserVote = null;
+        } else {
+            // Mudar voto
+            if (currentVote === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else if (currentVote === 'dislike') {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            await userVoteRef.set(voteType);
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            }
+            
+            currentUserVote = voteType;
+        }
+        
+        if (window.showControls) {
+            window.showControls();
+        }
+        
+        if (window.resetControlsTimer) {
+            window.resetControlsTimer();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar voto:', error);
+        alert('Erro ao registrar voto. Tente novamente.');
+    } finally {
+        // 🔥 CORREÇÃO 4: Sempre reabilitar botões após processamento
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 1000); // Delay de 1 segundo para evitar spam
+    }
+}
                 
                 function updateLikeDislikeUI() {
                     const likeCount = document.getElementById('likeCount');
@@ -1545,19 +1615,19 @@ function calcularSlotAtual() {
             const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
             const programa = TV_PROGRAMS[programIndex];
             
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
-            }
+            if (!programa) {
+    return null;
+}
             
             // Ajustar o vídeo baseado nos dias desde a estreia
-            const totalVideosSlot = programa.videos.length;
+            const totalVideosSlot = programa.totalVideos || 1;
             const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
             
-            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            currentVideoIndex = videoIndexAjustado - 1;
             
             return {
                 programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
+                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -1616,7 +1686,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: videoInfo.url,
+                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -1665,6 +1735,12 @@ if (slotIndex === currentPlayingSlot) {
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
+        // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
+        if (isYoutubeVideo) {
+            console.log('YouTube detectado - desativando sincronização');
+            return;
+        }
+        
         if (syncCheckInterval) {
             clearInterval(syncCheckInterval);
         }
@@ -1691,7 +1767,6 @@ if (slotIndex === currentPlayingSlot) {
         
         startAudioMonitoring();
     }
-
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -1788,6 +1863,9 @@ if (slotIndex === currentPlayingSlot) {
     function detectAndRecoverAudio() {
         const now = Date.now();
         
+        // 🔥 CORREÇÃO: Não recuperar áudio para YouTube
+        if (isYoutubeVideo) return false;
+        
         const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
         if (now - lastAudioRecoveryTime < recoveryCooldown) {
             return false;
@@ -1797,7 +1875,7 @@ if (slotIndex === currentPlayingSlot) {
             return false;
         }
         
-        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+        if (!videoElement || !userStartedPlayback) {
             return false;
         }
         
@@ -1854,7 +1932,34 @@ if (slotIndex === currentPlayingSlot) {
         return false;
     }
 
+// 🔥 FUNÇÃO FALTANDO: calculateExpectedTime
+function calculateExpectedTime(duration) {
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade: tempo baseado no slot atual
+        const slotAtual = obterSlotParaExibicao();
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    } else {
+        // Modo Playlist: tempo baseado no tempo desde estreia
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    }
+}
+
     function checkAndFixSync() {
+        // 🔥 CORREÇÃO: NÃO sincronizar vídeos do YouTube
+        if (isYoutubeVideo) {
+            return; // YouTube tem seu próprio sistema de sincronização
+        }
+        
         if (isManualSeeking || !userStartedPlayback) {
             return;
         }
@@ -1866,13 +1971,8 @@ if (slotIndex === currentPlayingSlot) {
         let currentTime, duration, playbackRate;
         
         if (isYoutubeVideo && youtubePlayer && playerReady) {
-            try {
-                currentTime = youtubePlayer.getCurrentTime();
-                duration = youtubePlayer.getDuration();
-                playbackRate = 1.0;
-            } catch (e) {
-                return;
-            }
+            // YouTube - não sincronizar
+            return;
         } else if (videoElement && videoElement.readyState >= 2) {
             currentTime = videoElement.currentTime;
             duration = videoElement.duration;
@@ -1916,6 +2016,9 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        // 🔥 CORREÇÃO: Não aplicar correções para YouTube
+        if (isYoutubeVideo) return;
+        
         const driftAbs = Math.abs(drift);
         
         const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
@@ -1953,9 +2056,7 @@ if (slotIndex === currentPlayingSlot) {
         const newTime = currentTime + adjustment;
         
         if (newTime >= 0 && newTime < duration - 0.5) {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(newTime, true);
-            } else if (videoElement) {
+            if (videoElement) {
                 const audioStateBeforeSeek = {
                     muted: videoElement.muted,
                     volume: videoElement.volume,
@@ -1987,6 +2088,7 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function imperceptibleRefresh() {
+        // 🔥 CORREÇÃO: Não fazer refresh para YouTube
         if (isYoutubeVideo || !videoElement || videoElement.paused) return;
         
         const currentTime = videoElement.currentTime;
@@ -2052,14 +2154,17 @@ if (slotIndex === currentPlayingSlot) {
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
-                setTimeout(initSyncSystem, 1000);
-                
-                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
-                setInterval(() => {
-                    if (!isManualSeeking && currentState !== 'commercial') {
-                        imperceptibleRefresh();
-                    }
-                }, refreshInterval);
+                // 🔥 CORREÇÃO: Não iniciar sincronização para YouTube
+                if (!isYoutubeVideo) {
+                    setTimeout(initSyncSystem, 1000);
+                    
+                    const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                    setInterval(() => {
+                        if (!isManualSeeking && currentState !== 'commercial' && !isYoutubeVideo) {
+                            imperceptibleRefresh();
+                        }
+                    }, refreshInterval);
+                }
             });
             
             videoElement.addEventListener('pause', () => {
@@ -2130,9 +2235,12 @@ if (slotIndex === currentPlayingSlot) {
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "playlist";
+
         const TV_PROGRAMS = [];
-        const TV_PLAYLIST = [{"id":0,"name":"Chaves | T01E01","url":"https://content.jwplatform.com/videos/DgrpvADR-zAjaB8Vt.mp4"},{"id":1,"name":"Chaves | T01E02","url":"https://content.jwplatform.com/videos/QEOLkNzr-zAjaB8Vt.mp4"},{"id":2,"name":"Chaves | T01E03","url":"https://content.jwplatform.com/videos/YYrsRAeh-zAjaB8Vt.mp4"},{"id":3,"name":"Chaves | T01E04","url":"https://content.jwplatform.com/videos/JUlc5zoO-zAjaB8Vt.mp4"},{"id":4,"name":"Chaves | T01E05","url":"https://content.jwplatform.com/videos/ABEOseqI-zAjaB8Vt.mp4"},{"id":5,"name":"Chaves | T01E06","url":"https://content.jwplatform.com/videos/MVoegMiI-zAjaB8Vt.mp4"},{"id":6,"name":"Chaves | T01E07","url":"https://content.jwplatform.com/videos/itfOBHuV-zAjaB8Vt.mp4"},{"id":7,"name":"Chaves | T01E08","url":"https://content.jwplatform.com/videos/YTvs50hc-zAjaB8Vt.mp4"},{"id":8,"name":"Chaves | T01E09","url":"https://content.jwplatform.com/videos/0fbgtfzm-zAjaB8Vt.mp4"},{"id":9,"name":"Chaves | T01E10","url":"https://content.jwplatform.com/videos/yEFoM8TU-zAjaB8Vt.mp4"},{"id":10,"name":"Chaves | T01E11","url":"https://content.jwplatform.com/videos/GeaMdzeG-zAjaB8Vt.mp4"},{"id":11,"name":"Chaves | T01E12","url":"https://content.jwplatform.com/videos/k1XCOdWL-zAjaB8Vt.mp4"},{"id":12,"name":"Chaves | T01E13","url":"https://content.jwplatform.com/videos/rua3Xa4G-zAjaB8Vt.mp4"},{"id":13,"name":"Chaves | T01E14","url":"https://content.jwplatform.com/videos/Qer0ymHz-zAjaB8Vt.mp4"},{"id":14,"name":"Chaves | T01E15","url":"https://content.jwplatform.com/videos/OyhrznH2-zAjaB8Vt.mp4"},{"id":15,"name":"Chaves | T01E16","url":"https://cdn.jwplayer.com/videos/1Tk7E5yI-zAjaB8Vt.mp4"},{"id":16,"name":"Chaves | T01E17","url":"https://cdn.jwplayer.com/videos/Wg5ykUoY-zAjaB8Vt.mp4"},{"id":17,"name":"Chaves | T01E18","url":"https://cdn.jwplayer.com/videos/OWfIHXKS-zAjaB8Vt.mp4"},{"id":18,"name":"Chaves | T01E19","url":"https://cdn.jwplayer.com/videos/DP6QKWVZ-zAjaB8Vt.mp4"},{"id":19,"name":"Chaves | T01E20","url":"https://cdn.jwplayer.com/videos/tW4GZk2c-zAjaB8Vt.mp4"},{"id":20,"name":"Chaves | T01E21","url":"https://cdn.jwplayer.com/videos/LXwdjMgA-zAjaB8Vt.mp4"},{"id":21,"name":"Chaves | T01E22","url":"https://cdn.jwplayer.com/videos/HpLF5nQC-zAjaB8Vt.mp4"},{"id":22,"name":"Chaves | T02E01","url":"https://cdn.jwplayer.com/videos/uWsoqecG-9D0xuyV6.mp4"},{"id":23,"name":"Chaves | T02E02","url":"https://cdn.jwplayer.com/videos/9Hq08DLQ-9D0xuyV6.mp4"},{"id":24,"name":"Chaves | T02E03","url":"https://cdn.jwplayer.com/videos/VBLDAsq0-9D0xuyV6.mp4"},{"id":25,"name":"Chaves | T02E04","url":"https://cdn.jwplayer.com/videos/rxCQbK6i-9D0xuyV6.mp4"},{"id":26,"name":"Chaves | T02E05","url":"https://cdn.jwplayer.com/videos/1mXP0yny-9D0xuyV6.mp4"},{"id":27,"name":"Chaves | T02E06","url":"https://cdn.jwplayer.com/videos/N5yiFqlL-9D0xuyV6.mp4"},{"id":28,"name":"Chaves | T02E07","url":"https://cdn.jwplayer.com/videos/K0L6nltX-9D0xuyV6.mp4"},{"id":29,"name":"Chaves | T02E08","url":"https://cdn.jwplayer.com/videos/DGnas2Cf-9D0xuyV6.mp4"},{"id":30,"name":"Chaves | T02E09","url":"https://cdn.jwplayer.com/videos/7eBRRox0-9D0xuyV6.mp4"},{"id":31,"name":"Chaves | T02E10","url":"https://cdn.jwplayer.com/videos/teYuUsP8-9D0xuyV6.mp4"},{"id":32,"name":"Chaves | T02E11","url":"https://cdn.jwplayer.com/videos/j0EJ59BX-9D0xuyV6.mp4"},{"id":33,"name":"Chaves | T02E12","url":"https://cdn.jwplayer.com/videos/6404bQOq-9D0xuyV6.mp4"},{"id":34,"name":"Chaves | T02E13","url":"https://cdn.jwplayer.com/videos/u9b27KX3-9D0xuyV6.mp4"},{"id":35,"name":"Chaves | T02E14","url":"https://cdn.jwplayer.com/videos/Ho6ya3Mc-9D0xuyV6.mp4"},{"id":36,"name":"Chaves | T02E15","url":"https://cdn.jwplayer.com/videos/tNlQl1Lg-9D0xuyV6.mp4"},{"id":37,"name":"Chaves | T02E16","url":"https://cdn.jwplayer.com/videos/fI7zfO1o-9D0xuyV6.mp4"},{"id":38,"name":"Chaves | T02E17","url":"https://cdn.jwplayer.com/videos/KC16FJA5-9D0xuyV6.mp4"},{"id":39,"name":"Chaves | T02E18","url":"https://cdn.jwplayer.com/videos/soPl2EcZ-9D0xuyV6.mp4"},{"id":40,"name":"Chaves | T02E19","url":"https://cdn.jwplayer.com/videos/rxfLys4P-9D0xuyV6.mp4"},{"id":41,"name":"Chaves | T02E20","url":"https://cdn.jwplayer.com/videos/TSdZyQaY-9D0xuyV6.mp4"},{"id":42,"name":"Chaves | T02E21","url":"https://cdn.jwplayer.com/videos/W8hetMUc-9D0xuyV6.mp4"},{"id":43,"name":"Chaves | T02E22","url":"https://cdn.jwplayer.com/videos/h09O833O-9D0xuyV6.mp4"},{"id":44,"name":"Chaves | T02E23","url":"https://cdn.jwplayer.com/videos/HkHiQYzy-9D0xuyV6.mp4"},{"id":45,"name":"Chaves | T02E24","url":"https://cdn.jwplayer.com/videos/xpS7WRgu-9D0xuyV6.mp4"},{"id":46,"name":"Chaves | T02E25","url":"https://cdn.jwplayer.com/videos/oJhEiABk-9D0xuyV6.mp4"},{"id":47,"name":"Chaves | T02E26","url":"https://cdn.jwplayer.com/videos/6SbvZ3ut-9D0xuyV6.mp4"},{"id":48,"name":"Chaves | T02E27","url":"https://cdn.jwplayer.com/videos/YTMlDuU7-9D0xuyV6.mp4"},{"id":49,"name":"Chaves | T02E28","url":"https://cdn.jwplayer.com/videos/8P8tTvZa-9D0xuyV6.mp4"},{"id":50,"name":"Chaves | T02E29","url":"https://cdn.jwplayer.com/videos/ewHAuoo4-9D0xuyV6.mp4"},{"id":51,"name":"Chaves | T02E30","url":"https://cdn.jwplayer.com/videos/ySDer6kh-9D0xuyV6.mp4"},{"id":52,"name":"Chaves | T02E31","url":"https://cdn.jwplayer.com/videos/Pf7yJLvL-9D0xuyV6.mp4"},{"id":53,"name":"Chaves | T03E01","url":"https://cdn.jwplayer.com/videos/uPtJW0A8-9D0xuyV6.mp4"},{"id":54,"name":"Chaves | T03E02","url":"https://cdn.jwplayer.com/videos/Vd2Qjp1g-9D0xuyV6.mp4"},{"id":55,"name":"Chaves | T03E03","url":"https://cdn.jwplayer.com/videos/VcqaOUUi-9D0xuyV6.mp4"},{"id":56,"name":"Chaves | T03E04","url":"https://cdn.jwplayer.com/videos/EmiSbEgD-9D0xuyV6.mp4"},{"id":57,"name":"Chaves | T03E05","url":"https://cdn.jwplayer.com/videos/AaLjQUTC-9D0xuyV6.mp4"},{"id":58,"name":"Chaves | T03E06","url":"https://cdn.jwplayer.com/videos/al5uLeOU-9D0xuyV6.mp4"},{"id":59,"name":"Chaves | T03E07","url":"https://cdn.jwplayer.com/videos/t3WfExdC-9D0xuyV6.mp4"},{"id":60,"name":"Chaves | T03E08","url":"https://cdn.jwplayer.com/videos/IhLKV32t-9D0xuyV6.mp4"},{"id":61,"name":"Chaves | T03E09","url":"https://cdn.jwplayer.com/videos/84S2swrN-9D0xuyV6.mp4"},{"id":62,"name":"Chaves | T03E10","url":"https://cdn.jwplayer.com/videos/YRdYdSCF-9D0xuyV6.mp4"},{"id":63,"name":"Chaves | T03E11","url":"https://cdn.jwplayer.com/videos/covuUvxt-9D0xuyV6.mp4"},{"id":64,"name":"Chaves | T03E12","url":"https://cdn.jwplayer.com/videos/Ex41w0NP-9D0xuyV6.mp4"},{"id":65,"name":"Chaves | T03E13","url":"https://cdn.jwplayer.com/videos/PGaaea3k-9D0xuyV6.mp4"},{"id":66,"name":"Chaves | T03E14","url":"https://cdn.jwplayer.com/videos/0tBtf8T6-9D0xuyV6.mp4"},{"id":67,"name":"Chaves | T03E15","url":"https://cdn.jwplayer.com/videos/FBccobe5-9D0xuyV6.mp4"},{"id":68,"name":"Chaves | T03E16","url":"https://cdn.jwplayer.com/videos/VkNqHsiU-9D0xuyV6.mp4"},{"id":69,"name":"Chaves | T03E17","url":"https://cdn.jwplayer.com/videos/LiTWROJJ-9D0xuyV6.mp4"},{"id":70,"name":"Chaves | T03E18","url":"https://cdn.jwplayer.com/videos/p65MdqWN-9D0xuyV6.mp4"},{"id":71,"name":"Chaves | T03E19","url":"https://cdn.jwplayer.com/videos/SNXJe972-9D0xuyV6.mp4"},{"id":72,"name":"Chaves | T03E20","url":"https://cdn.jwplayer.com/videos/aZMDoRCr-9D0xuyV6.mp4"},{"id":73,"name":"Chaves | T03E21","url":"https://cdn.jwplayer.com/videos/KUliG40M-9D0xuyV6.mp4"},{"id":74,"name":"Chaves | T03E22","url":"https://cdn.jwplayer.com/videos/adPMO04T-9D0xuyV6.mp4"},{"id":75,"name":"Chaves | T03E23","url":"https://cdn.jwplayer.com/videos/yn5TrZkP-9D0xuyV6.mp4"},{"id":76,"name":"Chaves | T03E24","url":"https://cdn.jwplayer.com/videos/QhPFKQp6-9D0xuyV6.mp4"},{"id":77,"name":"Chaves | T03E25","url":"https://cdn.jwplayer.com/videos/DQ0MlUyg-9D0xuyV6.mp4"},{"id":78,"name":"Chaves | T03E26","url":"https://cdn.jwplayer.com/videos/MBqKCkTl-9D0xuyV6.mp4"},{"id":79,"name":"Chaves | T03E27","url":"https://cdn.jwplayer.com/videos/sYLdSZVW-9D0xuyV6.mp4"},{"id":80,"name":"Chaves | T03E28","url":"https://cdn.jwplayer.com/videos/MK8Tt3tb-9D0xuyV6.mp4"},{"id":81,"name":"Chaves | T03E29","url":"https://cdn.jwplayer.com/videos/CqFP7g4g-9D0xuyV6.mp4"},{"id":82,"name":"Chaves | T03E30","url":"https://cdn.jwplayer.com/videos/E1PXZpwS-9D0xuyV6.mp4"},{"id":83,"name":"Chaves | T03E31","url":"https://cdn.jwplayer.com/videos/0laFSCk6-9D0xuyV6.mp4"},{"id":84,"name":"Chaves | T04E01","url":"https://cdn.jwplayer.com/videos/dbjALIa5-9D0xuyV6.mp4"},{"id":85,"name":"Chaves | T04E02","url":"https://cdn.jwplayer.com/videos/HDRcGqzL-9D0xuyV6.mp4"},{"id":86,"name":"Chaves | T04E03","url":"https://cdn.jwplayer.com/videos/M6eqVJAE-9D0xuyV6.mp4"},{"id":87,"name":"Chaves | T04E04","url":"https://cdn.jwplayer.com/videos/Cbc1olDG-9D0xuyV6.mp4"},{"id":88,"name":"Chaves | T04E05","url":"https://cdn.jwplayer.com/videos/KtfXG8sZ-9D0xuyV6.mp4"},{"id":89,"name":"Chaves | T04E06","url":"https://cdn.jwplayer.com/videos/TvLjSG7j-9D0xuyV6.mp4"},{"id":90,"name":"Chaves | T04E07","url":"https://cdn.jwplayer.com/videos/eJemmlUG-9D0xuyV6.mp4"},{"id":91,"name":"Chaves | T04E08","url":"https://cdn.jwplayer.com/videos/jxky3EMR-9D0xuyV6.mp4"},{"id":92,"name":"Chaves | T04E09","url":"https://cdn.jwplayer.com/videos/tBGge5hv-9D0xuyV6.mp4"},{"id":93,"name":"Chaves | T04E10","url":"https://cdn.jwplayer.com/videos/uVbx45qc-9D0xuyV6.mp4"},{"id":94,"name":"Chaves | T04E11","url":"https://cdn.jwplayer.com/videos/Bmr0kpfc-9D0xuyV6.mp4"},{"id":95,"name":"Chaves | T04E12","url":"https://cdn.jwplayer.com/videos/ESzZe2VY-9D0xuyV6.mp4"},{"id":96,"name":"Chaves | T04E13","url":"https://cdn.jwplayer.com/videos/LrDVS4cU-9D0xuyV6.mp4"},{"id":97,"name":"Chaves | T04E14","url":"https://cdn.jwplayer.com/videos/CGCkMmh1-9D0xuyV6.mp4"},{"id":98,"name":"Chaves | T04E15","url":"https://cdn.jwplayer.com/videos/19taD2FN-9D0xuyV6.mp4"},{"id":99,"name":"Chaves | T04E16","url":"https://cdn.jwplayer.com/videos/aO9IvFXf-9D0xuyV6.mp4"},{"id":100,"name":"Chaves | T04E17","url":"https://cdn.jwplayer.com/videos/z4gN1puu-9D0xuyV6.mp4"},{"id":101,"name":"Chaves | T04E18","url":"https://cdn.jwplayer.com/videos/W7SiksSX-9D0xuyV6.mp4"},{"id":102,"name":"Chaves | T04E19","url":"https://cdn.jwplayer.com/videos/p0Xqawi0-9D0xuyV6.mp4"},{"id":103,"name":"Chaves | T04E20","url":"https://cdn.jwplayer.com/videos/jYOLUKY4-9D0xuyV6.mp4"},{"id":104,"name":"Chaves | T04E21","url":"https://cdn.jwplayer.com/videos/vd1qOUH9-9D0xuyV6.mp4"},{"id":105,"name":"Chaves | T04E22","url":"https://cdn.jwplayer.com/videos/ZLpmDp4k-9D0xuyV6.mp4"},{"id":106,"name":"Chaves | T04E23","url":"https://cdn.jwplayer.com/videos/lpQCtA37-9D0xuyV6.mp4"},{"id":107,"name":"Chaves | T05E01","url":"https://cdn.jwplayer.com/videos/CJVpCpoP-IocZYYea.mp4"},{"id":108,"name":"Chaves | T05E02","url":"https://cdn.jwplayer.com/videos/gJ06D4f4-IocZYYea.mp4"},{"id":109,"name":"Chaves | T05E03","url":"https://cdn.jwplayer.com/videos/3iyZmKo8-IocZYYea.mp4"},{"id":110,"name":"Chaves | T05E04","url":"https://cdn.jwplayer.com/videos/JYarFt53-IocZYYea.mp4"},{"id":111,"name":"Chaves | T05E05","url":"https://cdn.jwplayer.com/videos/pL9ZdNom-IocZYYea.mp4"},{"id":112,"name":"Chaves | T05E06","url":"https://cdn.jwplayer.com/videos/cqUQOaZT-IocZYYea.mp4"},{"id":113,"name":"Chaves | T05E07","url":"https://cdn.jwplayer.com/videos/dS6TeoGT-IocZYYea.mp4"},{"id":114,"name":"Chaves | T05E08","url":"https://cdn.jwplayer.com/videos/dLnuhy2E-IocZYYea.mp4"},{"id":115,"name":"Chaves | T05E09","url":"https://cdn.jwplayer.com/videos/zPqgkh8S-IocZYYea.mp4"},{"id":116,"name":"Chaves | T05E10","url":"https://cdn.jwplayer.com/videos/W4bF84Zh-IocZYYea.mp4"},{"id":117,"name":"Chaves | T05E11","url":"https://cdn.jwplayer.com/videos/75WeQ0Lx-IocZYYea.mp4"},{"id":118,"name":"Chaves | T05E12","url":"https://cdn.jwplayer.com/videos/DHHP0353-IocZYYea.mp4"},{"id":119,"name":"Chaves | T05E13","url":"https://cdn.jwplayer.com/videos/sNBv4XHI-IocZYYea.mp4"},{"id":120,"name":"Chaves | T05E14","url":"https://cdn.jwplayer.com/videos/zLNYo1im-IocZYYea.mp4"},{"id":121,"name":"Chaves | T05E15","url":"https://cdn.jwplayer.com/videos/BzpSbbFu-IocZYYea.mp4"},{"id":122,"name":"Chaves | T05E16","url":"https://cdn.jwplayer.com/videos/uurGglIC-IocZYYea.mp4"},{"id":123,"name":"Chaves | T05E17","url":"https://cdn.jwplayer.com/videos/0OIJYcbB-IocZYYea.mp4"},{"id":124,"name":"Chaves | T05E18","url":"https://cdn.jwplayer.com/videos/82Myo4kc-IocZYYea.mp4"},{"id":125,"name":"Chaves | T05E19","url":"https://cdn.jwplayer.com/videos/0OIJYcbB-IocZYYea.mp4"},{"id":126,"name":"Chaves | T05E20","url":"https://cdn.jwplayer.com/videos/gPR3WGGf-IocZYYea.mp4"},{"id":127,"name":"Chaves | T05E21","url":"https://cdn.jwplayer.com/videos/kzYv2zPX-IocZYYea.mp4"},{"id":128,"name":"Chaves | T05E22","url":"https://cdn.jwplayer.com/videos/YBteYesa-IocZYYea.mp4"},{"id":129,"name":"Chaves | T05E23","url":"https://cdn.jwplayer.com/videos/BA2Rh2j6-IocZYYea.mp4"},{"id":130,"name":"Chaves | T05E24","url":"https://cdn.jwplayer.com/videos/Jv95m9Gf-IocZYYea.mp4"},{"id":131,"name":"Chaves | T05E25","url":"https://cdn.jwplayer.com/videos/5hmQ5SaI-IocZYYea.mp4"},{"id":132,"name":"Chaves | T05E26","url":"https://cdn.jwplayer.com/videos/FGSevK8R-IocZYYea.mp4"},{"id":133,"name":"Chaves | T05E27","url":"https://cdn.jwplayer.com/videos/p2ZOjVfC-IocZYYea.mp4"},{"id":134,"name":"Chaves | T06E01","url":"https://cdn.jwplayer.com/videos/JngHOpOv-IocZYYea.mp4"},{"id":135,"name":"Chaves | T06E02","url":"https://cdn.jwplayer.com/videos/UpVfr8uY-IocZYYea.mp4"},{"id":136,"name":"Chaves | T06E03","url":"https://cdn.jwplayer.com/videos/qMhl6gAS-IocZYYea.mp4"},{"id":137,"name":"Chaves | T06E04","url":"https://cdn.jwplayer.com/videos/xTbVMX0N-IocZYYea.mp4"},{"id":138,"name":"Chaves | T06E05","url":"https://cdn.jwplayer.com/videos/aFdAKSc2-IocZYYea.mp4"},{"id":139,"name":"Chaves | T06E06","url":"https://cdn.jwplayer.com/videos/sIjmFoY6-IocZYYea.mp4"},{"id":140,"name":"Chaves | T06E07","url":"https://cdn.jwplayer.com/videos/M6YoqcvN-IocZYYea.mp4"},{"id":141,"name":"Chaves | T06E08","url":"https://cdn.jwplayer.com/videos/BQemO5Jb-IocZYYea.mp4"},{"id":142,"name":"Chaves | T06E09","url":"https://cdn.jwplayer.com/videos/mA8Pzjan-IocZYYea.mp4"},{"id":143,"name":"Chaves | T06E10","url":"https://cdn.jwplayer.com/videos/4ZVx6yn1-IocZYYea.mp4"},{"id":144,"name":"Chaves | T06E11","url":"https://cdn.jwplayer.com/videos/XzsZKoyF-IocZYYea.mp4"},{"id":145,"name":"Chaves | T06E12","url":"https://cdn.jwplayer.com/videos/S7z39d4S-IocZYYea.mp4"},{"id":146,"name":"Chaves | T06E13","url":"https://cdn.jwplayer.com/videos/TBwcBtTM-IocZYYea.mp4"},{"id":147,"name":"Chaves | T06E14","url":"https://cdn.jwplayer.com/videos/9UUjj3vB-IocZYYea.mp4"},{"id":148,"name":"Chaves | T06E15","url":"https://cdn.jwplayer.com/videos/x1IK4ANv-IocZYYea.mp4"},{"id":149,"name":"Chaves | T06E16","url":"https://cdn.jwplayer.com/videos/olS1NKPM-IocZYYea.mp4"},{"id":150,"name":"Chaves | T06E17","url":"https://cdn.jwplayer.com/videos/droux2LO-IocZYYea.mp4"},{"id":151,"name":"Chaves | T06E18","url":"https://cdn.jwplayer.com/videos/XgsS8znl-IocZYYea.mp4"},{"id":152,"name":"Chaves | T06E19","url":"https://cdn.jwplayer.com/videos/PcXVH7sx-IocZYYea.mp4"},{"id":153,"name":"Chaves | T06E20","url":"https://cdn.jwplayer.com/videos/keYU8qg0-IocZYYea.mp4"},{"id":154,"name":"Chaves | T06E21","url":"https://cdn.jwplayer.com/videos/BykdmJHV-IocZYYea.mp4"},{"id":155,"name":"Chaves | T06E22","url":"https://cdn.jwplayer.com/videos/ZbvPO36D-IocZYYea.mp4"},{"id":156,"name":"Chaves | T06E23","url":"https://cdn.jwplayer.com/videos/bo6Q9H9g-IocZYYea.mp4"},{"id":157,"name":"Chaves | T06E24","url":"https://cdn.jwplayer.com/videos/dyR7eBVJ-IocZYYea.mp4"},{"id":158,"name":"Chaves | T06E25","url":"https://cdn.jwplayer.com/videos/nCOSk2Xx-IocZYYea.mp4"},{"id":159,"name":"Chaves | T06E26","url":"https://cdn.jwplayer.com/videos/2ZwZJSH9-IocZYYea.mp4"},{"id":160,"name":"Chaves | T06E27","url":"https://cdn.jwplayer.com/videos/ApXh6uhH-IocZYYea.mp4"},{"id":161,"name":"Chaves | T06E28","url":"https://cdn.jwplayer.com/videos/vk4Xvn8w-IocZYYea.mp4"},{"id":162,"name":"Chaves | T06E29","url":"https://cdn.jwplayer.com/videos/RkQKx7kc-IocZYYea.mp4"},{"id":163,"name":"Chaves | T06E30","url":"https://cdn.jwplayer.com/videos/RaVQje4y-IocZYYea.mp4"},{"id":164,"name":"Chaves | T06E31","url":"https://cdn.jwplayer.com/videos/3nw49DDE-IocZYYea.mp4"},{"id":165,"name":"Chaves | T06E32","url":"https://cdn.jwplayer.com/videos/Az7S1qvx-IocZYYea.mp4"},{"id":166,"name":"Chaves | T06E33","url":"https://cdn.jwplayer.com/videos/4lOoQ5m0-IocZYYea.mp4"},{"id":167,"name":"Chaves | T06E34","url":"https://cdn.jwplayer.com/videos/77ZYg92J-IocZYYea.mp4"},{"id":168,"name":"Chaves | T07E01","url":"https://cdn.jwplayer.com/videos/2WDwgVdj-IocZYYea.mp4"},{"id":169,"name":"Chaves | T07E02","url":"https://cdn.jwplayer.com/videos/32AQumT2-IocZYYea.mp4"},{"id":170,"name":"Chaves | T07E03","url":"https://cdn.jwplayer.com/videos/3fDqw5FC-IocZYYea.mp4"},{"id":171,"name":"Chaves | T07E04","url":"https://cdn.jwplayer.com/videos/QvcJvc3D-IocZYYea.mp4"},{"id":172,"name":"Chaves | T07E05","url":"https://cdn.jwplayer.com/videos/mmkvV8su-IocZYYea.mp4"},{"id":173,"name":"Chaves | T07E06","url":"https://cdn.jwplayer.com/videos/6h10pxef-IocZYYea.mp4"},{"id":174,"name":"Chaves | T07E07","url":"https://cdn.jwplayer.com/videos/SyKmlTED-zAjaB8Vt.mp4"},{"id":175,"name":"Chaves | T07E08","url":"https://content.jwplatform.com/videos/Hjn4Rsnw-IocZYYea.mp4"},{"id":176,"name":"Chaves | T07E09","url":"https://cdn.jwplayer.com/videos/q1l4sqkp-IocZYYea.mp4"},{"id":177,"name":"Chaves | T07E10","url":"https://cdn.jwplayer.com/videos/SmPJeOog-IocZYYea.mp4"},{"id":178,"name":"Chaves | T07E11","url":"https://cdn.jwplayer.com/videos/CSknSRJ1-IocZYYea.mp4"},{"id":179,"name":"Chaves | T07E12","url":"https://cdn.jwplayer.com/videos/dLJkbKdQ-IocZYYea.mp4"},{"id":180,"name":"Chaves | T07E13","url":"https://cdn.jwplayer.com/videos/KQqQ5bUi-IocZYYea.mp4"},{"id":181,"name":"Chaves | T07E14","url":"https://cdn.jwplayer.com/videos/7czb0jw7-IocZYYea.mp4"},{"id":182,"name":"Chaves | T07E15","url":"https://cdn.jwplayer.com/videos/XgMWU2yH-IocZYYea.mp4"},{"id":183,"name":"Chaves | T07E16","url":"https://cdn.jwplayer.com/videos/1dGp0ZTl-IocZYYea.mp4"},{"id":184,"name":"Chaves | T07E17","url":"https://cdn.jwplayer.com/videos/haFg2Kok-IocZYYea.mp4"},{"id":185,"name":"Chaves | T07E18","url":"https://cdn.jwplayer.com/videos/BZBCiQwh-IocZYYea.mp4"},{"id":186,"name":"Chaves | T07E19","url":"https://cdn.jwplayer.com/videos/m2xACgXx-IocZYYea.mp4"},{"id":187,"name":"Chaves | T07E20","url":"https://cdn.jwplayer.com/videos/xuXH2vFF-IocZYYea.mp4"},{"id":188,"name":"Chaves | T07E21","url":"https://cdn.jwplayer.com/videos/TiHdLYU9-IocZYYea.mp4"},{"id":189,"name":"Chaves | T07E22","url":"https://cdn.jwplayer.com/videos/CSIJOxer-IocZYYea.mp4"},{"id":190,"name":"Chaves | T07E23","url":"https://cdn.jwplayer.com/videos/mYFZL1Wv-IocZYYea.mp4"},{"id":191,"name":"Chaves | T07E24","url":"https://cdn.jwplayer.com/videos/pV68BFo2-IocZYYea.mp4"},{"id":192,"name":"Chaves | T07E25","url":"https://cdn.jwplayer.com/videos/X71PJFhX-IocZYYea.mp4"},{"id":193,"name":"Chaves | T07E26","url":"https://cdn.jwplayer.com/videos/aPk06Mbg-IocZYYea.mp4"},{"id":194,"name":"Chaves | T07E27","url":"https://cdn.jwplayer.com/videos/owxhvbBo-IocZYYea.mp4"},{"id":195,"name":"Chaves | T07E28","url":"https://cdn.jwplayer.com/videos/gFlWVY4f-IocZYYea.mp4"},{"id":196,"name":"Chaves | T07E29","url":"https://cdn.jwplayer.com/videos/Pgkgcu9p-IocZYYea.mp4"},{"id":197,"name":"Chaves | T07E30","url":"https://cdn.jwplayer.com/videos/D2ppouPA-IocZYYea.mp4"},{"id":198,"name":"Chaves | T07E31","url":"https://cdn.jwplayer.com/videos/QoTEuxte-IocZYYea.mp4"},{"id":199,"name":"Chaves | T07E32","url":"https://cdn.jwplayer.com/videos/ky8KIQIc-IocZYYea.mp4"},{"id":200,"name":"Chaves | T07E33","url":"https://cdn.jwplayer.com/videos/2YRM4N6u-IocZYYea.mp4"},{"id":201,"name":"Chaves | T07E34","url":"https://cdn.jwplayer.com/videos/qsLiSBfy-IocZYYea.mp4"},{"id":202,"name":"Chaves | T07E35","url":"https://cdn.jwplayer.com/videos/hic0y9gO-IocZYYea.mp4"},{"id":203,"name":"Chaves | T07E36","url":"https://cdn.jwplayer.com/videos/J6Ux61CP-IocZYYea.mp4"},{"id":204,"name":"Chaves | T07E37","url":"https://cdn.jwplayer.com/videos/lE0VRjMi-IocZYYea.mp4"},{"id":205,"name":"Chaves | T07E38","url":"https://cdn.jwplayer.com/videos/UzYiuNop-IocZYYea.mp4"},{"id":206,"name":"Chaves | T07E39","url":"https://cdn.jwplayer.com/videos/FRyqQW9e-IocZYYea.mp4"},{"id":207,"name":"Chaves | T07E40","url":"https://cdn.jwplayer.com/videos/BiavCsE0-IocZYYea.mp4"},{"id":208,"name":"Chaves | T07E41","url":"https://cdn.jwplayer.com/videos/Juiy2rlH-IocZYYea.mp4"},{"id":209,"name":"Chaves | T07E42","url":"https://cdn.jwplayer.com/videos/OeyHxfba-IocZYYea.mp4"},{"id":210,"name":"Chaves | T07E43","url":"https://cdn.jwplayer.com/videos/0absjVdT-IocZYYea.mp4"},{"id":211,"name":"Chaves | T07E44","url":"https://cdn.jwplayer.com/videos/xmm9Axig-IocZYYea.mp4"}];
+        const TV_PLAYLIST = [{"id":0,"name":"Chaves | T01E01"},{"id":1,"name":"Chaves | T01E02"},{"id":2,"name":"Chaves | T01E03"},{"id":3,"name":"Chaves | T01E04"},{"id":4,"name":"Chaves | T01E05"},{"id":5,"name":"Chaves | T01E06"},{"id":6,"name":"Chaves | T01E07"},{"id":7,"name":"Chaves | T01E08"},{"id":8,"name":"Chaves | T01E09"},{"id":9,"name":"Chaves | T01E10"},{"id":10,"name":"Chaves | T01E11"},{"id":11,"name":"Chaves | T01E12"},{"id":12,"name":"Chaves | T01E13"},{"id":13,"name":"Chaves | T01E14"},{"id":14,"name":"Chaves | T01E15"},{"id":15,"name":"Chaves | T01E16"},{"id":16,"name":"Chaves | T01E17"},{"id":17,"name":"Chaves | T01E18"},{"id":18,"name":"Chaves | T01E19"},{"id":19,"name":"Chaves | T01E20"},{"id":20,"name":"Chaves | T01E21"},{"id":21,"name":"Chaves | T01E22"},{"id":22,"name":"Chaves | T02E01"},{"id":23,"name":"Chaves | T02E02"},{"id":24,"name":"Chaves | T02E03"},{"id":25,"name":"Chaves | T02E04"},{"id":26,"name":"Chaves | T02E05"},{"id":27,"name":"Chaves | T02E06"},{"id":28,"name":"Chaves | T02E07"},{"id":29,"name":"Chaves | T02E08"},{"id":30,"name":"Chaves | T02E09"},{"id":31,"name":"Chaves | T02E10"},{"id":32,"name":"Chaves | T02E11"},{"id":33,"name":"Chaves | T02E12"},{"id":34,"name":"Chaves | T02E13"},{"id":35,"name":"Chaves | T02E14"},{"id":36,"name":"Chaves | T02E15"},{"id":37,"name":"Chaves | T02E16"},{"id":38,"name":"Chaves | T02E17"},{"id":39,"name":"Chaves | T02E18"},{"id":40,"name":"Chaves | T02E19"},{"id":41,"name":"Chaves | T02E20"},{"id":42,"name":"Chaves | T02E21"},{"id":43,"name":"Chaves | T02E22"},{"id":44,"name":"Chaves | T02E23"},{"id":45,"name":"Chaves | T02E24"},{"id":46,"name":"Chaves | T02E25"},{"id":47,"name":"Chaves | T02E26"},{"id":48,"name":"Chaves | T02E27"},{"id":49,"name":"Chaves | T02E28"},{"id":50,"name":"Chaves | T02E29"},{"id":51,"name":"Chaves | T02E30"},{"id":52,"name":"Chaves | T02E31"},{"id":53,"name":"Chaves | T03E01"},{"id":54,"name":"Chaves | T03E02"},{"id":55,"name":"Chaves | T03E03"},{"id":56,"name":"Chaves | T03E04"},{"id":57,"name":"Chaves | T03E05"},{"id":58,"name":"Chaves | T03E06"},{"id":59,"name":"Chaves | T03E07"},{"id":60,"name":"Chaves | T03E08"},{"id":61,"name":"Chaves | T03E09"},{"id":62,"name":"Chaves | T03E10"},{"id":63,"name":"Chaves | T03E11"},{"id":64,"name":"Chaves | T03E12"},{"id":65,"name":"Chaves | T03E13"},{"id":66,"name":"Chaves | T03E14"},{"id":67,"name":"Chaves | T03E15"},{"id":68,"name":"Chaves | T03E16"},{"id":69,"name":"Chaves | T03E17"},{"id":70,"name":"Chaves | T03E18"},{"id":71,"name":"Chaves | T03E19"},{"id":72,"name":"Chaves | T03E20"},{"id":73,"name":"Chaves | T03E21"},{"id":74,"name":"Chaves | T03E22"},{"id":75,"name":"Chaves | T03E23"},{"id":76,"name":"Chaves | T03E24"},{"id":77,"name":"Chaves | T03E25"},{"id":78,"name":"Chaves | T03E26"},{"id":79,"name":"Chaves | T03E27"},{"id":80,"name":"Chaves | T03E28"},{"id":81,"name":"Chaves | T03E29"},{"id":82,"name":"Chaves | T03E30"},{"id":83,"name":"Chaves | T03E31"},{"id":84,"name":"Chaves | T04E01"},{"id":85,"name":"Chaves | T04E02"},{"id":86,"name":"Chaves | T04E03"},{"id":87,"name":"Chaves | T04E04"},{"id":88,"name":"Chaves | T04E05"},{"id":89,"name":"Chaves | T04E06"},{"id":90,"name":"Chaves | T04E07"},{"id":91,"name":"Chaves | T04E08"},{"id":92,"name":"Chaves | T04E09"},{"id":93,"name":"Chaves | T04E10"},{"id":94,"name":"Chaves | T04E11"},{"id":95,"name":"Chaves | T04E12"},{"id":96,"name":"Chaves | T04E13"},{"id":97,"name":"Chaves | T04E14"},{"id":98,"name":"Chaves | T04E15"},{"id":99,"name":"Chaves | T04E16"},{"id":100,"name":"Chaves | T04E17"},{"id":101,"name":"Chaves | T04E18"},{"id":102,"name":"Chaves | T04E19"},{"id":103,"name":"Chaves | T04E20"},{"id":104,"name":"Chaves | T04E21"},{"id":105,"name":"Chaves | T04E22"},{"id":106,"name":"Chaves | T04E23"},{"id":107,"name":"Chaves | T05E01"},{"id":108,"name":"Chaves | T05E02"},{"id":109,"name":"Chaves | T05E03"},{"id":110,"name":"Chaves | T05E04"},{"id":111,"name":"Chaves | T05E05"},{"id":112,"name":"Chaves | T05E06"},{"id":113,"name":"Chaves | T05E07"},{"id":114,"name":"Chaves | T05E08"},{"id":115,"name":"Chaves | T05E09"},{"id":116,"name":"Chaves | T05E10"},{"id":117,"name":"Chaves | T05E11"},{"id":118,"name":"Chaves | T05E12"},{"id":119,"name":"Chaves | T05E13"},{"id":120,"name":"Chaves | T05E14"},{"id":121,"name":"Chaves | T05E15"},{"id":122,"name":"Chaves | T05E16"},{"id":123,"name":"Chaves | T05E17"},{"id":124,"name":"Chaves | T05E18"},{"id":125,"name":"Chaves | T05E19"},{"id":126,"name":"Chaves | T05E20"},{"id":127,"name":"Chaves | T05E21"},{"id":128,"name":"Chaves | T05E22"},{"id":129,"name":"Chaves | T05E23"},{"id":130,"name":"Chaves | T05E24"},{"id":131,"name":"Chaves | T05E25"},{"id":132,"name":"Chaves | T05E26"},{"id":133,"name":"Chaves | T05E27"},{"id":134,"name":"Chaves | T06E01"},{"id":135,"name":"Chaves | T06E02"},{"id":136,"name":"Chaves | T06E03"},{"id":137,"name":"Chaves | T06E04"},{"id":138,"name":"Chaves | T06E05"},{"id":139,"name":"Chaves | T06E06"},{"id":140,"name":"Chaves | T06E07"},{"id":141,"name":"Chaves | T06E08"},{"id":142,"name":"Chaves | T06E09"},{"id":143,"name":"Chaves | T06E10"},{"id":144,"name":"Chaves | T06E11"},{"id":145,"name":"Chaves | T06E12"},{"id":146,"name":"Chaves | T06E13"},{"id":147,"name":"Chaves | T06E14"},{"id":148,"name":"Chaves | T06E15"},{"id":149,"name":"Chaves | T06E16"},{"id":150,"name":"Chaves | T06E17"},{"id":151,"name":"Chaves | T06E18"},{"id":152,"name":"Chaves | T06E19"},{"id":153,"name":"Chaves | T06E20"},{"id":154,"name":"Chaves | T06E21"},{"id":155,"name":"Chaves | T06E22"},{"id":156,"name":"Chaves | T06E23"},{"id":157,"name":"Chaves | T06E24"},{"id":158,"name":"Chaves | T06E25"},{"id":159,"name":"Chaves | T06E26"},{"id":160,"name":"Chaves | T06E27"},{"id":161,"name":"Chaves | T06E28"},{"id":162,"name":"Chaves | T06E29"},{"id":163,"name":"Chaves | T06E30"},{"id":164,"name":"Chaves | T06E31"},{"id":165,"name":"Chaves | T06E32"},{"id":166,"name":"Chaves | T06E33"},{"id":167,"name":"Chaves | T06E34"},{"id":168,"name":"Chaves | T07E01"},{"id":169,"name":"Chaves | T07E02"},{"id":170,"name":"Chaves | T07E03"},{"id":171,"name":"Chaves | T07E04"},{"id":172,"name":"Chaves | T07E05"},{"id":173,"name":"Chaves | T07E06"},{"id":174,"name":"Chaves | T07E07"},{"id":175,"name":"Chaves | T07E08"},{"id":176,"name":"Chaves | T07E09"},{"id":177,"name":"Chaves | T07E10"},{"id":178,"name":"Chaves | T07E11"},{"id":179,"name":"Chaves | T07E12"},{"id":180,"name":"Chaves | T07E13"},{"id":181,"name":"Chaves | T07E14"},{"id":182,"name":"Chaves | T07E15"},{"id":183,"name":"Chaves | T07E16"},{"id":184,"name":"Chaves | T07E17"},{"id":185,"name":"Chaves | T07E18"},{"id":186,"name":"Chaves | T07E19"},{"id":187,"name":"Chaves | T07E20"},{"id":188,"name":"Chaves | T07E21"},{"id":189,"name":"Chaves | T07E22"},{"id":190,"name":"Chaves | T07E23"},{"id":191,"name":"Chaves | T07E24"},{"id":192,"name":"Chaves | T07E25"},{"id":193,"name":"Chaves | T07E26"},{"id":194,"name":"Chaves | T07E27"},{"id":195,"name":"Chaves | T07E28"},{"id":196,"name":"Chaves | T07E29"},{"id":197,"name":"Chaves | T07E30"},{"id":198,"name":"Chaves | T07E31"},{"id":199,"name":"Chaves | T07E32"},{"id":200,"name":"Chaves | T07E33"},{"id":201,"name":"Chaves | T07E34"},{"id":202,"name":"Chaves | T07E35"},{"id":203,"name":"Chaves | T07E36"},{"id":204,"name":"Chaves | T07E37"},{"id":205,"name":"Chaves | T07E38"},{"id":206,"name":"Chaves | T07E39"},{"id":207,"name":"Chaves | T07E40"},{"id":208,"name":"Chaves | T07E41"},{"id":209,"name":"Chaves | T07E42"},{"id":210,"name":"Chaves | T07E43"},{"id":211,"name":"Chaves | T07E44"}];
+        const PROGRAMMING_MODE = "playlist";const TOTAL_PROGRAMS = 0;
+        const TOTAL_PLAYLIST_VIDEOS = 212;
+        const PROGRAM_VIDEO_COUNTS = [];
         const TV_COMMERCIALS = [];
         const ENABLE_COMMERCIALS = false;
         const COMMERCIALS_PER_BREAK = 2;
@@ -2149,7 +2257,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.2.1";
+        const CHANNEL_VERSION = "1.0.2.2";
         const CHANNEL_ID = "7hVs0Z0yNxojvhcsxKzU";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2768,147 +2876,163 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-
-              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-        // Evitar múltiplos carregamentos simultâneos
-        if (isLoadingVideo) {
-            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-            return;
-        }
-        isLoadingVideo = true;
-        
-        
-        // Esconder player do YouTube se estiver visível
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
-        }
-        isYoutubeVideo = false;
-        
-        // Limpar container do YouTube se existir
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            youtubeContainer.innerHTML = '';
-        }
-        
-        // Verificar se temos elemento de vídeo
-        if (!videoElement) {
-            console.error('Elemento de vídeo não encontrado');
-            isLoadingVideo = false; // Resetar flag
-            return;
-        }
-        
-        // Parar qualquer vídeo atual ANTES de carregar novo
-        if (videoElement.src) {
-            videoElement.pause();
-            videoElement.src = '';
-        }
-        
-        // Configurações básicas
-videoElement.preload = 'auto';
-videoElement.playsInline = true;
-        
-        
-
-        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-        
-        // Remover event listeners antigos para evitar duplicação
-        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        videoElement.removeEventListener('canplay', handleCanPlay);
-        
-        // Configurar nova URL
-        videoElement.style.display = 'block';
-        videoElement.src = url;
-        
-        // ... continue com o resto do código existente ...
-            // Resetar mensagem de loading apenas se não for comercial
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-
-
-            // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-            if (loadingMessage && currentState !== 'commercial') {
-                loadingMessage.style.display = 'block';
-            }
+function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // Remover event listeners antigos para evitar duplicação
-    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-    videoElement.removeEventListener('canplay', handleCanPlay);
+    // Resetar flag IMEDIATAMENTE
+    isLoadingVideo = false;
     
-    // Configurar nova URL
+    // 1. Esconder YouTube
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+    }
+    isYoutubeVideo = false;
+    
+    // 2. Verificar se elemento de vídeo existe
+    if (!videoElement) {
+        console.error('❌ videoElement não existe no DOM');
+        return;
+    }
+    
+    // 3. PARAR e LIMPAR completamente
+    try {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
+    } catch (e) {
+        console.log('Não foi possível limpar vídeo anterior:', e);
+    }
+    
+    // 4. Configurar atributos ESSENCIAIS
+    videoElement.playsInline = true;
+    videoElement.preload = 'auto';
+    videoElement.crossOrigin = 'anonymous';
+    videoElement.setAttribute('playsinline', '');
+    videoElement.setAttribute('webkit-playsinline', '');
+    videoElement.setAttribute('crossorigin', 'anonymous');
+    
+    // 5. MOSTRAR elemento
     videoElement.style.display = 'block';
+    
+    // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
+    console.log('📥 Definindo src no elemento de vídeo');
     videoElement.src = url;
     
-    // Função para quando os metadados são carregados
-    function handleMetadataLoaded() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+    // 7. Configurar eventos
+    function handleLoadedMetadata() {
+        console.log('✅ loadedmetadata - Duração:', videoElement.duration);
+        
+        // Calcular tempo inicial
+        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1 && videoElement.duration) {
+            const startTime = videoElement.duration * iniciarNoPercentual;
+            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
         }
         
-        // Calcular tempo inicial baseado no percentual do slot
-        let startTime = 0;
-        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-            const videoDuration = videoElement.duration || 0;
-            if (videoDuration > 0) {
-                startTime = videoDuration * iniciarNoPercentual;
-                startTime = Math.min(startTime, videoDuration - 1);
-            }
-        }
-        
-        // Definir tempo inicial
-        videoElement.currentTime = startTime;
-        
-        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
+        // Reproduzir se necessário
         if (autoplay && userStartedPlayback) {
-            videoElement.muted = false;
+            console.log('▶️ Tentando reproduzir...');
             
-            const playPromise = videoElement.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log('Autoplay bloqueado:', error);
+            // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
+            videoElement.muted = false;
+            videoElement.volume = 1.0;
+            
+            videoElement.play()
+                .then(() => {
+                    console.log('✅ Vídeo reproduzindo (áudio ativo imediatamente)');
+                })
+                .catch(error => {
+                    console.error('❌ play() falhou:', error.name, error.message);
+                    
+                    // Se falhar por políticas de autoplay, tentar com mute e pedir interação
+                    if (error.name === 'NotAllowedError') {
+                        console.log('⚠️ Autoplay bloqueado. Tentando com mute...');
+                        videoElement.muted = true;
+                        videoElement.play()
+                            .then(() => {
+                                console.log('✅ Vídeo reproduzindo (muted por política)');
+                                // Mostrar botão para ativar áudio
+                                if (autoplayOverlay) {
+                                    // 🔥 CORREÇÃO: Use strings normais, não template literals aninhados
+                                    autoplayOverlay.classList.remove('hidden');
+                                    autoplayOverlay.innerHTML = 
+                                        '<h3>Clique para ativar o áudio</h3>' +
+                                        '<button class="autoplay-button" id="activateAudioBtn">' +
+                                        'Ativar Áudio' +
+                                        '</button>';
+                                    
+                                    // Adicionar evento separadamente
+                                    document.getElementById('activateAudioBtn').addEventListener('click', function() {
+                                        videoElement.muted = false;
+                                        autoplayOverlay.classList.add('hidden');
+                                    });
+                                }
+                            });
+                    }
                 });
+        }
+    }
+    
+    function handleError(e) {
+        console.error('❌ ERRO no elemento de vídeo:');
+        console.error('Código:', videoElement.error?.code);
+        console.error('Mensagem:', videoElement.error?.message);
+        console.error('URL tentada:', url);
+        
+        // Mostrar erro específico
+        if (videoElement.error) {
+            switch(videoElement.error.code) {
+                case 1: console.error('🚫 Erro: MEDIA_ERR_ABORTED'); break;
+                case 2: console.error('🚫 Erro: MEDIA_ERR_NETWORK'); break;
+                case 3: console.error('🚫 Erro: MEDIA_ERR_DECODE'); break;
+                case 4: console.error('🚫 Erro: MEDIA_ERR_SRC_NOT_SUPPORTED'); break;
             }
-        } else {
-            videoElement.pause();
         }
     }
     
-    // Função para quando o vídeo pode começar a tocar
     function handleCanPlay() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+        console.log('✅ canplay - Pronto para reprodução');
+    }
+    
+    function handlePlaying() {
+        console.log('▶️ playing - Vídeo começou a tocar');
+        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
+        if (videoElement.muted) {
+            videoElement.muted = false;
         }
     }
     
-    // Adicionar novos event listeners
-    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
+    // Remover listeners antigos
+    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.removeEventListener('error', handleError);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    videoElement.removeEventListener('playing', handlePlaying);
+    
+    // Adicionar novos listeners (APENAS UMA VEZ)
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    videoElement.addEventListener('playing', handlePlaying, { once: true });
     
-    // Resetar flag de carregamento quando o vídeo estiver pronto
-    const resetLoadingFlag = function() {
-        isLoadingVideo = false;
-    };
-    
-    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
-    
-    // Iniciar carregamento
+    // 8. INICIAR carregamento
+    console.log('🔄 Chamando videoElement.load()');
     videoElement.load();
     
-    // Timeout de segurança para vídeos que não carregam
+    // 9. Timeout para debug
     setTimeout(() => {
-        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
-            console.warn('Vídeo demorando para carregar:', url);
+        console.log('⏱️ Estado após 3s:', {
+            readyState: videoElement.readyState,
+            error: videoElement.error,
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            src: videoElement.src?.substring(0, 100)
+        });
+        
+        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
+        if (videoElement.muted && userStartedPlayback) {
+            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
+            videoElement.muted = false;
         }
-    }, 10000);
+    }, 3000);
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
@@ -3048,14 +3172,51 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            const cloudFunctionUrl = videoInfo.videoUrl;
+
+if (!cloudFunctionUrl) {
+    console.error('URL da Cloud Function não disponível');
+    return;
+}
+
+console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
+
+// FAZER A REQUISIÇÃO PARA OBTER A URL REAL DO VÍDEO
+fetch(cloudFunctionUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📦 Resposta da Cloud Function:', data);
+        
+        if (data.success && data.url && data.url.trim() !== '') {
+            console.log('✅ URL real do vídeo:', data.url.substring(0, 80) + '...');
             
-            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
+                carregarVideoYouTube(data.url, iniciarNoPercentual, true);
             } else {
-                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+                carregarVideoHTML5(data.url, iniciarNoPercentual, true);
             }
-            
+        } else {
+            console.error('❌ Cloud Function não retornou URL válida:', data);
+            // Tentar próximo slot após 3 segundos
+            setTimeout(() => {
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao buscar URL da Cloud Function:', error);
+        // Tentar próximo slot após 3 segundos
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+    });
             currentState = 'program';
         }
         
@@ -4155,6 +4316,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     </script>
     
+
 
 </body>
 </html>
