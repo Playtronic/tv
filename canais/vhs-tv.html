@@ -13,8 +13,9 @@
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 
+
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.9">
+    <meta name="version" content="1.0.1.0">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -1049,7 +1050,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.9
+            Versão 1.0.1.0
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1142,40 +1143,48 @@
 
                 
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-                function cleanupInactiveViewers() {
-                    if (!CHANNEL_ID) return;
-                    
-                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                    
-                    viewersRef.once('value').then(snapshot => {
-                        if (!snapshot.exists()) return;
-                        
-                        const viewers = snapshot.val();
-                        const now = Date.now();
-                        const updates = {};
-                        
-                        Object.keys(viewers).forEach(key => {
-                            const viewer = viewers[key];
-                            if (viewer && viewer.lastHeartbeat) {
-                                const timeDiff = now - viewer.lastHeartbeat;
-                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
-                                    updates[key] = null;
-                                }
-                            } else if (viewer && viewer.timestamp) {
-                                const timeDiff = now - viewer.timestamp;
-                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
-                                    updates[key] = null;
-                                }
-                            }
-                        });
-                        
-                        if (Object.keys(updates).length > 0) {
-                            viewersRef.update(updates)
-                                .then(() => console.log('Espectadores inativos removidos'))
-                                .catch(err => console.log('Não foi possível limpar espectadores'));
-                        }
-                    });
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -1206,73 +1215,134 @@
                 }
                 
                 async function handleVote(voteType) {
-                    if (!currentUserChannel) {
-                        document.getElementById('loginOverlayChannel').style.display = 'flex';
-                        return;
-                    }
-                    
-                    if (!channelStatsRef) return;
-                    
-                    const userId = currentUserChannel.uid;
-                    const userVoteRef = userVotesRef.child(userId);
-                    
-                    try {
-                        const snapshot = await userVoteRef.once('value');
-                        const currentVote = snapshot.val();
-                        
-                        if (currentVote === voteType) {
-                            await userVoteRef.remove();
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            currentUserVote = null;
-                        } else {
-                            if (currentVote === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else if (currentVote === 'dislike') {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            await userVoteRef.set(voteType);
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            }
-                            
-                            currentUserVote = voteType;
-                        }
-                        
-                        if (window.showControls) {
-                            window.showControls();
-                        }
-                        
-                        if (window.resetControlsTimer) {
-                            window.resetControlsTimer();
-                        }
-                        
-                    } catch (error) {
-                        console.error('Erro ao processar voto:', error);
-                        alert('Erro ao registrar voto. Tente novamente.');
-                    }
-                }
+    // 🔥 CORREÇÃO 1: Bloquear múltiplos cliques imediatamente
+    const likeBtn = document.getElementById('likeBtn');
+    const dislikeBtn = document.getElementById('dislikeBtn');
+    
+    // Desabilitar ambos os botões
+    if (likeBtn) likeBtn.disabled = true;
+    if (dislikeBtn) dislikeBtn.disabled = true;
+    
+    // 🔥 CORREÇÃO 2: Feedback visual imediato
+    if (voteType === 'like' && likeBtn) {
+        likeBtn.style.opacity = '0.7';
+    } else if (voteType === 'dislike' && dislikeBtn) {
+        dislikeBtn.style.opacity = '0.7';
+    }
+    
+    if (!currentUserChannel) {
+        document.getElementById('loginOverlayChannel').style.display = 'flex';
+        
+        // Reabilitar botões após 500ms
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    if (!channelStatsRef) {
+        // Reabilitar botões
+        if (likeBtn) {
+            likeBtn.disabled = false;
+            likeBtn.style.opacity = '1';
+        }
+        if (dislikeBtn) {
+            dislikeBtn.disabled = false;
+            dislikeBtn.style.opacity = '1';
+        }
+        return;
+    }
+    
+    const userId = currentUserChannel.uid;
+    const userVoteRef = userVotesRef.child(userId);
+    
+    try {
+        const snapshot = await userVoteRef.once('value');
+        const currentVote = snapshot.val();
+        
+        if (currentVote === voteType) {
+            // Remover voto existente
+            await userVoteRef.remove();
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            currentUserVote = null;
+        } else {
+            // Mudar voto
+            if (currentVote === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else if (currentVote === 'dislike') {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            await userVoteRef.set(voteType);
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            }
+            
+            currentUserVote = voteType;
+        }
+        
+        if (window.showControls) {
+            window.showControls();
+        }
+        
+        if (window.resetControlsTimer) {
+            window.resetControlsTimer();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar voto:', error);
+        alert('Erro ao registrar voto. Tente novamente.');
+    } finally {
+        // 🔥 CORREÇÃO 4: Sempre reabilitar botões após processamento
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 1000); // Delay de 1 segundo para evitar spam
+    }
+}
                 
                 function updateLikeDislikeUI() {
                     const likeCount = document.getElementById('likeCount');
@@ -1547,19 +1617,19 @@ function calcularSlotAtual() {
             const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
             const programa = TV_PROGRAMS[programIndex];
             
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
-            }
+            if (!programa) {
+    return null;
+}
             
             // Ajustar o vídeo baseado nos dias desde a estreia
-            const totalVideosSlot = programa.videos.length;
+            const totalVideosSlot = programa.totalVideos || 1;
             const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
             
-            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            currentVideoIndex = videoIndexAjustado - 1;
             
             return {
                 programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
+                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -1618,7 +1688,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: videoInfo.url,
+                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -1667,6 +1737,12 @@ if (slotIndex === currentPlayingSlot) {
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
+        // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
+        if (isYoutubeVideo) {
+            console.log('YouTube detectado - desativando sincronização');
+            return;
+        }
+        
         if (syncCheckInterval) {
             clearInterval(syncCheckInterval);
         }
@@ -1693,7 +1769,6 @@ if (slotIndex === currentPlayingSlot) {
         
         startAudioMonitoring();
     }
-
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -1790,6 +1865,9 @@ if (slotIndex === currentPlayingSlot) {
     function detectAndRecoverAudio() {
         const now = Date.now();
         
+        // 🔥 CORREÇÃO: Não recuperar áudio para YouTube
+        if (isYoutubeVideo) return false;
+        
         const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
         if (now - lastAudioRecoveryTime < recoveryCooldown) {
             return false;
@@ -1799,7 +1877,7 @@ if (slotIndex === currentPlayingSlot) {
             return false;
         }
         
-        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+        if (!videoElement || !userStartedPlayback) {
             return false;
         }
         
@@ -1856,7 +1934,34 @@ if (slotIndex === currentPlayingSlot) {
         return false;
     }
 
+// 🔥 FUNÇÃO FALTANDO: calculateExpectedTime
+function calculateExpectedTime(duration) {
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade: tempo baseado no slot atual
+        const slotAtual = obterSlotParaExibicao();
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    } else {
+        // Modo Playlist: tempo baseado no tempo desde estreia
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    }
+}
+
     function checkAndFixSync() {
+        // 🔥 CORREÇÃO: NÃO sincronizar vídeos do YouTube
+        if (isYoutubeVideo) {
+            return; // YouTube tem seu próprio sistema de sincronização
+        }
+        
         if (isManualSeeking || !userStartedPlayback) {
             return;
         }
@@ -1868,13 +1973,8 @@ if (slotIndex === currentPlayingSlot) {
         let currentTime, duration, playbackRate;
         
         if (isYoutubeVideo && youtubePlayer && playerReady) {
-            try {
-                currentTime = youtubePlayer.getCurrentTime();
-                duration = youtubePlayer.getDuration();
-                playbackRate = 1.0;
-            } catch (e) {
-                return;
-            }
+            // YouTube - não sincronizar
+            return;
         } else if (videoElement && videoElement.readyState >= 2) {
             currentTime = videoElement.currentTime;
             duration = videoElement.duration;
@@ -1918,6 +2018,9 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        // 🔥 CORREÇÃO: Não aplicar correções para YouTube
+        if (isYoutubeVideo) return;
+        
         const driftAbs = Math.abs(drift);
         
         const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
@@ -1955,9 +2058,7 @@ if (slotIndex === currentPlayingSlot) {
         const newTime = currentTime + adjustment;
         
         if (newTime >= 0 && newTime < duration - 0.5) {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(newTime, true);
-            } else if (videoElement) {
+            if (videoElement) {
                 const audioStateBeforeSeek = {
                     muted: videoElement.muted,
                     volume: videoElement.volume,
@@ -1989,6 +2090,7 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function imperceptibleRefresh() {
+        // 🔥 CORREÇÃO: Não fazer refresh para YouTube
         if (isYoutubeVideo || !videoElement || videoElement.paused) return;
         
         const currentTime = videoElement.currentTime;
@@ -2054,14 +2156,17 @@ if (slotIndex === currentPlayingSlot) {
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
-                setTimeout(initSyncSystem, 1000);
-                
-                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
-                setInterval(() => {
-                    if (!isManualSeeking && currentState !== 'commercial') {
-                        imperceptibleRefresh();
-                    }
-                }, refreshInterval);
+                // 🔥 CORREÇÃO: Não iniciar sincronização para YouTube
+                if (!isYoutubeVideo) {
+                    setTimeout(initSyncSystem, 1000);
+                    
+                    const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                    setInterval(() => {
+                        if (!isManualSeeking && currentState !== 'commercial' && !isYoutubeVideo) {
+                            imperceptibleRefresh();
+                        }
+                    }, refreshInterval);
+                }
             });
             
             videoElement.addEventListener('pause', () => {
@@ -2132,9 +2237,12 @@ if (slotIndex === currentPlayingSlot) {
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "playlist";
+
         const TV_PROGRAMS = [];
-        const TV_PLAYLIST = [{"id":0,"name":"O Trapalhão Na Ilha do Tesouro","url":"https://content.jwplatform.com/videos/cjwcrLLw-XQ5K9aFw.mp4"},{"id":1,"name":"Trovão Azul","url":"https://content.jwplatform.com/videos/rVlCJmdt-CwqLqxKU.mp4"},{"id":2,"name":"Indiana Jones E Os Caçadores Da Arca Perdida","url":"https://content.jwplatform.com/videos/DNqjsFCw-CwqLqxKU.mp4"},{"id":3,"name":"A História Sem Fim","url":"https://content.jwplatform.com/videos/dbBLZp2o-CwqLqxKU.mp4"},{"id":4,"name":"O Corcel Negro","url":"https://content.jwplatform.com/videos/qxI0XCrJ-vkxUHhk4.mp4"},{"id":5,"name":"Conan O Bárbaro","url":"https://content.jwplatform.com/videos/rZ12GH8f-CwqLqxKU.mp4"},{"id":6,"name":"E.T. O Extraterrestre","url":"https://content.jwplatform.com/videos/rKBvSDLH-vkxUHhk4.mp4"},{"id":7,"name":"Contatos Imediatos Do Terceiro Grau","url":"https://content.jwplatform.com/videos/oqhGIY6R-CwqLqxKU.mp4"},{"id":8,"name":"Trocando As Bolas","url":"https://content.jwplatform.com/videos/694IWgWH-vkxUHhk4.mp4"},{"id":9,"name":"Popeye","url":"https://content.jwplatform.com/videos/WH9cQWma-CwqLqxKU.mp4"},{"id":10,"name":"A Fantástica Fábrica De Chocolates","url":"https://content.jwplatform.com/videos/EjUKBRsj-vkxUHhk4.mp4"},{"id":11,"name":"A Vida De Brian","url":"https://content.jwplatform.com/videos/ckAtmw02-vkxUHhk4.mp4"},{"id":12,"name":"Rocky, Um Lutador","url":"https://content.jwplatform.com/videos/QHVhpNtw-vkxUHhk4.mp4"},{"id":13,"name":"Mad Max","url":"https://content.jwplatform.com/videos/wYnMLAj0-CwqLqxKU.mp4"},{"id":14,"name":"Os Trapalhões No Planeta Dos Macacos","url":"https://content.jwplatform.com/videos/b2sbO9GM-XQ5K9aFw.mp4"},{"id":15,"name":"Recrutas Da Pesada","url":"https://content.jwplatform.com/videos/6eRlpW6y-vkxUHhk4.mp4"},{"id":16,"name":"Os Deuses Devem Estar Loucos","url":"https://content.jwplatform.com/videos/Wbt3FckE-XQ5K9aFw.mp4"},{"id":17,"name":"Simbad, O Marujo Trapalhão ","url":"https://content.jwplatform.com/videos/NqsUnOzW-XQ5K9aFw.mp4"},{"id":18,"name":"Superman","url":"https://content.jwplatform.com/videos/FkN4oDBm-CwqLqxKU.mp4"},{"id":19,"name":"Saltimbancos Trapalhões","url":"https://content.jwplatform.com/videos/LiscgazU-XQ5K9aFw.mp4"},{"id":20,"name":"Apertem Os Cintos... O Piloto Sumiu!","url":"https://content.jwplatform.com/videos/T1UoqUVC-vkxUHhk4.mp4"},{"id":21,"name":"Ninja, A Máquina Assassina","url":"https://content.jwplatform.com/videos/Q59v219w-vkxUHhk4.mp4"},{"id":22,"name":"A Lagoa Azul","url":"https://content.jwplatform.com/videos/lGF21wxA-vkxUHhk4.mp4"},{"id":23,"name":"007 - Somente Para Seus Olhos","url":"https://content.jwplatform.com/videos/kVPDUx7D-CwqLqxKU.mp4"},{"id":24,"name":"Os Trapalhões Nas Minas Do Rei Salomão","url":"https://content.jwplatform.com/videos/vGQaaX42-XQ5K9aFw.mp4"},{"id":25,"name":"Rambo: Programado Para Matar","url":"https://content.jwplatform.com/videos/VkglzrHA-CwqLqxKU.mp4"},{"id":26,"name":"Karatê Kid - A Hora Da Verdade","url":"https://content.jwplatform.com/videos/teFQMTZf-XQ5K9aFw.mp4"},{"id":27,"name":"Loucademia De Polícia","url":"https://content.jwplatform.com/videos/GKuc7mJo-vkxUHhk4.mp4"},{"id":28,"name":"Os Trapalhões Na Guerra Dos Planetas","url":"https://content.jwplatform.com/videos/eb6f4lrN-W5dBuIvr.mp4"},{"id":29,"name":"Comando Para Matar","url":"https://content.jwplatform.com/videos/4G83Mi0u-vkxUHhk4.mp4"},{"id":30,"name":"Braddock","url":"https://content.jwplatform.com/videos/sn6S3xDx-vkxUHhk4.mp4"},{"id":31,"name":"Um Conto De Natal","url":"https://content.jwplatform.com/videos/KZgCX7JV-XQ5K9aFw.mp4"},{"id":32,"name":"De Volta Para O Futuro","url":"https://content.jwplatform.com/videos/sX62GtNU-vkxUHhk4.mp4"},{"id":33,"name":"O Exterminador Do Futuro","url":"https://content.jwplatform.com/videos/UEQpx2B9-vkxUHhk4.mp4"},{"id":34,"name":"Duna","url":"https://content.jwplatform.com/videos/rVwqLCiX-CwqLqxKU.mp4"},{"id":35,"name":"Superman 2","url":"https://content.jwplatform.com/videos/tPVHeyO3-CwqLqxKU.mp4"},{"id":36,"name":"Rocky II","url":"https://content.jwplatform.com/videos/JuhKjhQW-vkxUHhk4.mp4"},{"id":37,"name":"007 contra Octopussy","url":"https://content.jwplatform.com/videos/qUkweMxh-CwqLqxKU.mp4"},{"id":38,"name":"Indiana Jones E O Templo da Perdição","url":"https://content.jwplatform.com/videos/hT3pHGnd-CwqLqxKU.mp4"},{"id":39,"name":"Thriller","url":"https://content.jwplatform.com/videos/XzgDcaqZ-vkxUHhk4.mp4"},{"id":40,"name":"Gremlins - O Pequeno Monstro","url":"https://content.jwplatform.com/videos/AeWoae0z-XQ5K9aFw.mp4"},{"id":41,"name":"Conan, o destruidor","url":"https://content.jwplatform.com/videos/DMHElz6N-CwqLqxKU.mp4"},{"id":42,"name":"007 - Na Mira Dos Assassinos","url":"https://content.jwplatform.com/videos/5Lk1g2ob-CwqLqxKU.mp4"},{"id":43,"name":"Rocky III","url":"https://content.jwplatform.com/videos/f6OSECA7-vkxUHhk4.mp4"},{"id":44,"name":"Superman 3","url":"https://content.jwplatform.com/videos/VU88WNgv-CwqLqxKU.mp4"},{"id":45,"name":"Splash - Uma Sereia Em Minha Vida","url":"https://content.jwplatform.com/videos/ZtxAiqko-vkxUHhk4.mp4"},{"id":46,"name":"A Pequena Loja Dos Horrores","url":"https://content.jwplatform.com/videos/P4Z2GsRT-vkxUHhk4.mp4"},{"id":47,"name":"Tudo Por Uma Esmeralda","url":"https://content.jwplatform.com/videos/2jqtjzza-4RxC18nw.mp4"},{"id":48,"name":"Supergirl","url":"https://content.jwplatform.com/videos/3zYYqAqv-CwqLqxKU.mp4"},{"id":49,"name":"Águia de Aço","url":"https://content.jwplatform.com/videos/AbZqGW6q-XQ5K9aFw.mp4"},{"id":50,"name":"As Minas Do Rei Salomão","url":"https://content.jwplatform.com/videos/m6rF0WDf-CwqLqxKU.mp4"},{"id":51,"name":"Aventureiros Do Fogo","url":"https://content.jwplatform.com/videos/UDoiCHVQ-vkxUHhk4.mp4"},{"id":52,"name":"Braddock 2","url":"https://content.jwplatform.com/videos/wzWzY1zs-vkxUHhk4.mp4"},{"id":53,"name":"Brazil: O Filme","url":"https://content.jwplatform.com/videos/1acZ2d4g-vkxUHhk4.mp4"},{"id":54,"name":"Clube Dos Cinco","url":"https://content.jwplatform.com/videos/kTfC3Hxg-vkxUHhk4.mp4"},{"id":55,"name":"Comando Delta","url":"https://content.jwplatform.com/videos/hS47F63K-vkxUHhk4.mp4"},{"id":56,"name":"Conta Comigo","url":"https://content.jwplatform.com/videos/v6DJfLHP-vkxUHhk4.mp4"},{"id":57,"name":"Crocodilo Dundee","url":"https://content.jwplatform.com/videos/WDfp79an-CwqLqxKU.mp4"},{"id":58,"name":"Curtindo A Vida Adoidado","url":"https://content.jwplatform.com/videos/opdChvzq-CwqLqxKU.mp4"},{"id":59,"name":"Highlander, O Guerreiro Imortal","url":"https://content.jwplatform.com/videos/HeVTWCfH-vkxUHhk4.mp4"},{"id":60,"name":"Loucademia De Policia 2","url":"https://content.jwplatform.com/videos/dQoIxvd2-XQ5K9aFw.mp4"},{"id":61,"name":"Mad Max: Além Da Cúpula Do Trovão","url":"https://content.jwplatform.com/videos/IcLg0RLa-CwqLqxKU.mp4"},{"id":62,"name":"O Predador","url":"https://content.jwplatform.com/videos/tm5WUtXQ-vkxUHhk4.mp4"},{"id":63,"name":"O Sobrevivente","url":"https://content.jwplatform.com/videos/hXtGSIKk-W5dBuIvr.mp4"},{"id":64,"name":"Os Goonies","url":"https://content.jwplatform.com/videos/SGEoMP3W-CwqLqxKU.mp4"},{"id":65,"name":"Rambo II","url":"https://content.jwplatform.com/videos/gNfBLcA9-CwqLqxKU.mp4"},{"id":66,"name":"Robocop - O Policial Do Futuro","url":"https://content.jwplatform.com/videos/Tfc6C9Cd-vkxUHhk4.mp4"},{"id":67,"name":"Rocky IV","url":"https://content.jwplatform.com/videos/MPhqGsgP-vkxUHhk4.mp4"},{"id":68,"name":"Silverado","url":"https://content.jwplatform.com/videos/LS9T5ufb-CwqLqxKU.mp4"},{"id":69,"name":"Stallone Cobra","url":"https://content.jwplatform.com/videos/cLKU3LjA-vkxUHhk4.mp4"},{"id":70,"name":"Te Pego Lá Fora","url":"https://content.jwplatform.com/videos/ZlnmkzD9-vkxUHhk4.mp4"},{"id":71,"name":"Top Gun - Ases Indomáveis","url":"https://content.jwplatform.com/videos/ONy6kmnN-CwqLqxKU.mp4"},{"id":72,"name":"Um Dia A Casa Cai","url":"https://content.jwplatform.com/videos/c8uGeptf-XQ5K9aFw.mp4"},{"id":73,"name":"Short Circuit: O Incrível Robô","url":"https://content.jwplatform.com/videos/kncFXqXD-CwqLqxKU.mp4"},{"id":74,"name":"Um Tira Da Pesada","url":"https://content.jwplatform.com/videos/7lJwnlmO-vkxUHhk4.mp4"},{"id":75,"name":"007 - Marcado Para Morte","url":"https://content.jwplatform.com/videos/vQheq6vd-CwqLqxKU.mp4"},{"id":76,"name":"Batman","url":"https://content.jwplatform.com/videos/U3YS31DU-vkxUHhk4.mp4"},{"id":77,"name":"Corra Que A Polícia Vem Aí","url":"https://content.jwplatform.com/videos/vXhQbti1-vkxUHhk4.mp4"},{"id":78,"name":"Crocodilo Dundee 2","url":"https://content.jwplatform.com/videos/3GTuc3fD-CwqLqxKU.mp4"},{"id":79,"name":"Falcão, o Campeão dos Campeões","url":"https://content.jwplatform.com/videos/IleZqwea-CwqLqxKU.mp4"},{"id":80,"name":"Irmãos Gêmeos","url":"https://content.jwplatform.com/videos/8K2LLzpe-vkxUHhk4.mp4"},{"id":81,"name":"Um Robô em Curto-circuito 2","url":"https://content.jwplatform.com/videos/Xs9Vkn4h-vkxUHhk4.mp4"},{"id":82,"name":"Karatê Kid 2","url":"https://content.jwplatform.com/videos/BZekMx0D-vkxUHhk4.mp4"},{"id":83,"name":"Um Tira Da Pesada 2","url":"https://content.jwplatform.com/videos/r6WsQfIz-vkxUHhk4.mp4"},{"id":84,"name":"Loucademia De Polícia 3","url":"https://content.jwplatform.com/videos/VakQnyZE-vkxUHhk4.mp4"},{"id":85,"name":"O Grande Dragão Branco","url":"https://content.jwplatform.com/videos/77TMIYOM-vkxUHhk4.mp4"},{"id":86,"name":"Olha Quem Está Falando","url":"https://content.jwplatform.com/videos/LOQj19SB-vkxUHhk4.mp4"},{"id":87,"name":"Quero Ser Grande","url":"https://content.jwplatform.com/videos/jAggvqoJ-vkxUHhk4.mp4"},{"id":88,"name":"Um Príncipe Em Nova York","url":"https://content.jwplatform.com/videos/HNjv95gL-vkxUHhk4.mp4"},{"id":89,"name":"Cegos, Surdos E Loucos","url":"https://content.jwplatform.com/videos/xtPRRxOk-vkxUHhk4.mp4"},{"id":90,"name":"Duro De Matar","url":"https://content.jwplatform.com/videos/GIllxT8J-CwqLqxKU.mp4"},{"id":91,"name":"Superman 4","url":"https://content.jwplatform.com/videos/77qQAwpo-CwqLqxKU.mp4"},{"id":92,"name":"Rambo 3","url":"https://content.jwplatform.com/videos/6ABycysW-CwqLqxKU.mp4"},{"id":93,"name":"Os Deuses Devem Estar Loucos 2","url":"https://content.jwplatform.com/videos/T7xastbB-XQ5K9aFw.mp4"},{"id":94,"name":"De Volta Para O Futuro 2","url":"https://content.jwplatform.com/videos/IR7FD1fX-vkxUHhk4.mp4"},{"id":95,"name":"K-9","url":"https://content.jwplatform.com/videos/Ry691XSL-vkxUHhk4.mp4"},{"id":96,"name":"Inferno Vermelho","url":"https://content.jwplatform.com/videos/Z5Nm3mEa-vkxUHhk4.mp4"},{"id":97,"name":"Máquina Mortífera","url":"https://content.jwplatform.com/videos/gMgICYce-vkxUHhk4.mp4"},{"id":98,"name":"Bom dia, Vietnã!","url":"https://content.jwplatform.com/videos/OJWjOkTK-vkxUHhk4.mp4"},{"id":99,"name":"Os Fantasmas Se Divertem","url":"https://content.jwplatform.com/videos/9qh8Ccfr-vkxUHhk4.mp4"},{"id":100,"name":"Querida Encolhi As Crianças","url":"https://content.jwplatform.com/videos/sQBnfe6U-vkxUHhk4.mp4"},{"id":101,"name":"Karatê Kid 3","url":"https://content.jwplatform.com/videos/G2yprmYG-vkxUHhk4.mp4"},{"id":102,"name":"Kickboxer: O Desafio Do Dragão","url":"https://content.jwplatform.com/videos/IjxdGBUV-vkxUHhk4.mp4"},{"id":103,"name":"Braddock 3","url":"https://content.jwplatform.com/videos/yFR61p1U-vkxUHhk4.mp4"},{"id":104,"name":"Máquina Mortífera 2","url":"https://content.jwplatform.com/videos/UFQbIYyv-CwqLqxKU.mp4"},{"id":105,"name":"Uma Cilada Para Roger Rabbit","url":"https://content.jwplatform.com/videos/pNJEUJZB-vkxUHhk4.mp4"},{"id":106,"name":"Namorada De Aluguel","url":"https://content.jwplatform.com/videos/csmE4Nhq-vkxUHhk4.mp4"},{"id":107,"name":"Um Morto Muito Louco","url":"https://content.jwplatform.com/videos/Me0gmWPN-XQ5K9aFw.mp4"},{"id":108,"name":"Moonwalker","url":"https://content.jwplatform.com/videos/MzEQLxhI-vkxUHhk4.mp4"},{"id":109,"name":"Dick Tracy","url":"https://content.jwplatform.com/videos/fkjRvXvQ-vkxUHhk4.mp4"},{"id":110,"name":"Um Tira no Jardim de Infância","url":"https://content.jwplatform.com/videos/BNPQSMOG-vkxUHhk4.mp4"},{"id":111,"name":"O Pestinha","url":"https://content.jwplatform.com/videos/dWCArXRC-vkxUHhk4.mp4"},{"id":112,"name":"Gremlins 2","url":"https://content.jwplatform.com/videos/zidNCNaV-XQ5K9aFw.mp4"},{"id":113,"name":"Uma Dupla Quase Perfeita","url":"https://content.jwplatform.com/videos/tMka82tn-vkxUHhk4.mp4"},{"id":114,"name":"Rocky V","url":"https://content.jwplatform.com/videos/FW9PxjkG-XQ5K9aFw.mp4"},{"id":115,"name":"O Predador 2","url":"https://content.jwplatform.com/videos/F8zFmBhz-XQ5K9aFw.mp4"},{"id":116,"name":"O Vingador do Futuro","url":"https://content.jwplatform.com/videos/W6sjS4N7-vkxUHhk4.mp4"},{"id":117,"name":"Robocop 2","url":"https://content.jwplatform.com/videos/Y688prIT-vkxUHhk4.mp4"},{"id":118,"name":"Ela é o Diabo","url":"https://content.jwplatform.com/videos/UE6EoIY5-vkxUHhk4.mp4"},{"id":119,"name":"De Volta para o Futuro III","url":"https://content.jwplatform.com/videos/NegFsfN5-vkxUHhk4.mp4"},{"id":120,"name":"Esqueceram De Mim","url":"https://content.jwplatform.com/videos/F94dJGfJ-vkxUHhk4.mp4"},{"id":121,"name":"Leão Branco: O Lutador Sem Lei","url":"https://content.jwplatform.com/videos/7Q0JJ5DA-vkxUHhk4.mp4"},{"id":122,"name":"As Tartarugas Ninjas","url":"https://content.jwplatform.com/videos/binVWyoZ-vkxUHhk4.mp4"},{"id":123,"name":"Condenação Brutal","url":"https://content.jwplatform.com/videos/VZrfmt6Y-vkxUHhk4.mp4"},{"id":124,"name":"Ghost - Do Outro Lado da Vida","url":"https://content.jwplatform.com/videos/HnZ5u8zV-XQ5K9aFw.mp4"},{"id":125,"name":"Duro De Matar 2","url":"https://content.jwplatform.com/videos/B0H9BHDL-CwqLqxKU.mp4"},{"id":126,"name":"Louca Obsessão","url":"https://content.jwplatform.com/videos/9sI0UGQ1-vkxUHhk4.mp4"},{"id":127,"name":"007 - Permissão para Matar","url":"https://content.jwplatform.com/videos/pZ7ayN9n-CwqLqxKU.mp4"},{"id":128,"name":"Edward Mãos De Tesoura","url":"https://content.jwplatform.com/videos/lkCmVrpv-vkxUHhk4.mp4"},{"id":129,"name":"Indiana Jones e a Última Cruzada","url":"https://content.jwplatform.com/videos/hsyi5rw5-CwqLqxKU.mp4"},{"id":130,"name":"A História Sem Fim 2","url":"https://content.jwplatform.com/videos/na9Iu8VB-CwqLqxKU.mp4"},{"id":131,"name":"Lua de Cristal","url":"https://content.jwplatform.com/videos/7FaSEQn2-vkxUHhk4.mp4"},{"id":132,"name":"Batman: O Retorno","url":"https://content.jwplatform.com/videos/1CtU5Q45-XQ5K9aFw.mp4"},{"id":133,"name":"Top Gang - Ases Muito Louco","url":"https://content.jwplatform.com/videos/ldmQLNK6-vkxUHhk4.mp4"},{"id":134,"name":"Os Deuses Devem Estar Loucos 3","url":"https://content.jwplatform.com/videos/hGftALX0-W5dBuIvr.mp4"},{"id":135,"name":"Operação Condor: Um Kickboxer Muito Louco","url":"https://content.jwplatform.com/videos/4Enp0Re4-CwqLqxKU.mp4"},{"id":136,"name":"A Morte Lhe Cai Bem","url":"https://content.jwplatform.com/videos/JMZimZ67-vkxUHhk4.mp4"},{"id":137,"name":"Os Caça-Fantasmas","url":"https://vz-66bdc7df-75c.b-cdn.net/e937ac10-3de0-4ca3-b100-b52030a81e83/play_360p.mp4"},{"id":138,"name":"Duplo Impacto","url":"https://content.jwplatform.com/videos/n04X6bfd-vkxUHhk4.mp4"},{"id":139,"name":"Comando Imbatível","url":"https://content.jwplatform.com/videos/KjM4q94n-vkxUHhk4.mp4"},{"id":140,"name":"Uma Linda Mulher","url":"https://content.jwplatform.com/videos/H6ZS75kM-XQ5K9aFw.mp4"},{"id":141,"name":"Mudança De Hábito","url":"https://content.jwplatform.com/videos/R71guFsV-vkxUHhk4.mp4"},{"id":142,"name":"Os Caça-Fantasmas 2","url":"https://content.jwplatform.com/videos/ewJ4TMIZ-CwqLqxKU.mp4"},{"id":143,"name":"Caçadores De Emoção","url":"https://content.jwplatform.com/videos/3FMfS6M9-vkxUHhk4.mp4"},{"id":144,"name":"Se Meu Fusca Falasse","url":"https://content.jwplatform.com/videos/xIlG5mNf-CpohF5Sz.mp4"},{"id":145,"name":"O Pai Da Noiva","url":"https://content.jwplatform.com/videos/oJEnY79z-vkxUHhk4.mp4"},{"id":146,"name":"A Família Buscapé","url":"https://content.jwplatform.com/videos/hvvftU4s-rrNo0iJJ.mp4"},{"id":147,"name":"Olha Quem Está Falando Agora","url":"https://content.jwplatform.com/videos/otzpdlDC-CpohF5Sz.mp4"},{"id":148,"name":"A Lista De Schindler","url":"https://content.jwplatform.com/videos/I5oG81QD-rrNo0iJJ.mp4"},{"id":149,"name":"Robocop 3","url":"https://content.jwplatform.com/videos/u45zxmyE-rrNo0iJJ.mp4"},{"id":150,"name":"O Fugitivo","url":"https://content.jwplatform.com/videos/Lx4CfIiM-rrNo0iJJ.mp4"},{"id":151,"name":"A Família Addams","url":"https://content.jwplatform.com/videos/7B8MnpCH-rrNo0iJJ.mp4"},{"id":152,"name":"As Tartarugas Ninja 2","url":"https://content.jwplatform.com/videos/utcm03dl-rrNo0iJJ.mp4"},{"id":153,"name":"Abracadabra","url":"https://content.jwplatform.com/videos/bSAPr3AW-rrNo0iJJ.mp4"},{"id":154,"name":"Mudança De Hábito 2","url":"https://content.jwplatform.com/videos/0LQAMI32-rrNo0iJJ.mp4"},{"id":155,"name":"Um Dia De Fúria","url":"https://content.jwplatform.com/videos/EOiN4e0E-rrNo0iJJ.mp4"},{"id":156,"name":"Dennis, O Pimentinha","url":"https://content.jwplatform.com/videos/OapMKt1g-rrNo0iJJ.mp4"},{"id":157,"name":"Kickboxer 2","url":"https://content.jwplatform.com/videos/yoUnHZG5-rrNo0iJJ.mp4"},{"id":158,"name":"Questão de honra","url":"https://content.jwplatform.com/videos/BVB4twZM-4eYSTlXU.mp4"},{"id":159,"name":"A Firma","url":"https://content.jwplatform.com/videos/WPYBh6ib-rrNo0iJJ.mp4"},{"id":160,"name":"Jamaica Abaixo De Zero","url":"https://content.jwplatform.com/videos/htGW3bnX-rrNo0iJJ.mp4"},{"id":161,"name":"O Anjo Malvado","url":"https://content.jwplatform.com/videos/2D56JgbN-rrNo0iJJ.mp4"},{"id":162,"name":"Querida estiquei o bebê","url":"https://content.jwplatform.com/videos/ANeJPAbs-rrNo0iJJ.mp4"},{"id":163,"name":"Top Gang 2! A Missão","url":"https://content.jwplatform.com/videos/q3p62aPY-rrNo0iJJ.mp4"},{"id":164,"name":"O Alvo","url":"https://content.jwplatform.com/videos/jVNE8iZl-rrNo0iJJ.mp4"},{"id":165,"name":"Uma babá quase perfeita","url":"https://content.jwplatform.com/videos/JAXhnXLL-4eYSTlXU.mp4"},{"id":166,"name":"Risco Total","url":"https://content.jwplatform.com/videos/kiI3odZs-4eYSTlXU.mp4"},{"id":167,"name":"Jurassic Park O Parque Dos Dinossauros","url":"https://content.jwplatform.com/videos/8dJH5kz9-rrNo0iJJ.mp4"},{"id":168,"name":"O Homem Sem Face","url":"https://content.jwplatform.com/videos/QnvBtRza-CpohF5Sz.mp4"},{"id":169,"name":"O Demolidor","url":"https://content.jwplatform.com/videos/OIuVlEh0-4eYSTlXU.mp4"},{"id":170,"name":"Um Morto Muito Louco 2","url":"https://content.jwplatform.com/videos/yA91I0QX-CpohF5Sz.mp4"},{"id":171,"name":"Feitiço do Tempo","url":"https://content.jwplatform.com/videos/itOWazA5-rrNo0iJJ.mp4"},{"id":172,"name":"Meu Primeiro Amor","url":"https://content.jwplatform.com/videos/itOWazA5-rrNo0iJJ.mp4"},{"id":173,"name":"Rocketeer","url":"https://content.jwplatform.com/videos/YEZCjTLd-4eYSTlXU.mp4"},{"id":174,"name":"Os Imperdoáveis","url":"https://content.jwplatform.com/videos/J3vyoJgy-4eYSTlXU.mp4"},{"id":175,"name":"Soldado Universal","url":"https://content.jwplatform.com/videos/oQSLeOIY-4eYSTlXU.mp4"},{"id":176,"name":"Corra Que A Polícia Vem Aí 2 ½","url":"https://content.jwplatform.com/videos/c6gbYkZH-rrNo0iJJ.mp4"},{"id":177,"name":"Hook - A Volta do Capitão Gancho","url":"https://content.jwplatform.com/videos/SPyAFcBA-4eYSTlXU.mp4"},{"id":178,"name":"Highlander 2","url":"https://content.jwplatform.com/videos/opfHRQwm-4eYSTlXU.mp4"},{"id":179,"name":"De Volta à Lagoa Azul","url":"https://content.jwplatform.com/videos/EnciOliX-rrNo0iJJ.mp4"},{"id":180,"name":"Mundo Proibido","url":"https://content.jwplatform.com/videos/gGOyTjmI-rrNo0iJJ.mp4"},{"id":181,"name":"Manequim","url":"https://content.jwplatform.com/videos/FFOx4st0-rrNo0iJJ.mp4"},{"id":182,"name":"Ninguém Segura Este Bebê","url":"https://content.jwplatform.com/videos/hVbGbm5N-rrNo0iJJ.mp4"},{"id":183,"name":"A Fuga","url":"https://content.jwplatform.com/videos/aJyRlINf-rrNo0iJJ.mp4"},{"id":184,"name":"As Tartarugas Ninja 3","url":"https://content.jwplatform.com/videos/czVDiqdx-rrNo0iJJ.mp4"},{"id":185,"name":"O Pestinha 2","url":"https://content.jwplatform.com/videos/nyKHr7j8-rrNo0iJJ.mp4"},{"id":186,"name":"Um Visto para o Céu","url":"https://content.jwplatform.com/videos/JSOjybQS-rrNo0iJJ.mp4"},{"id":187,"name":"Um Tira No Jardim De Infância","url":"https://content.jwplatform.com/videos/oV8kWQat-rrNo0iJJ.mp4"},{"id":188,"name":"Kickboxer 3","url":"https://content.jwplatform.com/videos/2M7Tu25H-rrNo0iJJ.mp4"},{"id":189,"name":"Máquina Mortífera 3","url":"https://content.jwplatform.com/videos/b6x1nCMM-4eYSTlXU.mp4"},{"id":190,"name":"Thelma & Louise","url":"https://content.jwplatform.com/videos/WX8T1AHJ-4eYSTlXU.mp4"},{"id":191,"name":"O Exterminador Do Futuro 2","url":"https://content.jwplatform.com/videos/eXEXaeHw-4eYSTlXU.mp4"},{"id":192,"name":"Velocidade Máxima","url":"https://content.jwplatform.com/videos/aWBtRzvM-rrNo0iJJ.mp4"},{"id":193,"name":"Forrest Gump O Contador De Histórias","url":"https://content.jwplatform.com/videos/6xvvL4aa-4eYSTlXU.mp4"},{"id":194,"name":"Gasparzinho","url":"https://content.jwplatform.com/videos/Pvtne10e-rrNo0iJJ.mp4"},{"id":195,"name":"Junior","url":"https://content.jwplatform.com/videos/9mINJMZS-rrNo0iJJ.mp4"},{"id":196,"name":"A Família Addams 2","url":"https://content.jwplatform.com/videos/saJigBe2-rrNo0iJJ.mp4"},{"id":197,"name":"Assassinos","url":"https://content.jwplatform.com/videos/SP5tl50v-rrNo0iJJ.mp4"},{"id":198,"name":"Kickboxer 4","url":"https://content.jwplatform.com/videos/3Uix41Zs-rrNo0iJJ.mp4"},{"id":199,"name":"Um Tira Da Pesada 3","url":"https://content.jwplatform.com/videos/UIKIIzvR-rrNo0iJJ.mp4"},{"id":200,"name":"A Ilha Da Garganta Cortada","url":"https://content.jwplatform.com/videos/A6VbU15I-rrNo0iJJ.mp4"},{"id":201,"name":"007 - Contra Goldeneye","url":"https://content.jwplatform.com/videos/76xrM4z2-4eYSTlXU.mp4"},{"id":202,"name":"Corra Que A Polícia Vem Aí! 33⅓","url":"https://content.jwplatform.com/videos/RNCLmzxQ-rrNo0iJJ.mp4"},{"id":203,"name":"Os Batutinhas","url":"https://content.jwplatform.com/videos/KrAgiGJ1-rrNo0iJJ.mp4"},{"id":204,"name":"Cheque Em Branco","url":"https://content.jwplatform.com/videos/3G9ybCgQ-rrNo0iJJ.mp4"},{"id":205,"name":"Street Fighter","url":"https://content.jwplatform.com/videos/P8NWZEkG-U5IRJxXx.mp4"},{"id":206,"name":"Riquinho","url":"https://content.jwplatform.com/videos/FvYfdhkL-rrNo0iJJ.mp4"},{"id":207,"name":"True Lies","url":"https://content.jwplatform.com/videos/sAC2NCuZ-4eYSTlXU.mp4"},{"id":208,"name":"Pulp Fiction","url":"https://content.jwplatform.com/videos/CSDLPovV-4eYSTlXU.mp4"},{"id":209,"name":"Karatê Kid 4","url":"https://content.jwplatform.com/videos/GBwo2bb8-4eYSTlXU.mp4"},{"id":210,"name":"O Máskara","url":"https://content.jwplatform.com/videos/TSJzFtTl-rrNo0iJJ.mp4"},{"id":211,"name":"Highlander 3","url":"https://content.jwplatform.com/videos/GJt0eDwz-4eYSTlXU.mp4"},{"id":212,"name":"O Juiz","url":"https://content.jwplatform.com/videos/QE7exiNy-4eYSTlXU.mp4"},{"id":213,"name":"Beleza Negra","url":"https://content.jwplatform.com/videos/WEXIIVv7-CpohF5Sz.mp4"},{"id":214,"name":"Debi & Loide","url":"https://content.jwplatform.com/videos/XBK6AsB0-rrNo0iJJ.mp4"},{"id":215,"name":"A História Sem Fim 3","url":"https://content.jwplatform.com/videos/OL1LSxM3-rrNo0iJJ.mp4"},{"id":216,"name":"Ace Ventura","url":"https://content.jwplatform.com/videos/Usu2rKW6-rrNo0iJJ.mp4"},{"id":217,"name":"Double Dragon","url":"https://content.jwplatform.com/videos/d1nPJBhX-rrNo0iJJ.mp4"},{"id":218,"name":"MacGyver","url":"https://content.jwplatform.com/videos/vgDzx7hg-CpohF5Sz.mp4"},{"id":219,"name":"Projeto Alf","url":"https://content.jwplatform.com/videos/4rmw4mAd-CpohF5Sz.mp4"},{"id":220,"name":"Coração De Dragão","url":"https://content.jwplatform.com/videos/zi0L8vcJ-4eYSTlXU.mp4"},{"id":221,"name":"A Rocha","url":"https://content.jwplatform.com/videos/qhtzEge6-4eYSTlXU.mp4"},{"id":222,"name":"Waterworld","url":"https://content.jwplatform.com/videos/wpKqP8NG-CpohF5Sz.mp4"},{"id":223,"name":"Mortal Kombat","url":"https://content.jwplatform.com/videos/CR5jruoC-rrNo0iJJ.mp4"},{"id":224,"name":"A Rede","url":"https://content.jwplatform.com/videos/n8yYS6at-rrNo0iJJ.mp4"},{"id":225,"name":"Queima De Arquivo","url":"https://content.jwplatform.com/videos/e0bMz5Zh-4eYSTlXU.mp4"},{"id":226,"name":"Lolita","url":"https://content.jwplatform.com/videos/1QYoI4XR-rrNo0iJJ.mp4"},{"id":227,"name":"Ace Ventura 2","url":"https://content.jwplatform.com/videos/bEHPX8KP-4eYSTlXU.mp4"},{"id":228,"name":"Batman Eternamente","url":"https://content.jwplatform.com/videos/MbOUguRU-CpohF5Sz.mp4"},{"id":229,"name":"Jack","url":"https://content.jwplatform.com/videos/i9dwUId6-rrNo0iJJ.mp4"},{"id":230,"name":"Twister","url":"https://content.jwplatform.com/videos/ZU5lgluH-4eYSTlXU.mp4"},{"id":231,"name":"Um Herói De Brinquedo","url":"https://content.jwplatform.com/videos/vUmKPKEB-rrNo0iJJ.mp4"},{"id":232,"name":"Querida Encolhi A Gente","url":"https://content.jwplatform.com/videos/y5DJiQE1-CpohF5Sz.mp4"},{"id":233,"name":"Mortal Kombat - Aniquilação","url":"https://content.jwplatform.com/videos/Y0yihciR-CpohF5Sz.mp4"},{"id":234,"name":"O Pestinha 3","url":"https://content.jwplatform.com/videos/U7JJqafS-rrNo0iJJ.mp4"},{"id":235,"name":"Arrebentando Em Nova York","url":"https://content.jwplatform.com/videos/sxXX36db-4eYSTlXU.mp4"},{"id":236,"name":"Joe e as baratas","url":"https://content.jwplatform.com/videos/NxAlhxKb-rrNo0iJJ.mp4"},{"id":237,"name":"Ameaça Subterrânea","url":"https://content.jwplatform.com/videos/ANLIb0LJ-CpohF5Sz.mp4"},{"id":238,"name":"Kickboxer 5","url":"https://content.jwplatform.com/videos/rMfcIuAP-CpohF5Sz.mp4"},{"id":239,"name":"Apollo 13","url":"https://content.jwplatform.com/videos/VWDs1zzO-4eYSTlXU.mp4"},{"id":240,"name":"Striptease","url":"https://content.jwplatform.com/videos/B6divv73-rrNo0iJJ.mp4"},{"id":241,"name":"O Preço De Um Resgate","url":"https://content.jwplatform.com/videos/JHaEFNsT-rrNo0iJJ.mp4"},{"id":242,"name":"Daylight","url":"https://content.jwplatform.com/videos/LpNWZbq8-rrNo0iJJ.mp4"},{"id":243,"name":"O Pentelho","url":"https://content.jwplatform.com/videos/XG1w5jQo-4eYSTlXU.mp4"},{"id":244,"name":"Anaconda","url":"https://content.jwplatform.com/videos/XZjMQorb-4eYSTlXU.mp4"},{"id":245,"name":"Space Jam","url":"https://content.jwplatform.com/videos/wif7dlgg-CpohF5Sz.mp4"},{"id":246,"name":"Missão Impossível","url":"https://content.jwplatform.com/videos/CnmxdYB8-4eYSTlXU.mp4"},{"id":247,"name":"Flubber","url":"https://content.jwplatform.com/videos/jWa8AK0V-CpohF5Sz.mp4"},{"id":248,"name":"O Jogo De Geri","url":"https://content.jwplatform.com/videos/YUDfQCI5-rrNo0iJJ.mp4"},{"id":249,"name":"Eu, Minha Mulher e Minhas Cópias","url":"https://content.jwplatform.com/videos/vfjtXvsP-rrNo0iJJ.mp4"},{"id":250,"name":"Os Bad Boys","url":"https://content.jwplatform.com/videos/7rEsbYJo-rrNo0iJJ.mp4"},{"id":251,"name":"O Pacificador","url":"https://content.jwplatform.com/videos/Sqlocnmf-4eYSTlXU.mp4"},{"id":252,"name":"O Último Matador","url":"https://content.jwplatform.com/videos/i2y6jiJe-4eYSTlXU.mp4"},{"id":253,"name":"Advogado Do Diabo","url":"https://content.jwplatform.com/videos/9A1YJwQL-4eYSTlXU.mp4"},{"id":254,"name":"O Professor Aloprado","url":"https://content.jwplatform.com/videos/pDjRXqU4-rrNo0iJJ.mp4"},{"id":255,"name":"Jumanji","url":"https://content.jwplatform.com/videos/YXGJTvQT-rrNo0iJJ.mp4"},{"id":256,"name":"Tombstone","url":"https://content.jwplatform.com/videos/oNgPdWHE-rrNo0iJJ.mp4"},{"id":257,"name":"Morte Súbita","url":"https://content.jwplatform.com/videos/Qn4rKMJO-4eYSTlXU.mp4"},{"id":258,"name":"Drácula - Morto, Mas Feliz","url":"https://content.jwplatform.com/videos/zI1O5znG-rrNo0iJJ.mp4"},{"id":259,"name":"Los Angeles - Cidade Proibida","url":"https://content.jwplatform.com/videos/da4RPbeT-4eYSTlXU.mp4"},{"id":260,"name":"MIB - Homens De Preto","url":"https://content.jwplatform.com/videos/XqkaiQiN-rrNo0iJJ.mp4"},{"id":261,"name":"Tudo por Dinheiro","url":"https://content.jwplatform.com/videos/gXVvMgPG-4eYSTlXU.mp4"},{"id":262,"name":"007 - O Amanhã Nunca Morre","url":"https://content.jwplatform.com/videos/ajoePZkT-4eYSTlXU.mp4"},{"id":263,"name":"A Colônia","url":"https://content.jwplatform.com/videos/EfR1nP6x-4eYSTlXU.mp4"},{"id":264,"name":"Teoria da Conspiração","url":"https://content.jwplatform.com/videos/mUZ5vZ0K-4eYSTlXU.mp4"},{"id":265,"name":"Tropas Estelares","url":"https://content.jwplatform.com/videos/lzrr07Jd-rrNo0iJJ.mp4"},{"id":266,"name":"O mensageiro","url":"https://content.jwplatform.com/videos/Srxpkweg-4eYSTlXU.mp4"},{"id":267,"name":"Kazaam","url":"https://content.jwplatform.com/videos/xVIOF4O0-rrNo0iJJ.mp4"},{"id":268,"name":"O Mentiroso","url":"https://content.jwplatform.com/videos/rFApBd40-rrNo0iJJ.mp4"},{"id":269,"name":"Quem Vai Ficar Com Mary","url":"https://content.jwplatform.com/videos/mH7EpCQD-CpohF5Sz.mp4"},{"id":270,"name":"Pânico","url":"https://vods1.watchingvs.com/m/P%C3%A2nico_1996_tt0117571.mp4"},{"id":271,"name":"O Show De Truman","url":"https://content.jwplatform.com/videos/8auhGj7q-rrNo0iJJ.mp4"},{"id":272,"name":"Perdidos No Espaço","url":"https://content.jwplatform.com/videos/NwrGI8iu-rrNo0iJJ.mp4"},{"id":273,"name":"A Hora Do Rush","url":"https://content.jwplatform.com/videos/c55qak4Q-4eYSTlXU.mp4"},{"id":274,"name":"A Outra Face","url":"https://content.jwplatform.com/videos/ABHlDrzz-4eYSTlXU.mp4"},{"id":275,"name":"A vida é bela","url":"https://content.jwplatform.com/videos/njypXyOL-rrNo0iJJ.mp4"},{"id":276,"name":"Marte Ataca","url":"https://content.jwplatform.com/videos/qIvFNMy3-4eYSTlXU.mp4"},{"id":277,"name":"A Máscara Do Zorro","url":"https://content.jwplatform.com/videos/9T8bEsAJ-4eYSTlXU.mp4"},{"id":278,"name":"Con Air - A Rota Da Fuga","url":"https://content.jwplatform.com/videos/WsbuxeSo-4eYSTlXU.mp4"},{"id":279,"name":"Mr. Bean - O Filme","url":"https://content.jwplatform.com/videos/rBqLriwO-rrNo0iJJ.mp4"},{"id":280,"name":"Independence Day","url":"https://content.jwplatform.com/videos/hy1T3OPs-4eYSTlXU.mp4"},{"id":281,"name":"007 - O Mundo Não é O Bastante","url":"https://content.jwplatform.com/videos/xDZDmAs2-4eYSTlXU.mp4"},{"id":282,"name":"Pânico 2","url":"https://content.jwplatform.com/videos/lithguOf-CpohF5Sz.mp4"},{"id":283,"name":"O Mundo Perdido - Jurassic Park","url":"https://content.jwplatform.com/videos/iXRIAgOb-rrNo0iJJ.mp4"},{"id":284,"name":"O Fantasma","url":"https://content.jwplatform.com/videos/RjXrfebU-4eYSTlXU.mp4"},{"id":285,"name":"Cidade dos Anjos","url":"https://content.jwplatform.com/videos/1Nmkf7Yb-4eYSTlXU.mp4"},{"id":286,"name":"Código para o Inferno","url":"https://content.jwplatform.com/videos/chMMFhzd-4eYSTlXU.mp4"},{"id":287,"name":"Arquivo X","url":"https://content.jwplatform.com/videos/8Per6SIb-rrNo0iJJ.mp4"},{"id":288,"name":"Titanic","url":"https://content.jwplatform.com/videos/y0GqB4Zg-rrNo0iJJ.mp4"},{"id":289,"name":"U.S. Marshals - Os Federais","url":"https://content.jwplatform.com/videos/o0l1Gqkx-rrNo0iJJ.mp4"},{"id":290,"name":"Gladiador","url":"https://content.jwplatform.com/videos/EYwkJMAi-4eYSTlXU.mp4"},{"id":291,"name":"60 Segundos","url":"https://content.jwplatform.com/videos/tyZnyv25-4eYSTlXU.mp4"},{"id":292,"name":"Missão Impossível 2","url":"https://content.jwplatform.com/videos/nUWfJ1Zw-rrNo0iJJ.mp4"},{"id":293,"name":"Endiabrado","url":"https://content.jwplatform.com/videos/CJDqQW2U-rrNo0iJJ.mp4"},{"id":294,"name":"O 6º Dia","url":"https://content.jwplatform.com/videos/wZi0dkgG-CpohF5Sz.mp4"},{"id":295,"name":"Eu, Eu Mesmo e Irene","url":"https://content.jwplatform.com/videos/3uNHsCWx-rrNo0iJJ.mp4"},{"id":296,"name":"O Troco","url":"https://content.jwplatform.com/videos/8KlmdF1X-rrNo0iJJ.mp4"},{"id":297,"name":"Asterix e Obelix Contra César","url":"https://content.jwplatform.com/videos/t4YAieZB-rrNo0iJJ.mp4"},{"id":298,"name":"O Legionário","url":"https://content.jwplatform.com/videos/lIXEkwW4-rrNo0iJJ.mp4"},{"id":299,"name":"Blade, O Caçador De Vampiros","url":"https://content.jwplatform.com/videos/SV7SQr7x-rrNo0iJJ.mp4"},{"id":300,"name":"Missão Marte","url":"https://content.jwplatform.com/videos/Wc8ScTvO-rrNo0iJJ.mp4"},{"id":301,"name":"Pânico 3","url":"https://content.jwplatform.com/videos/eZLUj9Dp-CpohF5Sz.mp4"},{"id":302,"name":"Os Flintstones Em Viva Rock Vegas","url":"https://content.jwplatform.com/videos/NBWu7EGu-rrNo0iJJ.mp4"},{"id":303,"name":"O Homem Bicentenário","url":"https://content.jwplatform.com/videos/Q3OqLVxv-rrNo0iJJ.mp4"},{"id":304,"name":"O Auto da Compadecida","url":"https://content.jwplatform.com/videos/vjmeHs4K-CpohF5Sz.mp4"},{"id":305,"name":"Duelo de titãs","url":"https://content.jwplatform.com/videos/whR9Nb9g-4eYSTlXU.mp4"},{"id":306,"name":"Mauá - O Imperador e o Rei","url":"https://content.jwplatform.com/videos/6I4qrdOi-CpohF5Sz.mp4"},{"id":307,"name":"Matrix","url":"https://content.jwplatform.com/videos/IsmSh7oS-4eYSTlXU.mp4"},{"id":308,"name":"A Caçada ao Outubro Vermelho","url":"https://content.jwplatform.com/videos/jaCXd4sb-4eYSTlXU.mp4"},{"id":309,"name":"O Que é Isso Companheiro","url":"https://content.jwplatform.com/videos/noeEJYre-rrNo0iJJ.mp4"},{"id":310,"name":"O Grinch","url":"https://content.jwplatform.com/videos/kHWLGZ3P-rrNo0iJJ.mp4"},{"id":311,"name":"Homens De Honra","url":"https://content.jwplatform.com/videos/ZyyF13YS-CpohF5Sz.mp4"},{"id":312,"name":"Fim Dos Dias","url":"https://content.jwplatform.com/videos/5DE5ign3-4eYSTlXU.mp4"},{"id":313,"name":"A Múmia","url":"https://content.jwplatform.com/videos/cxsTadVe-4eYSTlXU.mp4"},{"id":314,"name":"Vovó... Zona","url":"https://content.jwplatform.com/videos/ugjP3jnT-rrNo0iJJ.mp4"},{"id":315,"name":"American Pie","url":"https://content.jwplatform.com/videos/cBU9FN4G-CpohF5Sz.mp4"},{"id":316,"name":"À Espera de um Milagre","url":"https://content.jwplatform.com/videos/n4gyNADs-rrNo0iJJ.mp4"},{"id":317,"name":"Entrando Numa Fria","url":"https://content.jwplatform.com/videos/FgJIZoQt-rrNo0iJJ.mp4"},{"id":318,"name":"Do Que As Mulheres Gostam","url":"https://content.jwplatform.com/videos/iEMNbyHm-rrNo0iJJ.mp4"},{"id":319,"name":"O Sexto Sentido","url":"https://content.jwplatform.com/videos/7ghiKwPD-rrNo0iJJ.mp4"},{"id":320,"name":"As Loucas Aventuras De James West","url":"https://content.jwplatform.com/videos/7f8b8zkn-rrNo0iJJ.mp4"},{"id":321,"name":"Bater Ou Correr","url":"https://content.jwplatform.com/videos/3yqHiMPN-4eYSTlXU.mp4"},{"id":322,"name":"Beleza Americana","url":"https://content.jwplatform.com/videos/fEn53eNW-4eYSTlXU.mp4"},{"id":323,"name":"Professor Aloprado 2","url":"https://content.jwplatform.com/videos/LmFScLnN-rrNo0iJJ.mp4"},{"id":324,"name":"Náufrago","url":"https://content.jwplatform.com/videos/F9tVK36m-rrNo0iJJ.mp4"},{"id":325,"name":"Máquina Mortífera 4","url":"https://content.jwplatform.com/videos/mjy6W7QW-4eYSTlXU.mp4"},{"id":326,"name":"Inimigo Do Estado","url":"https://content.jwplatform.com/videos/SxRBsvJm-pJDVhK8l.mp4"},{"id":327,"name":"O Talentoso Ripley","url":"https://content.jwplatform.com/videos/cxECcNOG-rrNo0iJJ.mp4"},{"id":328,"name":"Inspetor Bugiganga","url":"https://content.jwplatform.com/videos/vPynp2ax-rrNo0iJJ.mp4"},{"id":329,"name":"As Panteras","url":"https://content.jwplatform.com/videos/Q02Gpq0p-4eYSTlXU.mp4"},{"id":330,"name":"Miss Simpatia","url":"https://content.jwplatform.com/videos/r9DxY9CS-rrNo0iJJ.mp4"},{"id":331,"name":"O Conde de Monte Cristo","url":"https://vods1.watchingvs.com/m/O%20Conde%20de%20Monte%20Cristo_2002_tt0245844.mp4"}];
+        const TV_PLAYLIST = [{"id":0,"name":"O Trapalhão Na Ilha do Tesouro"},{"id":1,"name":"Trovão Azul"},{"id":2,"name":"Indiana Jones E Os Caçadores Da Arca Perdida"},{"id":3,"name":"A História Sem Fim"},{"id":4,"name":"O Corcel Negro"},{"id":5,"name":"Conan O Bárbaro"},{"id":6,"name":"E.T. O Extraterrestre"},{"id":7,"name":"Contatos Imediatos Do Terceiro Grau"},{"id":8,"name":"Trocando As Bolas"},{"id":9,"name":"Popeye"},{"id":10,"name":"A Fantástica Fábrica De Chocolates"},{"id":11,"name":"A Vida De Brian"},{"id":12,"name":"Rocky, Um Lutador"},{"id":13,"name":"Mad Max"},{"id":14,"name":"Os Trapalhões No Planeta Dos Macacos"},{"id":15,"name":"Recrutas Da Pesada"},{"id":16,"name":"Os Deuses Devem Estar Loucos"},{"id":17,"name":"Simbad, O Marujo Trapalhão "},{"id":18,"name":"Superman"},{"id":19,"name":"Saltimbancos Trapalhões"},{"id":20,"name":"Apertem Os Cintos... O Piloto Sumiu!"},{"id":21,"name":"Ninja, A Máquina Assassina"},{"id":22,"name":"A Lagoa Azul"},{"id":23,"name":"007 - Somente Para Seus Olhos"},{"id":24,"name":"Os Trapalhões Nas Minas Do Rei Salomão"},{"id":25,"name":"Rambo: Programado Para Matar"},{"id":26,"name":"Karatê Kid - A Hora Da Verdade"},{"id":27,"name":"Loucademia De Polícia"},{"id":28,"name":"Os Trapalhões Na Guerra Dos Planetas"},{"id":29,"name":"Comando Para Matar"},{"id":30,"name":"Braddock"},{"id":31,"name":"Um Conto De Natal"},{"id":32,"name":"De Volta Para O Futuro"},{"id":33,"name":"O Exterminador Do Futuro"},{"id":34,"name":"Duna"},{"id":35,"name":"Superman 2"},{"id":36,"name":"Rocky II"},{"id":37,"name":"007 contra Octopussy"},{"id":38,"name":"Indiana Jones E O Templo da Perdição"},{"id":39,"name":"Thriller"},{"id":40,"name":"Gremlins - O Pequeno Monstro"},{"id":41,"name":"Conan, o destruidor"},{"id":42,"name":"007 - Na Mira Dos Assassinos"},{"id":43,"name":"Rocky III"},{"id":44,"name":"Superman 3"},{"id":45,"name":"Splash - Uma Sereia Em Minha Vida"},{"id":46,"name":"A Pequena Loja Dos Horrores"},{"id":47,"name":"Tudo Por Uma Esmeralda"},{"id":48,"name":"Supergirl"},{"id":49,"name":"Águia de Aço"},{"id":50,"name":"As Minas Do Rei Salomão"},{"id":51,"name":"Aventureiros Do Fogo"},{"id":52,"name":"Braddock 2"},{"id":53,"name":"Brazil: O Filme"},{"id":54,"name":"Clube Dos Cinco"},{"id":55,"name":"Comando Delta"},{"id":56,"name":"Conta Comigo"},{"id":57,"name":"Crocodilo Dundee"},{"id":58,"name":"Curtindo A Vida Adoidado"},{"id":59,"name":"Highlander, O Guerreiro Imortal"},{"id":60,"name":"Loucademia De Policia 2"},{"id":61,"name":"Mad Max: Além Da Cúpula Do Trovão"},{"id":62,"name":"O Predador"},{"id":63,"name":"O Sobrevivente"},{"id":64,"name":"Os Goonies"},{"id":65,"name":"Rambo II"},{"id":66,"name":"Robocop - O Policial Do Futuro"},{"id":67,"name":"Rocky IV"},{"id":68,"name":"Silverado"},{"id":69,"name":"Stallone Cobra"},{"id":70,"name":"Te Pego Lá Fora"},{"id":71,"name":"Top Gun - Ases Indomáveis"},{"id":72,"name":"Um Dia A Casa Cai"},{"id":73,"name":"Short Circuit: O Incrível Robô"},{"id":74,"name":"Um Tira Da Pesada"},{"id":75,"name":"007 - Marcado Para Morte"},{"id":76,"name":"Batman"},{"id":77,"name":"Corra Que A Polícia Vem Aí"},{"id":78,"name":"Crocodilo Dundee 2"},{"id":79,"name":"Falcão, o Campeão dos Campeões"},{"id":80,"name":"Irmãos Gêmeos"},{"id":81,"name":"Um Robô em Curto-circuito 2"},{"id":82,"name":"Karatê Kid 2"},{"id":83,"name":"Um Tira Da Pesada 2"},{"id":84,"name":"Loucademia De Polícia 3"},{"id":85,"name":"O Grande Dragão Branco"},{"id":86,"name":"Olha Quem Está Falando"},{"id":87,"name":"Quero Ser Grande"},{"id":88,"name":"Um Príncipe Em Nova York"},{"id":89,"name":"Cegos, Surdos E Loucos"},{"id":90,"name":"Duro De Matar"},{"id":91,"name":"Superman 4"},{"id":92,"name":"Rambo 3"},{"id":93,"name":"Os Deuses Devem Estar Loucos 2"},{"id":94,"name":"De Volta Para O Futuro 2"},{"id":95,"name":"K-9"},{"id":96,"name":"Inferno Vermelho"},{"id":97,"name":"Máquina Mortífera"},{"id":98,"name":"Bom dia, Vietnã!"},{"id":99,"name":"Os Fantasmas Se Divertem"},{"id":100,"name":"Querida Encolhi As Crianças"},{"id":101,"name":"Karatê Kid 3"},{"id":102,"name":"Kickboxer: O Desafio Do Dragão"},{"id":103,"name":"Braddock 3"},{"id":104,"name":"Máquina Mortífera 2"},{"id":105,"name":"Uma Cilada Para Roger Rabbit"},{"id":106,"name":"Namorada De Aluguel"},{"id":107,"name":"Um Morto Muito Louco"},{"id":108,"name":"Moonwalker"},{"id":109,"name":"Dick Tracy"},{"id":110,"name":"Um Tira no Jardim de Infância"},{"id":111,"name":"O Pestinha"},{"id":112,"name":"Gremlins 2"},{"id":113,"name":"Uma Dupla Quase Perfeita"},{"id":114,"name":"Rocky V"},{"id":115,"name":"O Predador 2"},{"id":116,"name":"O Vingador do Futuro"},{"id":117,"name":"Robocop 2"},{"id":118,"name":"Ela é o Diabo"},{"id":119,"name":"De Volta para o Futuro III"},{"id":120,"name":"Esqueceram De Mim"},{"id":121,"name":"Leão Branco: O Lutador Sem Lei"},{"id":122,"name":"As Tartarugas Ninjas"},{"id":123,"name":"Condenação Brutal"},{"id":124,"name":"Ghost - Do Outro Lado da Vida"},{"id":125,"name":"Duro De Matar 2"},{"id":126,"name":"Louca Obsessão"},{"id":127,"name":"007 - Permissão para Matar"},{"id":128,"name":"Edward Mãos De Tesoura"},{"id":129,"name":"Indiana Jones e a Última Cruzada"},{"id":130,"name":"A História Sem Fim 2"},{"id":131,"name":"Lua de Cristal"},{"id":132,"name":"Batman: O Retorno"},{"id":133,"name":"Top Gang - Ases Muito Louco"},{"id":134,"name":"Os Deuses Devem Estar Loucos 3"},{"id":135,"name":"Operação Condor: Um Kickboxer Muito Louco"},{"id":136,"name":"A Morte Lhe Cai Bem"},{"id":137,"name":"Os Caça-Fantasmas"},{"id":138,"name":"Duplo Impacto"},{"id":139,"name":"Comando Imbatível"},{"id":140,"name":"Uma Linda Mulher"},{"id":141,"name":"Mudança De Hábito"},{"id":142,"name":"Os Caça-Fantasmas 2"},{"id":143,"name":"Caçadores De Emoção"},{"id":144,"name":"Se Meu Fusca Falasse"},{"id":145,"name":"O Pai Da Noiva"},{"id":146,"name":"A Família Buscapé"},{"id":147,"name":"Olha Quem Está Falando Agora"},{"id":148,"name":"A Lista De Schindler"},{"id":149,"name":"Robocop 3"},{"id":150,"name":"O Fugitivo"},{"id":151,"name":"A Família Addams"},{"id":152,"name":"As Tartarugas Ninja 2"},{"id":153,"name":"Abracadabra"},{"id":154,"name":"Mudança De Hábito 2"},{"id":155,"name":"Um Dia De Fúria"},{"id":156,"name":"Dennis, O Pimentinha"},{"id":157,"name":"Kickboxer 2"},{"id":158,"name":"Questão de honra"},{"id":159,"name":"A Firma"},{"id":160,"name":"Jamaica Abaixo De Zero"},{"id":161,"name":"O Anjo Malvado"},{"id":162,"name":"Querida estiquei o bebê"},{"id":163,"name":"Top Gang 2! A Missão"},{"id":164,"name":"O Alvo"},{"id":165,"name":"Uma babá quase perfeita"},{"id":166,"name":"Risco Total"},{"id":167,"name":"Jurassic Park O Parque Dos Dinossauros"},{"id":168,"name":"O Homem Sem Face"},{"id":169,"name":"O Demolidor"},{"id":170,"name":"Um Morto Muito Louco 2"},{"id":171,"name":"Feitiço do Tempo"},{"id":172,"name":"Meu Primeiro Amor"},{"id":173,"name":"Rocketeer"},{"id":174,"name":"Os Imperdoáveis"},{"id":175,"name":"Soldado Universal"},{"id":176,"name":"Corra Que A Polícia Vem Aí 2 ½"},{"id":177,"name":"Hook - A Volta do Capitão Gancho"},{"id":178,"name":"Highlander 2"},{"id":179,"name":"De Volta à Lagoa Azul"},{"id":180,"name":"Mundo Proibido"},{"id":181,"name":"Manequim"},{"id":182,"name":"Ninguém Segura Este Bebê"},{"id":183,"name":"A Fuga"},{"id":184,"name":"As Tartarugas Ninja 3"},{"id":185,"name":"O Pestinha 2"},{"id":186,"name":"Um Visto para o Céu"},{"id":187,"name":"Um Tira No Jardim De Infância"},{"id":188,"name":"Kickboxer 3"},{"id":189,"name":"Máquina Mortífera 3"},{"id":190,"name":"Thelma & Louise"},{"id":191,"name":"O Exterminador Do Futuro 2"},{"id":192,"name":"Velocidade Máxima"},{"id":193,"name":"Forrest Gump O Contador De Histórias"},{"id":194,"name":"Gasparzinho"},{"id":195,"name":"Junior"},{"id":196,"name":"A Família Addams 2"},{"id":197,"name":"Assassinos"},{"id":198,"name":"Kickboxer 4"},{"id":199,"name":"Um Tira Da Pesada 3"},{"id":200,"name":"A Ilha Da Garganta Cortada"},{"id":201,"name":"007 - Contra Goldeneye"},{"id":202,"name":"Corra Que A Polícia Vem Aí! 33⅓"},{"id":203,"name":"Os Batutinhas"},{"id":204,"name":"Cheque Em Branco"},{"id":205,"name":"Street Fighter"},{"id":206,"name":"Riquinho"},{"id":207,"name":"True Lies"},{"id":208,"name":"Pulp Fiction"},{"id":209,"name":"Karatê Kid 4"},{"id":210,"name":"O Máskara"},{"id":211,"name":"Highlander 3"},{"id":212,"name":"O Juiz"},{"id":213,"name":"Beleza Negra"},{"id":214,"name":"Debi & Loide"},{"id":215,"name":"A História Sem Fim 3"},{"id":216,"name":"Ace Ventura"},{"id":217,"name":"Double Dragon"},{"id":218,"name":"MacGyver"},{"id":219,"name":"Projeto Alf"},{"id":220,"name":"Coração De Dragão"},{"id":221,"name":"A Rocha"},{"id":222,"name":"Waterworld"},{"id":223,"name":"Mortal Kombat"},{"id":224,"name":"A Rede"},{"id":225,"name":"Queima De Arquivo"},{"id":226,"name":"Lolita"},{"id":227,"name":"Ace Ventura 2"},{"id":228,"name":"Batman Eternamente"},{"id":229,"name":"Jack"},{"id":230,"name":"Twister"},{"id":231,"name":"Um Herói De Brinquedo"},{"id":232,"name":"Querida Encolhi A Gente"},{"id":233,"name":"Mortal Kombat - Aniquilação"},{"id":234,"name":"O Pestinha 3"},{"id":235,"name":"Arrebentando Em Nova York"},{"id":236,"name":"Joe e as baratas"},{"id":237,"name":"Ameaça Subterrânea"},{"id":238,"name":"Kickboxer 5"},{"id":239,"name":"Apollo 13"},{"id":240,"name":"Striptease"},{"id":241,"name":"O Preço De Um Resgate"},{"id":242,"name":"Daylight"},{"id":243,"name":"O Pentelho"},{"id":244,"name":"Anaconda"},{"id":245,"name":"Space Jam"},{"id":246,"name":"Missão Impossível"},{"id":247,"name":"Flubber"},{"id":248,"name":"O Jogo De Geri"},{"id":249,"name":"Eu, Minha Mulher e Minhas Cópias"},{"id":250,"name":"Os Bad Boys"},{"id":251,"name":"O Pacificador"},{"id":252,"name":"O Último Matador"},{"id":253,"name":"Advogado Do Diabo"},{"id":254,"name":"O Professor Aloprado"},{"id":255,"name":"Jumanji"},{"id":256,"name":"Tombstone"},{"id":257,"name":"Morte Súbita"},{"id":258,"name":"Drácula - Morto, Mas Feliz"},{"id":259,"name":"Los Angeles - Cidade Proibida"},{"id":260,"name":"MIB - Homens De Preto"},{"id":261,"name":"Tudo por Dinheiro"},{"id":262,"name":"007 - O Amanhã Nunca Morre"},{"id":263,"name":"A Colônia"},{"id":264,"name":"Teoria da Conspiração"},{"id":265,"name":"Tropas Estelares"},{"id":266,"name":"O mensageiro"},{"id":267,"name":"Kazaam"},{"id":268,"name":"O Mentiroso"},{"id":269,"name":"Quem Vai Ficar Com Mary"},{"id":270,"name":"Pânico"},{"id":271,"name":"O Show De Truman"},{"id":272,"name":"Perdidos No Espaço"},{"id":273,"name":"A Hora Do Rush"},{"id":274,"name":"A Outra Face"},{"id":275,"name":"A vida é bela"},{"id":276,"name":"Marte Ataca"},{"id":277,"name":"A Máscara Do Zorro"},{"id":278,"name":"Con Air - A Rota Da Fuga"},{"id":279,"name":"Mr. Bean - O Filme"},{"id":280,"name":"Independence Day"},{"id":281,"name":"007 - O Mundo Não é O Bastante"},{"id":282,"name":"Pânico 2"},{"id":283,"name":"O Mundo Perdido - Jurassic Park"},{"id":284,"name":"O Fantasma"},{"id":285,"name":"Cidade dos Anjos"},{"id":286,"name":"Código para o Inferno"},{"id":287,"name":"Arquivo X"},{"id":288,"name":"Titanic"},{"id":289,"name":"U.S. Marshals - Os Federais"},{"id":290,"name":"Gladiador"},{"id":291,"name":"60 Segundos"},{"id":292,"name":"Missão Impossível 2"},{"id":293,"name":"Endiabrado"},{"id":294,"name":"O 6º Dia"},{"id":295,"name":"Eu, Eu Mesmo e Irene"},{"id":296,"name":"O Troco"},{"id":297,"name":"Asterix e Obelix Contra César"},{"id":298,"name":"O Legionário"},{"id":299,"name":"Blade, O Caçador De Vampiros"},{"id":300,"name":"Missão Marte"},{"id":301,"name":"Pânico 3"},{"id":302,"name":"Os Flintstones Em Viva Rock Vegas"},{"id":303,"name":"O Homem Bicentenário"},{"id":304,"name":"O Auto da Compadecida"},{"id":305,"name":"Duelo de titãs"},{"id":306,"name":"Mauá - O Imperador e o Rei"},{"id":307,"name":"Matrix"},{"id":308,"name":"A Caçada ao Outubro Vermelho"},{"id":309,"name":"O Que é Isso Companheiro"},{"id":310,"name":"O Grinch"},{"id":311,"name":"Homens De Honra"},{"id":312,"name":"Fim Dos Dias"},{"id":313,"name":"A Múmia"},{"id":314,"name":"Vovó... Zona"},{"id":315,"name":"American Pie"},{"id":316,"name":"À Espera de um Milagre"},{"id":317,"name":"Entrando Numa Fria"},{"id":318,"name":"Do Que As Mulheres Gostam"},{"id":319,"name":"O Sexto Sentido"},{"id":320,"name":"As Loucas Aventuras De James West"},{"id":321,"name":"Bater Ou Correr"},{"id":322,"name":"Beleza Americana"},{"id":323,"name":"Professor Aloprado 2"},{"id":324,"name":"Náufrago"},{"id":325,"name":"Máquina Mortífera 4"},{"id":326,"name":"Inimigo Do Estado"},{"id":327,"name":"O Talentoso Ripley"},{"id":328,"name":"Inspetor Bugiganga"},{"id":329,"name":"As Panteras"},{"id":330,"name":"Miss Simpatia"},{"id":331,"name":"O Conde de Monte Cristo"}];
+        const PROGRAMMING_MODE = "playlist";const TOTAL_PROGRAMS = 0;
+        const TOTAL_PLAYLIST_VIDEOS = 332;
+        const PROGRAM_VIDEO_COUNTS = [];
         const TV_COMMERCIALS = ["https://content.jwplatform.com/videos/KjuhOR1y-QOMvb1pf.mp4","https://content.jwplatform.com/videos/kXL0yqQo-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/G6R6mwOA-QOMvb1pf.mp4","https://content.jwplatform.com/videos/XT9JRhH5-QOMvb1pf.mp4","https://content.jwplatform.com/videos/mS5KSrCD-QOMvb1pf.mp4","https://content.jwplatform.com/videos/ufgXfdnU-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/EaecoAEa-AA4yyFWW.mp4","https://content.jwplatform.com/videos/Sm8vyPQ9-AA4yyFWW.mp4","https://cdn.jwplayer.com/videos/eZKGUPml-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/1OG19c8v-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/sQ0rt8ke-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/fudtkJ2a-KFbcw7fC.mp4","https://content.jwplatform.com/videos/r19qNpFB-QOMvb1pf.mp4","https://content.jwplatform.com/videos/jAAOKovU-AA4yyFWW.mp4","https://content.jwplatform.com/videos/vwAPEV9y-AA4yyFWW.mp4","https://content.jwplatform.com/videos/z9e4nLic-AA4yyFWW.mp4","https://content.jwplatform.com/videos/flZfENpo-AA4yyFWW.mp4","https://content.jwplatform.com/videos/4JQFOd2j-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/MBOepY3w-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/pPJbpgfQ-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/U98zDv2o-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/PtIKKUqT-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/dtrzgMwL-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/QnEHdE7R-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/5c09CIr5-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/mcROTxfq-bzWrVHxQ.mp4"];
         const ENABLE_COMMERCIALS = true;
         const COMMERCIALS_PER_BREAK = 5;
@@ -2151,7 +2259,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.9";
+        const CHANNEL_VERSION = "1.0.1.0";
         const CHANNEL_ID = "VZypAHSSgoJCtoDhnIPN";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2770,147 +2878,163 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-
-              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-        // Evitar múltiplos carregamentos simultâneos
-        if (isLoadingVideo) {
-            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-            return;
-        }
-        isLoadingVideo = true;
-        
-        
-        // Esconder player do YouTube se estiver visível
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
-        }
-        isYoutubeVideo = false;
-        
-        // Limpar container do YouTube se existir
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            youtubeContainer.innerHTML = '';
-        }
-        
-        // Verificar se temos elemento de vídeo
-        if (!videoElement) {
-            console.error('Elemento de vídeo não encontrado');
-            isLoadingVideo = false; // Resetar flag
-            return;
-        }
-        
-        // Parar qualquer vídeo atual ANTES de carregar novo
-        if (videoElement.src) {
-            videoElement.pause();
-            videoElement.src = '';
-        }
-        
-        // Configurações básicas
-videoElement.preload = 'auto';
-videoElement.playsInline = true;
-        
-        
-
-        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-        
-        // Remover event listeners antigos para evitar duplicação
-        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        videoElement.removeEventListener('canplay', handleCanPlay);
-        
-        // Configurar nova URL
-        videoElement.style.display = 'block';
-        videoElement.src = url;
-        
-        // ... continue com o resto do código existente ...
-            // Resetar mensagem de loading apenas se não for comercial
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-
-
-            // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-            if (loadingMessage && currentState !== 'commercial') {
-                loadingMessage.style.display = 'block';
-            }
+function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // Remover event listeners antigos para evitar duplicação
-    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-    videoElement.removeEventListener('canplay', handleCanPlay);
+    // Resetar flag IMEDIATAMENTE
+    isLoadingVideo = false;
     
-    // Configurar nova URL
+    // 1. Esconder YouTube
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+    }
+    isYoutubeVideo = false;
+    
+    // 2. Verificar se elemento de vídeo existe
+    if (!videoElement) {
+        console.error('❌ videoElement não existe no DOM');
+        return;
+    }
+    
+    // 3. PARAR e LIMPAR completamente
+    try {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
+    } catch (e) {
+        console.log('Não foi possível limpar vídeo anterior:', e);
+    }
+    
+    // 4. Configurar atributos ESSENCIAIS
+    videoElement.playsInline = true;
+    videoElement.preload = 'auto';
+    videoElement.crossOrigin = 'anonymous';
+    videoElement.setAttribute('playsinline', '');
+    videoElement.setAttribute('webkit-playsinline', '');
+    videoElement.setAttribute('crossorigin', 'anonymous');
+    
+    // 5. MOSTRAR elemento
     videoElement.style.display = 'block';
+    
+    // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
+    console.log('📥 Definindo src no elemento de vídeo');
     videoElement.src = url;
     
-    // Função para quando os metadados são carregados
-    function handleMetadataLoaded() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+    // 7. Configurar eventos
+    function handleLoadedMetadata() {
+        console.log('✅ loadedmetadata - Duração:', videoElement.duration);
+        
+        // Calcular tempo inicial
+        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1 && videoElement.duration) {
+            const startTime = videoElement.duration * iniciarNoPercentual;
+            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
         }
         
-        // Calcular tempo inicial baseado no percentual do slot
-        let startTime = 0;
-        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-            const videoDuration = videoElement.duration || 0;
-            if (videoDuration > 0) {
-                startTime = videoDuration * iniciarNoPercentual;
-                startTime = Math.min(startTime, videoDuration - 1);
-            }
-        }
-        
-        // Definir tempo inicial
-        videoElement.currentTime = startTime;
-        
-        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
+        // Reproduzir se necessário
         if (autoplay && userStartedPlayback) {
-            videoElement.muted = false;
+            console.log('▶️ Tentando reproduzir...');
             
-            const playPromise = videoElement.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log('Autoplay bloqueado:', error);
+            // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
+            videoElement.muted = false;
+            videoElement.volume = 1.0;
+            
+            videoElement.play()
+                .then(() => {
+                    console.log('✅ Vídeo reproduzindo (áudio ativo imediatamente)');
+                })
+                .catch(error => {
+                    console.error('❌ play() falhou:', error.name, error.message);
+                    
+                    // Se falhar por políticas de autoplay, tentar com mute e pedir interação
+                    if (error.name === 'NotAllowedError') {
+                        console.log('⚠️ Autoplay bloqueado. Tentando com mute...');
+                        videoElement.muted = true;
+                        videoElement.play()
+                            .then(() => {
+                                console.log('✅ Vídeo reproduzindo (muted por política)');
+                                // Mostrar botão para ativar áudio
+                                if (autoplayOverlay) {
+                                    // 🔥 CORREÇÃO: Use strings normais, não template literals aninhados
+                                    autoplayOverlay.classList.remove('hidden');
+                                    autoplayOverlay.innerHTML = 
+                                        '<h3>Clique para ativar o áudio</h3>' +
+                                        '<button class="autoplay-button" id="activateAudioBtn">' +
+                                        'Ativar Áudio' +
+                                        '</button>';
+                                    
+                                    // Adicionar evento separadamente
+                                    document.getElementById('activateAudioBtn').addEventListener('click', function() {
+                                        videoElement.muted = false;
+                                        autoplayOverlay.classList.add('hidden');
+                                    });
+                                }
+                            });
+                    }
                 });
+        }
+    }
+    
+    function handleError(e) {
+        console.error('❌ ERRO no elemento de vídeo:');
+        console.error('Código:', videoElement.error?.code);
+        console.error('Mensagem:', videoElement.error?.message);
+        console.error('URL tentada:', url);
+        
+        // Mostrar erro específico
+        if (videoElement.error) {
+            switch(videoElement.error.code) {
+                case 1: console.error('🚫 Erro: MEDIA_ERR_ABORTED'); break;
+                case 2: console.error('🚫 Erro: MEDIA_ERR_NETWORK'); break;
+                case 3: console.error('🚫 Erro: MEDIA_ERR_DECODE'); break;
+                case 4: console.error('🚫 Erro: MEDIA_ERR_SRC_NOT_SUPPORTED'); break;
             }
-        } else {
-            videoElement.pause();
         }
     }
     
-    // Função para quando o vídeo pode começar a tocar
     function handleCanPlay() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+        console.log('✅ canplay - Pronto para reprodução');
+    }
+    
+    function handlePlaying() {
+        console.log('▶️ playing - Vídeo começou a tocar');
+        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
+        if (videoElement.muted) {
+            videoElement.muted = false;
         }
     }
     
-    // Adicionar novos event listeners
-    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
+    // Remover listeners antigos
+    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.removeEventListener('error', handleError);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    videoElement.removeEventListener('playing', handlePlaying);
+    
+    // Adicionar novos listeners (APENAS UMA VEZ)
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    videoElement.addEventListener('playing', handlePlaying, { once: true });
     
-    // Resetar flag de carregamento quando o vídeo estiver pronto
-    const resetLoadingFlag = function() {
-        isLoadingVideo = false;
-    };
-    
-    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
-    
-    // Iniciar carregamento
+    // 8. INICIAR carregamento
+    console.log('🔄 Chamando videoElement.load()');
     videoElement.load();
     
-    // Timeout de segurança para vídeos que não carregam
+    // 9. Timeout para debug
     setTimeout(() => {
-        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
-            console.warn('Vídeo demorando para carregar:', url);
+        console.log('⏱️ Estado após 3s:', {
+            readyState: videoElement.readyState,
+            error: videoElement.error,
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            src: videoElement.src?.substring(0, 100)
+        });
+        
+        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
+        if (videoElement.muted && userStartedPlayback) {
+            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
+            videoElement.muted = false;
         }
-    }, 10000);
+    }, 3000);
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
@@ -3050,14 +3174,51 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            const cloudFunctionUrl = videoInfo.videoUrl;
+
+if (!cloudFunctionUrl) {
+    console.error('URL da Cloud Function não disponível');
+    return;
+}
+
+console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
+
+// FAZER A REQUISIÇÃO PARA OBTER A URL REAL DO VÍDEO
+fetch(cloudFunctionUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📦 Resposta da Cloud Function:', data);
+        
+        if (data.success && data.url && data.url.trim() !== '') {
+            console.log('✅ URL real do vídeo:', data.url.substring(0, 80) + '...');
             
-            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
+                carregarVideoYouTube(data.url, iniciarNoPercentual, true);
             } else {
-                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+                carregarVideoHTML5(data.url, iniciarNoPercentual, true);
             }
-            
+        } else {
+            console.error('❌ Cloud Function não retornou URL válida:', data);
+            // Tentar próximo slot após 3 segundos
+            setTimeout(() => {
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao buscar URL da Cloud Function:', error);
+        // Tentar próximo slot após 3 segundos
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+    });
             currentState = 'program';
         }
         
@@ -4157,6 +4318,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     </script>
     
+
 
 </body>
 </html>
