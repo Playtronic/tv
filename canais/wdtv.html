@@ -13,8 +13,9 @@
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 
+
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.4">
+    <meta name="version" content="1.0.0.5">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -1032,7 +1033,7 @@
         
  <div class="contact-info">Contato: acmebrasil@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.4
+            Versão 1.0.0.5
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1125,40 +1126,48 @@
 
                 
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-                function cleanupInactiveViewers() {
-                    if (!CHANNEL_ID) return;
-                    
-                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                    
-                    viewersRef.once('value').then(snapshot => {
-                        if (!snapshot.exists()) return;
-                        
-                        const viewers = snapshot.val();
-                        const now = Date.now();
-                        const updates = {};
-                        
-                        Object.keys(viewers).forEach(key => {
-                            const viewer = viewers[key];
-                            if (viewer && viewer.lastHeartbeat) {
-                                const timeDiff = now - viewer.lastHeartbeat;
-                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
-                                    updates[key] = null;
-                                }
-                            } else if (viewer && viewer.timestamp) {
-                                const timeDiff = now - viewer.timestamp;
-                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
-                                    updates[key] = null;
-                                }
-                            }
-                        });
-                        
-                        if (Object.keys(updates).length > 0) {
-                            viewersRef.update(updates)
-                                .then(() => console.log('Espectadores inativos removidos'))
-                                .catch(err => console.log('Não foi possível limpar espectadores'));
-                        }
-                    });
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -1189,73 +1198,134 @@
                 }
                 
                 async function handleVote(voteType) {
-                    if (!currentUserChannel) {
-                        document.getElementById('loginOverlayChannel').style.display = 'flex';
-                        return;
-                    }
-                    
-                    if (!channelStatsRef) return;
-                    
-                    const userId = currentUserChannel.uid;
-                    const userVoteRef = userVotesRef.child(userId);
-                    
-                    try {
-                        const snapshot = await userVoteRef.once('value');
-                        const currentVote = snapshot.val();
-                        
-                        if (currentVote === voteType) {
-                            await userVoteRef.remove();
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            currentUserVote = null;
-                        } else {
-                            if (currentVote === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else if (currentVote === 'dislike') {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            await userVoteRef.set(voteType);
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            }
-                            
-                            currentUserVote = voteType;
-                        }
-                        
-                        if (window.showControls) {
-                            window.showControls();
-                        }
-                        
-                        if (window.resetControlsTimer) {
-                            window.resetControlsTimer();
-                        }
-                        
-                    } catch (error) {
-                        console.error('Erro ao processar voto:', error);
-                        alert('Erro ao registrar voto. Tente novamente.');
-                    }
-                }
+    // 🔥 CORREÇÃO 1: Bloquear múltiplos cliques imediatamente
+    const likeBtn = document.getElementById('likeBtn');
+    const dislikeBtn = document.getElementById('dislikeBtn');
+    
+    // Desabilitar ambos os botões
+    if (likeBtn) likeBtn.disabled = true;
+    if (dislikeBtn) dislikeBtn.disabled = true;
+    
+    // 🔥 CORREÇÃO 2: Feedback visual imediato
+    if (voteType === 'like' && likeBtn) {
+        likeBtn.style.opacity = '0.7';
+    } else if (voteType === 'dislike' && dislikeBtn) {
+        dislikeBtn.style.opacity = '0.7';
+    }
+    
+    if (!currentUserChannel) {
+        document.getElementById('loginOverlayChannel').style.display = 'flex';
+        
+        // Reabilitar botões após 500ms
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    if (!channelStatsRef) {
+        // Reabilitar botões
+        if (likeBtn) {
+            likeBtn.disabled = false;
+            likeBtn.style.opacity = '1';
+        }
+        if (dislikeBtn) {
+            dislikeBtn.disabled = false;
+            dislikeBtn.style.opacity = '1';
+        }
+        return;
+    }
+    
+    const userId = currentUserChannel.uid;
+    const userVoteRef = userVotesRef.child(userId);
+    
+    try {
+        const snapshot = await userVoteRef.once('value');
+        const currentVote = snapshot.val();
+        
+        if (currentVote === voteType) {
+            // Remover voto existente
+            await userVoteRef.remove();
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            currentUserVote = null;
+        } else {
+            // Mudar voto
+            if (currentVote === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else if (currentVote === 'dislike') {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            await userVoteRef.set(voteType);
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            }
+            
+            currentUserVote = voteType;
+        }
+        
+        if (window.showControls) {
+            window.showControls();
+        }
+        
+        if (window.resetControlsTimer) {
+            window.resetControlsTimer();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar voto:', error);
+        alert('Erro ao registrar voto. Tente novamente.');
+    } finally {
+        // 🔥 CORREÇÃO 4: Sempre reabilitar botões após processamento
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 1000); // Delay de 1 segundo para evitar spam
+    }
+}
                 
                 function updateLikeDislikeUI() {
                     const likeCount = document.getElementById('likeCount');
@@ -1530,19 +1600,19 @@ function calcularSlotAtual() {
             const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
             const programa = TV_PROGRAMS[programIndex];
             
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
-            }
+            if (!programa) {
+    return null;
+}
             
             // Ajustar o vídeo baseado nos dias desde a estreia
-            const totalVideosSlot = programa.videos.length;
+            const totalVideosSlot = programa.totalVideos || 1;
             const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
             
-            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            currentVideoIndex = videoIndexAjustado - 1;
             
             return {
                 programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
+                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -1601,7 +1671,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: videoInfo.url,
+                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -1650,6 +1720,12 @@ if (slotIndex === currentPlayingSlot) {
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
+        // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
+        if (isYoutubeVideo) {
+            console.log('YouTube detectado - desativando sincronização');
+            return;
+        }
+        
         if (syncCheckInterval) {
             clearInterval(syncCheckInterval);
         }
@@ -1676,7 +1752,6 @@ if (slotIndex === currentPlayingSlot) {
         
         startAudioMonitoring();
     }
-
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -1773,6 +1848,9 @@ if (slotIndex === currentPlayingSlot) {
     function detectAndRecoverAudio() {
         const now = Date.now();
         
+        // 🔥 CORREÇÃO: Não recuperar áudio para YouTube
+        if (isYoutubeVideo) return false;
+        
         const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
         if (now - lastAudioRecoveryTime < recoveryCooldown) {
             return false;
@@ -1782,7 +1860,7 @@ if (slotIndex === currentPlayingSlot) {
             return false;
         }
         
-        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+        if (!videoElement || !userStartedPlayback) {
             return false;
         }
         
@@ -1839,7 +1917,34 @@ if (slotIndex === currentPlayingSlot) {
         return false;
     }
 
+// 🔥 FUNÇÃO FALTANDO: calculateExpectedTime
+function calculateExpectedTime(duration) {
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade: tempo baseado no slot atual
+        const slotAtual = obterSlotParaExibicao();
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    } else {
+        // Modo Playlist: tempo baseado no tempo desde estreia
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    }
+}
+
     function checkAndFixSync() {
+        // 🔥 CORREÇÃO: NÃO sincronizar vídeos do YouTube
+        if (isYoutubeVideo) {
+            return; // YouTube tem seu próprio sistema de sincronização
+        }
+        
         if (isManualSeeking || !userStartedPlayback) {
             return;
         }
@@ -1851,13 +1956,8 @@ if (slotIndex === currentPlayingSlot) {
         let currentTime, duration, playbackRate;
         
         if (isYoutubeVideo && youtubePlayer && playerReady) {
-            try {
-                currentTime = youtubePlayer.getCurrentTime();
-                duration = youtubePlayer.getDuration();
-                playbackRate = 1.0;
-            } catch (e) {
-                return;
-            }
+            // YouTube - não sincronizar
+            return;
         } else if (videoElement && videoElement.readyState >= 2) {
             currentTime = videoElement.currentTime;
             duration = videoElement.duration;
@@ -1901,6 +2001,9 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        // 🔥 CORREÇÃO: Não aplicar correções para YouTube
+        if (isYoutubeVideo) return;
+        
         const driftAbs = Math.abs(drift);
         
         const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
@@ -1938,9 +2041,7 @@ if (slotIndex === currentPlayingSlot) {
         const newTime = currentTime + adjustment;
         
         if (newTime >= 0 && newTime < duration - 0.5) {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(newTime, true);
-            } else if (videoElement) {
+            if (videoElement) {
                 const audioStateBeforeSeek = {
                     muted: videoElement.muted,
                     volume: videoElement.volume,
@@ -1972,6 +2073,7 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function imperceptibleRefresh() {
+        // 🔥 CORREÇÃO: Não fazer refresh para YouTube
         if (isYoutubeVideo || !videoElement || videoElement.paused) return;
         
         const currentTime = videoElement.currentTime;
@@ -2037,14 +2139,17 @@ if (slotIndex === currentPlayingSlot) {
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
-                setTimeout(initSyncSystem, 1000);
-                
-                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
-                setInterval(() => {
-                    if (!isManualSeeking && currentState !== 'commercial') {
-                        imperceptibleRefresh();
-                    }
-                }, refreshInterval);
+                // 🔥 CORREÇÃO: Não iniciar sincronização para YouTube
+                if (!isYoutubeVideo) {
+                    setTimeout(initSyncSystem, 1000);
+                    
+                    const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                    setInterval(() => {
+                        if (!isManualSeeking && currentState !== 'commercial' && !isYoutubeVideo) {
+                            imperceptibleRefresh();
+                        }
+                    }, refreshInterval);
+                }
             });
             
             videoElement.addEventListener('pause', () => {
@@ -2115,9 +2220,12 @@ if (slotIndex === currentPlayingSlot) {
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "playlist";
+
         const TV_PROGRAMS = [];
-        const TV_PLAYLIST = [{"id":0,"name":"Branca de Neve e os 7 anões","url":"https://content.jwplatform.com/videos/XEy18qkZ-RbFNlbHm.mp4"},{"id":1,"name":"Fantasia","url":"https://content.jwplatform.com/videos/5TVOufpB-H2GkGVR5.mp4"},{"id":2,"name":"Pinóquio","url":"https://content.jwplatform.com/videos/u4zcCk4g-RbFNlbHm.mp4"},{"id":3,"name":"Dumbo","url":"https://content.jwplatform.com/videos/lFT2LMV9-RbFNlbHm.mp4"},{"id":4,"name":"Bambi","url":"https://content.jwplatform.com/videos/47AzHSfb-RbFNlbHm.mp4"},{"id":5,"name":"Saludos Amigos!","url":"https://content.jwplatform.com/videos/fh7ADuEa-RbFNlbHm.mp4"},{"id":6,"name":"Você Já foi à Bahia?","url":"https://content.jwplatform.com/videos/PYjUWrea-lPqarLtU.mp4"},{"id":7,"name":"Música Maestro!","url":"https://content.jwplatform.com/videos/eA2rpGIq-RbFNlbHm.mp4"},{"id":8,"name":"Como é Bom se Divertir","url":"https://content.jwplatform.com/videos/nztRHbwV-RbFNlbHm.mp4"},{"id":9,"name":"Tempo de Melodia","url":"https://content.jwplatform.com/videos/POI7uMK6-RbFNlbHm.mp4"},{"id":10,"name":"Ichabod e Sr. Sapo","url":"https://content.jwplatform.com/videos/qsHkrbrt-RbFNlbHm.mp4"},{"id":11,"name":"Cinderela","url":"https://content.jwplatform.com/videos/LUAoSkXr-RbFNlbHm.mp4"},{"id":12,"name":"Alice No País Das Maravilhas","url":"https://content.jwplatform.com/videos/O9WfmWrD-lPqarLtU.mp4"},{"id":13,"name":"Peter Pan","url":"https://content.jwplatform.com/videos/AhTRZ1gj-RbFNlbHm.mp4"},{"id":14,"name":"A Dama e o Vagabundo","url":"https://content.jwplatform.com/videos/gOlNRb6z-IJ89DRPm.mp4"},{"id":15,"name":"A Espada Era A Lei","url":"https://content.jwplatform.com/videos/AjGRv2rC-lPqarLtU.mp4"},{"id":16,"name":"Mogli - O Menino Lobo","url":"https://content.jwplatform.com/videos/UTgKhkUW-lPqarLtU.mp4"},{"id":17,"name":"Robin Hood","url":"https://content.jwplatform.com/videos/pz1XQpfH-lPqarLtU.mp4"},{"id":18,"name":"Aristogatas","url":"https://vz-66bdc7df-75c.b-cdn.net/30ab90f3-6c81-4acd-8e85-8df5642c7073/play_720p.mp4"},{"id":19,"name":"Bernardo e Bianca","url":"https://content.jwplatform.com/videos/d7XoIyha-lPqarLtU.mp4"},{"id":20,"name":"O Cão e a Raposa","url":"https://content.jwplatform.com/videos/vDhApBY9-lPqarLtU.mp4"},{"id":21,"name":"Um Conto de Natal do Mickey","url":"https://content.jwplatform.com/videos/xo5s4gA5-lPqarLtU.mp4"},{"id":22,"name":"O Caldeirão Mágico","url":"https://content.jwplatform.com/videos/rUUUMyUU-lPqarLtU.mp4"},{"id":23,"name":"Ratinho Detetive","url":"https://content.jwplatform.com/videos/0EGuA7ui-lPqarLtU.mp4"},{"id":24,"name":"Oliver e sua Turma","url":"https://content.jwplatform.com/videos/Xu0wifoW-lPqarLtU.mp4"},{"id":25,"name":"A Pequena Sereia","url":"https://content.jwplatform.com/videos/Z4A3tGl9-lPqarLtU.mp4"},{"id":26,"name":"Bernardo e Bianca 2","url":"https://content.jwplatform.com/videos/RdcnzdwN-lPqarLtU.mp4"},{"id":27,"name":"DuckTales","url":"https://content.jwplatform.com/videos/QtLwUaa4-lPqarLtU.mp4"},{"id":28,"name":"A Bela Adormecida","url":"https://content.jwplatform.com/videos/wNy9JaJE-lPqarLtU.mp4"},{"id":29,"name":"A Bela e a Fera","url":"https://content.jwplatform.com/videos/wNy9JaJE-lPqarLtU.mp4"},{"id":30,"name":"Aladdin","url":"https://content.jwplatform.com/videos/VGZiDDjF-lPqarLtU.mp4"},{"id":31,"name":"O Retorno de Jafar","url":"https://content.jwplatform.com/videos/OECdRZPJ-lPqarLtU.mp4"},{"id":32,"name":"Aladdin e os 40 Ladrões","url":"https://content.jwplatform.com/videos/t6FygM52-lPqarLtU.mp4"},{"id":33,"name":"O Rei Leão","url":"https://content.jwplatform.com/videos/SNV0fhGj-lPqarLtU.mp4"},{"id":34,"name":"Pateta - O Filme","url":"https://content.jwplatform.com/videos/KB1XPiTe-lPqarLtU.mp4"},{"id":35,"name":"Pocahontas","url":"https://content.jwplatform.com/videos/NCMRl2a4-lPqarLtU.mp4"},{"id":36,"name":"101 Dálmatas","url":"https://content.jwplatform.com/videos/EjrDimUC-RbFNlbHm.mp4"},{"id":37,"name":"O Corcunda de Notre Dame","url":"https://content.jwplatform.com/videos/n5dmw9Dr-lPqarLtU.mp4"},{"id":38,"name":"Hércules","url":"https://content.jwplatform.com/videos/wVc3ZZxa-lPqarLtU.mp4"},{"id":39,"name":"O Natal Encantado da Bela e a Fera","url":"https://content.jwplatform.com/videos/jKoObdRx-lPqarLtU.mp4"},{"id":40,"name":"Mulan","url":"https://content.jwplatform.com/videos/bEtbqqQo-RbFNlbHm.mp4"},{"id":41,"name":"O Rei Leão 2","url":"https://content.jwplatform.com/videos/DprgIDqO-lPqarLtU.mp4"},{"id":42,"name":"Pocahontas 2","url":"https://content.jwplatform.com/videos/MGnrdvU6-RbFNlbHm.mp4"},{"id":43,"name":"Doug - O Filme","url":"https://content.jwplatform.com/videos/kDmakzVJ-RbFNlbHm.mp4"},{"id":44,"name":"Tarzan","url":"https://content.jwplatform.com/videos/ETUSMhZV-lPqarLtU.mp4"},{"id":45,"name":"A Nova Onda do Imperador","url":"https://content.jwplatform.com/videos/XpOZXSpT-lPqarLtU.mp4"},{"id":46,"name":"A Pequena Sereia 2","url":"https://content.jwplatform.com/videos/x7myQK4k-lPqarLtU.mp4"},{"id":47,"name":"Fantasia 2000","url":"https://content.jwplatform.com/videos/A6h1PFX5-lPqarLtU.mp4"},{"id":48,"name":"Pateta 2","url":"https://content.jwplatform.com/videos/vVBB8Bbx-lPqarLtU.mp4"},{"id":49,"name":"A Dama e o Vagabundo 2","url":"https://content.jwplatform.com/videos/H1VvCbvo-lPqarLtU.mp4"},{"id":50,"name":"Atlantis - O Reino Perdido","url":"https://content.jwplatform.com/videos/wi4gCfg6-lPqarLtU.mp4"},{"id":51,"name":"Hora do Recreio","url":"https://content.jwplatform.com/videos/nROQNbAV-lPqarLtU.mp4"},{"id":52,"name":"Peter Pan 2","url":"https://content.jwplatform.com/videos/ED1ttCGl-lPqarLtU.mp4"},{"id":53,"name":"O Estranho Mundo de Jack","url":"https://content.jwplatform.com/videos/p18c1YFN-RbFNlbHm.mp4"},{"id":54,"name":"O Corcunda de Notre Dame 2","url":"https://content.jwplatform.com/videos/Trf5Gh0P-FlLyS78V.mp4"},{"id":55,"name":"Cinderela 2","url":"https://content.jwplatform.com/videos/tk2AimFS-FlLyS78V.mp4"},{"id":56,"name":"Lilo e Stitch","url":"https://content.jwplatform.com/videos/ObkWideU-RbFNlbHm.mp4"},{"id":57,"name":"102 Dálmatas","url":"https://content.jwplatform.com/videos/iQykWb9S-lPqarLtU.mp4"},{"id":58,"name":"Planeta do Tesouro","url":"https://content.jwplatform.com/videos/xR3cmDY3-RbFNlbHm.mp4"},{"id":59,"name":"Mogli - O Menino Lobo 2","url":"https://content.jwplatform.com/videos/0fwdIAev-RbFNlbHm.mp4"},{"id":60,"name":"Árvores e Flores","url":"https://www.youtube.com/watch?v=_NKcsg8vE_U"},{"id":61,"name":"A Deusa da Primavera","url":"https://www.youtube.com/watch?v=wX8-b_4g4oc&list=RDwX8-b_4g4oc&start_radio=1"},{"id":62,"name":"Oficina do Papai Noel","url":"https://www.youtube.com/watch?v=Jm_HUhHKWC0&list=PLm-zZ3_dqswkdTy3grSQ41uKhVjn8CPY8"},{"id":63,"name":"O Carnaval dos Biscoitos","url":"https://www.youtube.com/watch?v=SRB2YlQOSBI&list=PLm-zZ3_dqswkdTy3grSQ41uKhVjn8CPY8&index=2"},{"id":64,"name":"A Lebre e a Tartaruga","url":"https://www.youtube.com/watch?v=2DrKmpuKhKE&list=PLm-zZ3_dqswkdTy3grSQ41uKhVjn8CPY8&index=4"},{"id":65,"name":"O Velho Moinho","url":"https://www.youtube.com/watch?v=MYEmL0d0lZE&list=PLm-zZ3_dqswkdTy3grSQ41uKhVjn8CPY8&index=5"},{"id":66,"name":"A Mariposa e a Chama","url":"https://www.youtube.com/watch?v=YouBj4K7104&list=PLm-zZ3_dqswkdTy3grSQ41uKhVjn8CPY8&index=7"},{"id":67,"name":"Woodland Café","url":"https://www.youtube.com/watch?v=GQWKgY0x13w&list=PLm-zZ3_dqswkdTy3grSQ41uKhVjn8CPY8&index=8"},{"id":68,"name":"Quem Matou o Rouxinol?","url":"https://www.youtube.com/watch?v=6GK66CFljA0&list=PLm-zZ3_dqswkdTy3grSQ41uKhVjn8CPY8&index=10"},{"id":69,"name":"O Velho Rei Cole","url":"https://www.youtube.com/watch?v=l419giWyC_g&list=PLm-zZ3_dqswkdTy3grSQ41uKhVjn8CPY8&index=11"}];
+        const TV_PLAYLIST = [{"id":0,"name":"Branca de Neve e os 7 anões"},{"id":1,"name":"Fantasia"},{"id":2,"name":"Pinóquio"},{"id":3,"name":"Dumbo"},{"id":4,"name":"Bambi"},{"id":5,"name":"Saludos Amigos!"},{"id":6,"name":"Você Já foi à Bahia?"},{"id":7,"name":"Música Maestro!"},{"id":8,"name":"Como é Bom se Divertir"},{"id":9,"name":"Tempo de Melodia"},{"id":10,"name":"Ichabod e Sr. Sapo"},{"id":11,"name":"Cinderela"},{"id":12,"name":"Alice No País Das Maravilhas"},{"id":13,"name":"Peter Pan"},{"id":14,"name":"A Dama e o Vagabundo"},{"id":15,"name":"A Espada Era A Lei"},{"id":16,"name":"Mogli - O Menino Lobo"},{"id":17,"name":"Robin Hood"},{"id":18,"name":"Aristogatas"},{"id":19,"name":"Bernardo e Bianca"},{"id":20,"name":"O Cão e a Raposa"},{"id":21,"name":"Um Conto de Natal do Mickey"},{"id":22,"name":"O Caldeirão Mágico"},{"id":23,"name":"Ratinho Detetive"},{"id":24,"name":"Oliver e sua Turma"},{"id":25,"name":"A Pequena Sereia"},{"id":26,"name":"Bernardo e Bianca 2"},{"id":27,"name":"DuckTales"},{"id":28,"name":"A Bela Adormecida"},{"id":29,"name":"A Bela e a Fera"},{"id":30,"name":"Aladdin"},{"id":31,"name":"O Retorno de Jafar"},{"id":32,"name":"Aladdin e os 40 Ladrões"},{"id":33,"name":"O Rei Leão"},{"id":34,"name":"Pateta - O Filme"},{"id":35,"name":"Pocahontas"},{"id":36,"name":"101 Dálmatas"},{"id":37,"name":"O Corcunda de Notre Dame"},{"id":38,"name":"Hércules"},{"id":39,"name":"O Natal Encantado da Bela e a Fera"},{"id":40,"name":"Mulan"},{"id":41,"name":"O Rei Leão 2"},{"id":42,"name":"Pocahontas 2"},{"id":43,"name":"Doug - O Filme"},{"id":44,"name":"Tarzan"},{"id":45,"name":"A Nova Onda do Imperador"},{"id":46,"name":"A Pequena Sereia 2"},{"id":47,"name":"Fantasia 2000"},{"id":48,"name":"Pateta 2"},{"id":49,"name":"A Dama e o Vagabundo 2"},{"id":50,"name":"Atlantis - O Reino Perdido"},{"id":51,"name":"Hora do Recreio"},{"id":52,"name":"Peter Pan 2"},{"id":53,"name":"O Estranho Mundo de Jack"},{"id":54,"name":"O Corcunda de Notre Dame 2"},{"id":55,"name":"Cinderela 2"},{"id":56,"name":"Lilo e Stitch"},{"id":57,"name":"102 Dálmatas"},{"id":58,"name":"Planeta do Tesouro"},{"id":59,"name":"Mogli - O Menino Lobo 2"},{"id":60,"name":"Árvores e Flores"},{"id":61,"name":"A Deusa da Primavera"},{"id":62,"name":"Oficina do Papai Noel"},{"id":63,"name":"O Carnaval dos Biscoitos"},{"id":64,"name":"A Lebre e a Tartaruga"},{"id":65,"name":"O Velho Moinho"},{"id":66,"name":"A Mariposa e a Chama"},{"id":67,"name":"Woodland Café"},{"id":68,"name":"Quem Matou o Rouxinol?"},{"id":69,"name":"O Velho Rei Cole"}];
+        const PROGRAMMING_MODE = "playlist";const TOTAL_PROGRAMS = 0;
+        const TOTAL_PLAYLIST_VIDEOS = 70;
+        const PROGRAM_VIDEO_COUNTS = [];
         const TV_COMMERCIALS = [];
         const ENABLE_COMMERCIALS = false;
         const COMMERCIALS_PER_BREAK = 2;
@@ -2134,7 +2242,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.4";
+        const CHANNEL_VERSION = "1.0.0.5";
         const CHANNEL_ID = "iVRNIvxBXpIsGLoECDJr";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2753,147 +2861,163 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-
-              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-        // Evitar múltiplos carregamentos simultâneos
-        if (isLoadingVideo) {
-            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-            return;
-        }
-        isLoadingVideo = true;
-        
-        
-        // Esconder player do YouTube se estiver visível
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
-        }
-        isYoutubeVideo = false;
-        
-        // Limpar container do YouTube se existir
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            youtubeContainer.innerHTML = '';
-        }
-        
-        // Verificar se temos elemento de vídeo
-        if (!videoElement) {
-            console.error('Elemento de vídeo não encontrado');
-            isLoadingVideo = false; // Resetar flag
-            return;
-        }
-        
-        // Parar qualquer vídeo atual ANTES de carregar novo
-        if (videoElement.src) {
-            videoElement.pause();
-            videoElement.src = '';
-        }
-        
-        // Configurações básicas
-videoElement.preload = 'auto';
-videoElement.playsInline = true;
-        
-        
-
-        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-        
-        // Remover event listeners antigos para evitar duplicação
-        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        videoElement.removeEventListener('canplay', handleCanPlay);
-        
-        // Configurar nova URL
-        videoElement.style.display = 'block';
-        videoElement.src = url;
-        
-        // ... continue com o resto do código existente ...
-            // Resetar mensagem de loading apenas se não for comercial
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-
-
-            // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-            if (loadingMessage && currentState !== 'commercial') {
-                loadingMessage.style.display = 'block';
-            }
+function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // Remover event listeners antigos para evitar duplicação
-    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-    videoElement.removeEventListener('canplay', handleCanPlay);
+    // Resetar flag IMEDIATAMENTE
+    isLoadingVideo = false;
     
-    // Configurar nova URL
+    // 1. Esconder YouTube
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+    }
+    isYoutubeVideo = false;
+    
+    // 2. Verificar se elemento de vídeo existe
+    if (!videoElement) {
+        console.error('❌ videoElement não existe no DOM');
+        return;
+    }
+    
+    // 3. PARAR e LIMPAR completamente
+    try {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
+    } catch (e) {
+        console.log('Não foi possível limpar vídeo anterior:', e);
+    }
+    
+    // 4. Configurar atributos ESSENCIAIS
+    videoElement.playsInline = true;
+    videoElement.preload = 'auto';
+    videoElement.crossOrigin = 'anonymous';
+    videoElement.setAttribute('playsinline', '');
+    videoElement.setAttribute('webkit-playsinline', '');
+    videoElement.setAttribute('crossorigin', 'anonymous');
+    
+    // 5. MOSTRAR elemento
     videoElement.style.display = 'block';
+    
+    // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
+    console.log('📥 Definindo src no elemento de vídeo');
     videoElement.src = url;
     
-    // Função para quando os metadados são carregados
-    function handleMetadataLoaded() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+    // 7. Configurar eventos
+    function handleLoadedMetadata() {
+        console.log('✅ loadedmetadata - Duração:', videoElement.duration);
+        
+        // Calcular tempo inicial
+        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1 && videoElement.duration) {
+            const startTime = videoElement.duration * iniciarNoPercentual;
+            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
         }
         
-        // Calcular tempo inicial baseado no percentual do slot
-        let startTime = 0;
-        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-            const videoDuration = videoElement.duration || 0;
-            if (videoDuration > 0) {
-                startTime = videoDuration * iniciarNoPercentual;
-                startTime = Math.min(startTime, videoDuration - 1);
-            }
-        }
-        
-        // Definir tempo inicial
-        videoElement.currentTime = startTime;
-        
-        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
+        // Reproduzir se necessário
         if (autoplay && userStartedPlayback) {
-            videoElement.muted = false;
+            console.log('▶️ Tentando reproduzir...');
             
-            const playPromise = videoElement.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log('Autoplay bloqueado:', error);
+            // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
+            videoElement.muted = false;
+            videoElement.volume = 1.0;
+            
+            videoElement.play()
+                .then(() => {
+                    console.log('✅ Vídeo reproduzindo (áudio ativo imediatamente)');
+                })
+                .catch(error => {
+                    console.error('❌ play() falhou:', error.name, error.message);
+                    
+                    // Se falhar por políticas de autoplay, tentar com mute e pedir interação
+                    if (error.name === 'NotAllowedError') {
+                        console.log('⚠️ Autoplay bloqueado. Tentando com mute...');
+                        videoElement.muted = true;
+                        videoElement.play()
+                            .then(() => {
+                                console.log('✅ Vídeo reproduzindo (muted por política)');
+                                // Mostrar botão para ativar áudio
+                                if (autoplayOverlay) {
+                                    // 🔥 CORREÇÃO: Use strings normais, não template literals aninhados
+                                    autoplayOverlay.classList.remove('hidden');
+                                    autoplayOverlay.innerHTML = 
+                                        '<h3>Clique para ativar o áudio</h3>' +
+                                        '<button class="autoplay-button" id="activateAudioBtn">' +
+                                        'Ativar Áudio' +
+                                        '</button>';
+                                    
+                                    // Adicionar evento separadamente
+                                    document.getElementById('activateAudioBtn').addEventListener('click', function() {
+                                        videoElement.muted = false;
+                                        autoplayOverlay.classList.add('hidden');
+                                    });
+                                }
+                            });
+                    }
                 });
+        }
+    }
+    
+    function handleError(e) {
+        console.error('❌ ERRO no elemento de vídeo:');
+        console.error('Código:', videoElement.error?.code);
+        console.error('Mensagem:', videoElement.error?.message);
+        console.error('URL tentada:', url);
+        
+        // Mostrar erro específico
+        if (videoElement.error) {
+            switch(videoElement.error.code) {
+                case 1: console.error('🚫 Erro: MEDIA_ERR_ABORTED'); break;
+                case 2: console.error('🚫 Erro: MEDIA_ERR_NETWORK'); break;
+                case 3: console.error('🚫 Erro: MEDIA_ERR_DECODE'); break;
+                case 4: console.error('🚫 Erro: MEDIA_ERR_SRC_NOT_SUPPORTED'); break;
             }
-        } else {
-            videoElement.pause();
         }
     }
     
-    // Função para quando o vídeo pode começar a tocar
     function handleCanPlay() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+        console.log('✅ canplay - Pronto para reprodução');
+    }
+    
+    function handlePlaying() {
+        console.log('▶️ playing - Vídeo começou a tocar');
+        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
+        if (videoElement.muted) {
+            videoElement.muted = false;
         }
     }
     
-    // Adicionar novos event listeners
-    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
+    // Remover listeners antigos
+    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.removeEventListener('error', handleError);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    videoElement.removeEventListener('playing', handlePlaying);
+    
+    // Adicionar novos listeners (APENAS UMA VEZ)
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    videoElement.addEventListener('playing', handlePlaying, { once: true });
     
-    // Resetar flag de carregamento quando o vídeo estiver pronto
-    const resetLoadingFlag = function() {
-        isLoadingVideo = false;
-    };
-    
-    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
-    
-    // Iniciar carregamento
+    // 8. INICIAR carregamento
+    console.log('🔄 Chamando videoElement.load()');
     videoElement.load();
     
-    // Timeout de segurança para vídeos que não carregam
+    // 9. Timeout para debug
     setTimeout(() => {
-        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
-            console.warn('Vídeo demorando para carregar:', url);
+        console.log('⏱️ Estado após 3s:', {
+            readyState: videoElement.readyState,
+            error: videoElement.error,
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            src: videoElement.src?.substring(0, 100)
+        });
+        
+        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
+        if (videoElement.muted && userStartedPlayback) {
+            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
+            videoElement.muted = false;
         }
-    }, 10000);
+    }, 3000);
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
@@ -3033,14 +3157,51 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            const cloudFunctionUrl = videoInfo.videoUrl;
+
+if (!cloudFunctionUrl) {
+    console.error('URL da Cloud Function não disponível');
+    return;
+}
+
+console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
+
+// FAZER A REQUISIÇÃO PARA OBTER A URL REAL DO VÍDEO
+fetch(cloudFunctionUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📦 Resposta da Cloud Function:', data);
+        
+        if (data.success && data.url && data.url.trim() !== '') {
+            console.log('✅ URL real do vídeo:', data.url.substring(0, 80) + '...');
             
-            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
+                carregarVideoYouTube(data.url, iniciarNoPercentual, true);
             } else {
-                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+                carregarVideoHTML5(data.url, iniciarNoPercentual, true);
             }
-            
+        } else {
+            console.error('❌ Cloud Function não retornou URL válida:', data);
+            // Tentar próximo slot após 3 segundos
+            setTimeout(() => {
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao buscar URL da Cloud Function:', error);
+        // Tentar próximo slot após 3 segundos
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+    });
             currentState = 'program';
         }
         
@@ -4140,6 +4301,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     </script>
     
+
 
 </body>
 </html>
