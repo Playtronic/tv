@@ -13,8 +13,9 @@
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 
+
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.6">
+    <meta name="version" content="1.0.0.7">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="grade">
@@ -1047,7 +1048,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.6
+            Versão 1.0.0.7
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1140,40 +1141,48 @@
 
                 
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-                function cleanupInactiveViewers() {
-                    if (!CHANNEL_ID) return;
-                    
-                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                    
-                    viewersRef.once('value').then(snapshot => {
-                        if (!snapshot.exists()) return;
-                        
-                        const viewers = snapshot.val();
-                        const now = Date.now();
-                        const updates = {};
-                        
-                        Object.keys(viewers).forEach(key => {
-                            const viewer = viewers[key];
-                            if (viewer && viewer.lastHeartbeat) {
-                                const timeDiff = now - viewer.lastHeartbeat;
-                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
-                                    updates[key] = null;
-                                }
-                            } else if (viewer && viewer.timestamp) {
-                                const timeDiff = now - viewer.timestamp;
-                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
-                                    updates[key] = null;
-                                }
-                            }
-                        });
-                        
-                        if (Object.keys(updates).length > 0) {
-                            viewersRef.update(updates)
-                                .then(() => console.log('Espectadores inativos removidos'))
-                                .catch(err => console.log('Não foi possível limpar espectadores'));
-                        }
-                    });
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -1204,73 +1213,134 @@
                 }
                 
                 async function handleVote(voteType) {
-                    if (!currentUserChannel) {
-                        document.getElementById('loginOverlayChannel').style.display = 'flex';
-                        return;
-                    }
-                    
-                    if (!channelStatsRef) return;
-                    
-                    const userId = currentUserChannel.uid;
-                    const userVoteRef = userVotesRef.child(userId);
-                    
-                    try {
-                        const snapshot = await userVoteRef.once('value');
-                        const currentVote = snapshot.val();
-                        
-                        if (currentVote === voteType) {
-                            await userVoteRef.remove();
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            currentUserVote = null;
-                        } else {
-                            if (currentVote === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else if (currentVote === 'dislike') {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            await userVoteRef.set(voteType);
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            }
-                            
-                            currentUserVote = voteType;
-                        }
-                        
-                        if (window.showControls) {
-                            window.showControls();
-                        }
-                        
-                        if (window.resetControlsTimer) {
-                            window.resetControlsTimer();
-                        }
-                        
-                    } catch (error) {
-                        console.error('Erro ao processar voto:', error);
-                        alert('Erro ao registrar voto. Tente novamente.');
-                    }
-                }
+    // 🔥 CORREÇÃO 1: Bloquear múltiplos cliques imediatamente
+    const likeBtn = document.getElementById('likeBtn');
+    const dislikeBtn = document.getElementById('dislikeBtn');
+    
+    // Desabilitar ambos os botões
+    if (likeBtn) likeBtn.disabled = true;
+    if (dislikeBtn) dislikeBtn.disabled = true;
+    
+    // 🔥 CORREÇÃO 2: Feedback visual imediato
+    if (voteType === 'like' && likeBtn) {
+        likeBtn.style.opacity = '0.7';
+    } else if (voteType === 'dislike' && dislikeBtn) {
+        dislikeBtn.style.opacity = '0.7';
+    }
+    
+    if (!currentUserChannel) {
+        document.getElementById('loginOverlayChannel').style.display = 'flex';
+        
+        // Reabilitar botões após 500ms
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    if (!channelStatsRef) {
+        // Reabilitar botões
+        if (likeBtn) {
+            likeBtn.disabled = false;
+            likeBtn.style.opacity = '1';
+        }
+        if (dislikeBtn) {
+            dislikeBtn.disabled = false;
+            dislikeBtn.style.opacity = '1';
+        }
+        return;
+    }
+    
+    const userId = currentUserChannel.uid;
+    const userVoteRef = userVotesRef.child(userId);
+    
+    try {
+        const snapshot = await userVoteRef.once('value');
+        const currentVote = snapshot.val();
+        
+        if (currentVote === voteType) {
+            // Remover voto existente
+            await userVoteRef.remove();
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            currentUserVote = null;
+        } else {
+            // Mudar voto
+            if (currentVote === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else if (currentVote === 'dislike') {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            await userVoteRef.set(voteType);
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            }
+            
+            currentUserVote = voteType;
+        }
+        
+        if (window.showControls) {
+            window.showControls();
+        }
+        
+        if (window.resetControlsTimer) {
+            window.resetControlsTimer();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar voto:', error);
+        alert('Erro ao registrar voto. Tente novamente.');
+    } finally {
+        // 🔥 CORREÇÃO 4: Sempre reabilitar botões após processamento
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 1000); // Delay de 1 segundo para evitar spam
+    }
+}
                 
                 function updateLikeDislikeUI() {
                     const likeCount = document.getElementById('likeCount');
@@ -1545,19 +1615,19 @@ function calcularSlotAtual() {
             const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
             const programa = TV_PROGRAMS[programIndex];
             
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
-            }
+            if (!programa) {
+    return null;
+}
             
             // Ajustar o vídeo baseado nos dias desde a estreia
-            const totalVideosSlot = programa.videos.length;
+            const totalVideosSlot = programa.totalVideos || 1;
             const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
             
-            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            currentVideoIndex = videoIndexAjustado - 1;
             
             return {
                 programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
+                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -1616,7 +1686,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: videoInfo.url,
+                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -1665,6 +1735,12 @@ if (slotIndex === currentPlayingSlot) {
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
+        // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
+        if (isYoutubeVideo) {
+            console.log('YouTube detectado - desativando sincronização');
+            return;
+        }
+        
         if (syncCheckInterval) {
             clearInterval(syncCheckInterval);
         }
@@ -1691,7 +1767,6 @@ if (slotIndex === currentPlayingSlot) {
         
         startAudioMonitoring();
     }
-
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -1788,6 +1863,9 @@ if (slotIndex === currentPlayingSlot) {
     function detectAndRecoverAudio() {
         const now = Date.now();
         
+        // 🔥 CORREÇÃO: Não recuperar áudio para YouTube
+        if (isYoutubeVideo) return false;
+        
         const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
         if (now - lastAudioRecoveryTime < recoveryCooldown) {
             return false;
@@ -1797,7 +1875,7 @@ if (slotIndex === currentPlayingSlot) {
             return false;
         }
         
-        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+        if (!videoElement || !userStartedPlayback) {
             return false;
         }
         
@@ -1854,7 +1932,34 @@ if (slotIndex === currentPlayingSlot) {
         return false;
     }
 
+// 🔥 FUNÇÃO FALTANDO: calculateExpectedTime
+function calculateExpectedTime(duration) {
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade: tempo baseado no slot atual
+        const slotAtual = obterSlotParaExibicao();
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    } else {
+        // Modo Playlist: tempo baseado no tempo desde estreia
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    }
+}
+
     function checkAndFixSync() {
+        // 🔥 CORREÇÃO: NÃO sincronizar vídeos do YouTube
+        if (isYoutubeVideo) {
+            return; // YouTube tem seu próprio sistema de sincronização
+        }
+        
         if (isManualSeeking || !userStartedPlayback) {
             return;
         }
@@ -1866,13 +1971,8 @@ if (slotIndex === currentPlayingSlot) {
         let currentTime, duration, playbackRate;
         
         if (isYoutubeVideo && youtubePlayer && playerReady) {
-            try {
-                currentTime = youtubePlayer.getCurrentTime();
-                duration = youtubePlayer.getDuration();
-                playbackRate = 1.0;
-            } catch (e) {
-                return;
-            }
+            // YouTube - não sincronizar
+            return;
         } else if (videoElement && videoElement.readyState >= 2) {
             currentTime = videoElement.currentTime;
             duration = videoElement.duration;
@@ -1916,6 +2016,9 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        // 🔥 CORREÇÃO: Não aplicar correções para YouTube
+        if (isYoutubeVideo) return;
+        
         const driftAbs = Math.abs(drift);
         
         const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
@@ -1953,9 +2056,7 @@ if (slotIndex === currentPlayingSlot) {
         const newTime = currentTime + adjustment;
         
         if (newTime >= 0 && newTime < duration - 0.5) {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(newTime, true);
-            } else if (videoElement) {
+            if (videoElement) {
                 const audioStateBeforeSeek = {
                     muted: videoElement.muted,
                     volume: videoElement.volume,
@@ -1987,6 +2088,7 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function imperceptibleRefresh() {
+        // 🔥 CORREÇÃO: Não fazer refresh para YouTube
         if (isYoutubeVideo || !videoElement || videoElement.paused) return;
         
         const currentTime = videoElement.currentTime;
@@ -2052,14 +2154,17 @@ if (slotIndex === currentPlayingSlot) {
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
-                setTimeout(initSyncSystem, 1000);
-                
-                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
-                setInterval(() => {
-                    if (!isManualSeeking && currentState !== 'commercial') {
-                        imperceptibleRefresh();
-                    }
-                }, refreshInterval);
+                // 🔥 CORREÇÃO: Não iniciar sincronização para YouTube
+                if (!isYoutubeVideo) {
+                    setTimeout(initSyncSystem, 1000);
+                    
+                    const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                    setInterval(() => {
+                        if (!isManualSeeking && currentState !== 'commercial' && !isYoutubeVideo) {
+                            imperceptibleRefresh();
+                        }
+                    }, refreshInterval);
+                }
             });
             
             videoElement.addEventListener('pause', () => {
@@ -2130,9 +2235,12 @@ if (slotIndex === currentPlayingSlot) {
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "grade";
-        const TV_PROGRAMS = [{"id":0,"name":"Kamen Rider Ichigo","videos":["https://content.jwplatform.com/videos/4ZJlr9kU-6AB95km2.mp4","https://content.jwplatform.com/videos/FWth74vv-6AB95km2.mp4","https://content.jwplatform.com/videos/VStXxdZx-6AB95km2.mp4","https://content.jwplatform.com/videos/jxlwMvcp-6AB95km2.mp4","https://content.jwplatform.com/videos/C2dHsZD4-6AB95km2.mp4","https://content.jwplatform.com/videos/kJYtRFKb-6AB95km2.mp4","https://content.jwplatform.com/videos/7C97kzPE-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/hzAcOJuc-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/nMeKcrz1-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/0moSQzcw-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/QcbXwmXc-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/fTvrANfo-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/Wg9oO4AT-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/sftHPnhl-6AB95km2.mp4","https://content.jwplatform.com/videos/4guZo9ug-6AB95km2.mp4","https://content.jwplatform.com/videos/vkXjiOHQ-6AB95km2.mp4","https://content.jwplatform.com/videos/IOnQlAHU-6AB95km2.mp4","https://content.jwplatform.com/videos/4zMWWlDL-6AB95km2.mp4","https://content.jwplatform.com/videos/NHeboGnN-6AB95km2.mp4","https://content.jwplatform.com/videos/pSpIUcFl-6AB95km2.mp4","https://content.jwplatform.com/videos/UYxyz2Vc-6AB95km2.mp4","https://content.jwplatform.com/videos/kbobQ2zV-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/NsRVJGnZ-6AB95km2.mp4","https://content.jwplatform.com/videos/rUSY3g52-6AB95km2.mp4","https://content.jwplatform.com/videos/qYYgyg72-6AB95km2.mp4","https://content.jwplatform.com/videos/rkuz6c8V-6AB95km2.mp4","https://content.jwplatform.com/videos/ZCeS92Er-6AB95km2.mp4","https://content.jwplatform.com/videos/7KkD2vsZ-6AB95km2.mp4","https://content.jwplatform.com/videos/bQNML4tU-6AB95km2.mp4","https://content.jwplatform.com/videos/rhzjcFnK-6AB95km2.mp4","https://content.jwplatform.com/videos/aaMYIzzK-6AB95km2.mp4","https://content.jwplatform.com/videos/Q3Iq1HcN-6AB95km2.mp4","https://content.jwplatform.com/videos/V7Dg2mRJ-6AB95km2.mp4","https://content.jwplatform.com/videos/kN8nYuJG-6AB95km2.mp4","https://content.jwplatform.com/videos/HHggXlGV-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/E0YjRwFK-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/x5howhDN-6AB95km2.mp4","https://content.jwplatform.com/videos/PhW8ONjA-6AB95km2.mp4","https://content.jwplatform.com/videos/jI3F8ble-6AB95km2.mp4","https://content.jwplatform.com/videos/ed8J0UZ6-6AB95km2.mp4","https://content.jwplatform.com/videos/a2MZyeT4-6AB95km2.mp4","https://content.jwplatform.com/videos/DwrsI2zE-6AB95km2.mp4","https://content.jwplatform.com/videos/XGGjdWZe-6AB95km2.mp4","https://content.jwplatform.com/videos/3Ud3jD6X-6AB95km2.mp4","https://content.jwplatform.com/videos/gzpHYcyF-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/vVCak7cm-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/uplOPah1-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/Vc30Dwav-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/tm50TO3a-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/bxrXjLPr-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/CA1cdKqS-6AB95km2.mp4","https://content.jwplatform.com/videos/WJwc3pct-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/Pa0n2pCA-6AB95km2.mp4","https://content.jwplatform.com/videos/TIdiVDjB-6AB95km2.mp4","https://content.jwplatform.com/videos/jIgN9x26-6AB95km2.mp4","https://content.jwplatform.com/videos/LU6wfmfU-6AB95km2.mp4","https://content.jwplatform.com/videos/UtGWCcl6-6AB95km2.mp4","https://content.jwplatform.com/videos/chCbZVuI-6AB95km2.mp4","https://content.jwplatform.com/videos/hni0Q2Hs-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/9wOOOB9d-6AB95km2.mp4","https://content.jwplatform.com/videos/IbACeGkD-6AB95km2.mp4","https://content.jwplatform.com/videos/UVyGxGA8-6AB95km2.mp4","https://content.jwplatform.com/videos/cCPlgZWs-6AB95km2.mp4","https://content.jwplatform.com/videos/Hce6wH5W-6AB95km2.mp4","https://content.jwplatform.com/videos/vm75NzrN-6AB95km2.mp4","https://content.jwplatform.com/videos/T5JIPZYL-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/jzjhgwPg-6AB95km2.mp4","https://content.jwplatform.com/videos/pct4kvY8-6AB95km2.mp4","https://content.jwplatform.com/videos/oBx6ymEz-6AB95km2.mp4","https://content.jwplatform.com/videos/nh5x19fI-6AB95km2.mp4","https://content.jwplatform.com/videos/Q9UXVql0-6AB95km2.mp4","https://content.jwplatform.com/videos/Vw9bkCIV-6AB95km2.mp4","https://content.jwplatform.com/videos/nHCAnXLD-6AB95km2.mp4","https://content.jwplatform.com/videos/14Lm9IdZ-6AB95km2.mp4","https://content.jwplatform.com/videos/JNfM55Yy-6AB95km2.mp4","https://content.jwplatform.com/videos/KyBtIvN9-6AB95km2.mp4","https://content.jwplatform.com/videos/FB3WGnJr-6AB95km2.mp4","https://content.jwplatform.com/videos/C3FMbNuu-6AB95km2.mp4","https://content.jwplatform.com/videos/5PQdekLF-6AB95km2.mp4","https://content.jwplatform.com/videos/aHyAXzBq-6AB95km2.mp4","https://content.jwplatform.com/videos/S1lrDiNk-6AB95km2.mp4","https://content.jwplatform.com/videos/5OJeLWqA-6AB95km2.mp4","https://content.jwplatform.com/videos/ruxpTUyi-6AB95km2.mp4","https://content.jwplatform.com/videos/6r7qMUD0-6AB95km2.mp4","https://content.jwplatform.com/videos/6JH9p7of-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/7Y4OEolu-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/hEDiwUNB-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/FGRuPtpc-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/3bN0GxkC-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/DbVri2lI-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/RaBQ8Cqb-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/FlVXIaD9-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/dJg87HVN-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/GfRMC0g1-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/3eZS0dKW-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/EGLtO3lE-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/Cu5DGXQ4-qs4V8Ejf.mp4","https://content.jwplatform.com/videos/zMR1kzQn-qs4V8Ejf.mp4"]},{"id":1,"name":"Kamen Rider V3","videos":["https://cdn.jwplayer.com/videos/MhokSAgL-foop58Mq.mp4","https://cdn.jwplayer.com/videos/uGFrsXt7-foop58Mq.mp4","https://cdn.jwplayer.com/videos/aTBEuJaj-foop58Mq.mp4","https://cdn.jwplayer.com/videos/waynVIKX-foop58Mq.mp4","https://cdn.jwplayer.com/videos/i0f0UBUF-foop58Mq.mp4","https://cdn.jwplayer.com/videos/LWCS3Qgf-foop58Mq.mp4","https://cdn.jwplayer.com/videos/ueqbjosP-foop58Mq.mp4","https://cdn.jwplayer.com/videos/psMIzuOH-foop58Mq.mp4","https://cdn.jwplayer.com/videos/PqfVtUKY-foop58Mq.mp4","https://cdn.jwplayer.com/videos/3iMNFWsP-foop58Mq.mp4","https://cdn.jwplayer.com/videos/u2bYUIjD-foop58Mq.mp4","https://cdn.jwplayer.com/videos/Df8ZcgNE-foop58Mq.mp4","https://cdn.jwplayer.com/videos/jaY5WJvI-foop58Mq.mp4","https://cdn.jwplayer.com/videos/GgsLJxlt-foop58Mq.mp4","https://cdn.jwplayer.com/videos/j4aotTUh-foop58Mq.mp4","https://cdn.jwplayer.com/videos/oNIOIwH0-foop58Mq.mp4","https://cdn.jwplayer.com/videos/KrimrrAy-foop58Mq.mp4","https://cdn.jwplayer.com/videos/6tU4K2n2-foop58Mq.mp4","https://cdn.jwplayer.com/videos/ldSFu78I-foop58Mq.mp4","https://cdn.jwplayer.com/videos/Ye2vcYN9-foop58Mq.mp4","https://cdn.jwplayer.com/videos/i9LAgyFk-foop58Mq.mp4","https://cdn.jwplayer.com/videos/mxb3Asbs-foop58Mq.mp4","https://cdn.jwplayer.com/videos/x7X1dLrp-foop58Mq.mp4","https://cdn.jwplayer.com/videos/hnXENL8s-foop58Mq.mp4","https://content.jwplatform.com/videos/IFfN0mdn-foop58Mq.mp4","https://cdn.jwplayer.com/videos/U7VBfoIq-foop58Mq.mp4","https://cdn.jwplayer.com/videos/3HuqI1Rw-foop58Mq.mp4","https://cdn.jwplayer.com/videos/SFJmzSXF-foop58Mq.mp4","https://cdn.jwplayer.com/videos/iAmNMkSI-foop58Mq.mp4","https://cdn.jwplayer.com/videos/frI3qBDd-foop58Mq.mp4","https://cdn.jwplayer.com/videos/HrGyoxt6-foop58Mq.mp4","https://cdn.jwplayer.com/videos/FfUx94de-foop58Mq.mp4","https://cdn.jwplayer.com/videos/aY5v3CDb-foop58Mq.mp4","https://cdn.jwplayer.com/videos/uy9kT9cK-foop58Mq.mp4","https://cdn.jwplayer.com/videos/jOD7xcld-foop58Mq.mp4","https://cdn.jwplayer.com/videos/S5MvxPBa-foop58Mq.mp4","https://cdn.jwplayer.com/videos/j2KlY7vI-foop58Mq.mp4","https://cdn.jwplayer.com/videos/y3HAdKhR-foop58Mq.mp4","https://cdn.jwplayer.com/videos/K6TQqBvw-foop58Mq.mp4","https://cdn.jwplayer.com/videos/MxPFn3r0-foop58Mq.mp4","https://cdn.jwplayer.com/videos/751JiBAa-foop58Mq.mp4","https://cdn.jwplayer.com/videos/UB6svgR6-foop58Mq.mp4","https://cdn.jwplayer.com/videos/VNV5v6YI-foop58Mq.mp4","https://cdn.jwplayer.com/videos/Ql4IrS86-foop58Mq.mp4","https://cdn.jwplayer.com/videos/0SuMq2ba-foop58Mq.mp4","https://cdn.jwplayer.com/videos/qdWS6liU-foop58Mq.mp4","https://cdn.jwplayer.com/videos/I2vBxGS9-foop58Mq.mp4","https://cdn.jwplayer.com/videos/BQiOF6ll-foop58Mq.mp4","https://cdn.jwplayer.com/videos/ECv3GD53-foop58Mq.mp4","https://cdn.jwplayer.com/videos/bssDn6Fq-foop58Mq.mp4","https://cdn.jwplayer.com/videos/J2zL3n7m-foop58Mq.mp4","https://cdn.jwplayer.com/videos/0Ib7pDfX-foop58Mq.mp4"]},{"id":2,"name":"Kamen Rider X","videos":["https://cdn.jwplayer.com/videos/WIuVfm8Y-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/a77f74HR-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/sJIdWJpF-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/LyfGnUmG-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/IfbMYCqu-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/EenrltTi-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/TvD3Frll-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/1EsHbCBa-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/X3lzGAw3-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/xpLHTUFh-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/V9e9wTWB-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/17dBr3Gu-wespDayj.mp4","https://cdn.jwplayer.com/videos/PujjKcla-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/PV3vVZ4l-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/0A3tRCPw-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/VEnP14pK-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/kHKZCjMF-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/bGsIrkKa-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/1fFE7KTG-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/QHY5jBse-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/n9ieRfKZ-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/mhmgxGPK-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/ux5X8TQM-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/6x3cNw6Q-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/LcTr5JwU-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/x6Ta9J2m-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/fZajHBME-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/GU6Fn4jG-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/Ujc4tqoF-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/fW3NhgYp-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/gQChuzPf-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/cvuSHc3X-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/cYztB7R6-zUTNeP6X.mp4","https://cdn.jwplayer.com/videos/SPreVckl-zUTNeP6X.mp4"]},{"id":3,"name":"Kamen Rider Amazon","videos":["https://cdn.jwplayer.com/videos/UAi4uTRT-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/aAupajcI-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/hiaits6N-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/f08KtI4S-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/bxcqvc5k-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/w4R9dafL-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/3UHSXFxH-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/mC7Uw3Q8-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/0fSc70hA-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/QbztW8Vu-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/sojb5uXr-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/7xn3i17G-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/vAhtusGl-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/2tuywzHz-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/wazZLEF3-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/jGOJAm1Y-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/aDY1BrSC-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/DfMpaiOS-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/QF88lytU-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/FMJLTsCn-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/I33QCdMp-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/K2W6KwZm-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/TY5G3ZEy-4sqetXuZ.mp4","https://cdn.jwplayer.com/videos/G1zpmcsP-4sqetXuZ.mp4"]},{"id":4,"name":"Kamen Rider Stronger","videos":["https://cdn.jwplayer.com/videos/Y32LT2i8-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/xoIRTbPx-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/OmOX7z5Y-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/lu2mhk4i-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/ZPvWQMxh-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/fFROiWzD-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/l5I9M2f7-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/6cC3hGcL-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/xjPUUzE8-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/PmeQhTGi-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/LQLPCFo9-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/f3130TmQ-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/QJSDhT9t-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/SlwySjA4-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/hpV3d6NN-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/Gvb3VpCO-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/c9GzlDjr-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/81PCBT35-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/pvvfrLyN-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/jLYzEvX3-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/hNXGNcqh-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/kO7Rq9sS-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/69kMJISB-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/1PBnm9TT-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/LP9cx1jg-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/V9ZH3A0s-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/onigA94y-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/7vXrQMp7-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/K77UvDWi-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/hqc3nmuB-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/nJrEvLDO-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/tEzF2y5d-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/jxz7UH6f-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/ASsPZMqS-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/SL5l6A9d-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/lDbN9gjL-XHMc99mz.mp4","https://cdn.jwplayer.com/videos/hCwC59A6-XHMc99mz.mp4"]},{"id":5,"name":"Kamen Rider Skyrider","videos":["https://cdn.jwplayer.com/videos/Qwm6k8Ae-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/OZ2GVKRz-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/oBI7aUl8-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/uK37pEqM-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/wJ6Sws1v-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/Fed4djq2-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/s03hnHhx-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/76CTrdFa-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/GNRqkBqV-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/HlrgE4qb-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/Ry894x0l-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/R1gm8nYc-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/FRhv1Jt7-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/ClUknkZ8-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/XaWidjle-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/6jU0XEfm-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/nFS2gKhN-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/tE4pUd6x-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/LK6j2h4q-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/Xb1HqyZD-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/9Mn6pizr-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/ZFTeyfQN-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/ZHNFQN8A-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/BYV6m2YM-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/jUQv7FlT-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/nX34rfId-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/eXvYQ5Bo-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/eVUVEqsV-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/6mKWMNmL-KnshzYbC.mp4","https://cdn.jwplayer.com/videos/1obYWuvG-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/PAY316lB-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/7cxQfPV0-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/UbTEci4w-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/GOKjplY7-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/wpY6rmQj-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/oQrhMU0j-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/ighCbtko-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/IGsGdN4v-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/oeKqvlUS-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/eFCEvWau-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/PeTzpFIL-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/1jjoxCSY-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/AZLT6Zbi-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/JHDMyVZ9-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/fZSZ3OZ6-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/oFcS4xdE-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/RTQTF9P1-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/v9yQ1w9o-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/qcie7pIG-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/T8cEh0eZ-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/P6NOjoV8-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/4gaheaPt-10e9fXAl.mp4","https://cdn.jwplayer.com/videos/cd2VVdAk-KnshzYbC.mp4"]},{"id":6,"name":"Kamen Rider Super-1","videos":["https://cdn.jwplayer.com/videos/10BNpmWy-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/DSJlbQqp-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/CGmZASaA-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/2YlXDWd3-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/o2Pnxalm-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/8HnaoskQ-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/F9gUxclZ-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/fsziFVsK-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/gZy6Ke78-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/KXhafQcf-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/ufH3AlcP-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/jJUriYEf-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/fABvTae0-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/eVLkNqQj-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/NBcZnR0R-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/beI8Dbw8-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/2LD1TsFg-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/miCmCQDa-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/uODL7m1A-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/235ETDVn-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/avkDqpnJ-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/6o0V1Jnq-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/hxxyo3p5-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/2MTY8UZK-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/mnsbFSkF-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/xGjyaEQ3-Dl6Fn9f7.mp4","https://cdn.jwplayer.com/videos/490y6BKy-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/aJz69Ldg-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/HOlXWh2M-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/uAzdUuZ1-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/GGMxykSs-Dl6Fn9f7.mp4","https://cdn.jwplayer.com/videos/C0ynUwS1-Dl6Fn9f7.mp4","https://cdn.jwplayer.com/videos/kTAD14fz-Dl6Fn9f7.mp4","https://cdn.jwplayer.com/videos/e3Gx1hQd-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/khYsaZXq-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/7KPxfsq6-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/iDdhMI8B-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/2VtvNy3H-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/LeVdIBK9-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/wI2Fx2Tr-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/lmpK8exm-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/YgdsY0Zb-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/9UC39Kua-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/oeMBgBY7-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/UKl2Iu7u-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/yi8eZ5ZD-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/nC4zx8Hu-drbdj9o3.mp4","https://cdn.jwplayer.com/videos/uvzHKbcR-drbdj9o3.mp4"]},{"id":7,"name":"Kamen Rider Black","videos":["https://content.jwplatform.com/videos/0y3Y5JEc-OOleqzZ3.mp4","https://content.jwplatform.com/videos/y7t2qxZ1-OOleqzZ3.mp4","https://content.jwplatform.com/videos/LnprFAxc-OOleqzZ3.mp4","https://content.jwplatform.com/videos/synidO1N-OOleqzZ3.mp4","https://content.jwplatform.com/videos/WDBwfsB4-OOleqzZ3.mp4","https://content.jwplatform.com/videos/ON9llyw6-OOleqzZ3.mp4","https://content.jwplatform.com/videos/GPQagXKt-OOleqzZ3.mp4","https://content.jwplatform.com/videos/EjvP3SkW-OOleqzZ3.mp4","https://content.jwplatform.com/videos/IWugWKtf-OOleqzZ3.mp4","https://content.jwplatform.com/videos/tfSZInxb-OOleqzZ3.mp4","https://content.jwplatform.com/videos/JZMBaOEj-OOleqzZ3.mp4","https://content.jwplatform.com/videos/nnvVl7Cb-OOleqzZ3.mp4","https://content.jwplatform.com/videos/MAMrhGEy-OOleqzZ3.mp4","https://content.jwplatform.com/videos/yvT7PvsG-OOleqzZ3.mp4","https://content.jwplatform.com/videos/6G0NFy5f-OOleqzZ3.mp4","https://content.jwplatform.com/videos/OQtt9dK3-OOleqzZ3.mp4","https://content.jwplatform.com/videos/D3V5dgew-OOleqzZ3.mp4","https://content.jwplatform.com/videos/ikyXDAzv-OOleqzZ3.mp4","https://content.jwplatform.com/videos/PDGCiHuD-OOleqzZ3.mp4","https://content.jwplatform.com/videos/7Z7iRnCV-OOleqzZ3.mp4","https://content.jwplatform.com/videos/6l9oox30-OOleqzZ3.mp4","https://content.jwplatform.com/videos/C9RlbeaB-OOleqzZ3.mp4","https://content.jwplatform.com/videos/TexbR9vP-OOleqzZ3.mp4","https://content.jwplatform.com/videos/sOqtZdyp-OOleqzZ3.mp4","https://content.jwplatform.com/videos/vnMAjevy-OOleqzZ3.mp4","https://content.jwplatform.com/videos/ID14EMjg-OOleqzZ3.mp4","https://content.jwplatform.com/videos/9ZwmRHsl-OOleqzZ3.mp4","https://content.jwplatform.com/videos/mzSuZfLe-OOleqzZ3.mp4","https://content.jwplatform.com/videos/Iq0voxjK-OOleqzZ3.mp4","https://content.jwplatform.com/videos/7zTsit8d-OOleqzZ3.mp4","https://content.jwplatform.com/videos/1lySnJcX-OOleqzZ3.mp4","https://content.jwplatform.com/videos/dpepsmjz-OOleqzZ3.mp4","https://content.jwplatform.com/videos/lkyxreAG-OOleqzZ3.mp4","https://content.jwplatform.com/videos/vWXiooIs-OOleqzZ3.mp4","https://content.jwplatform.com/videos/qQDLNvUb-OOleqzZ3.mp4","https://content.jwplatform.com/videos/xj84aZbX-OOleqzZ3.mp4","https://content.jwplatform.com/videos/s1JQjXWU-OOleqzZ3.mp4","https://content.jwplatform.com/videos/nmrizYQT-OOleqzZ3.mp4","https://content.jwplatform.com/videos/1n1FdnNn-OOleqzZ3.mp4","https://content.jwplatform.com/videos/itINaF22-OOleqzZ3.mp4","https://content.jwplatform.com/videos/RgzYaS8X-OOleqzZ3.mp4","https://content.jwplatform.com/videos/u2RZ9lo3-OOleqzZ3.mp4","https://content.jwplatform.com/videos/iGjBwsuQ-OOleqzZ3.mp4","https://content.jwplatform.com/videos/2GJFBOom-OOleqzZ3.mp4","https://content.jwplatform.com/videos/yXYHYKFj-OOleqzZ3.mp4","https://content.jwplatform.com/videos/vbi7Nlp9-OOleqzZ3.mp4","https://content.jwplatform.com/videos/8H54amdu-OOleqzZ3.mp4","https://content.jwplatform.com/videos/u6LYKY4X-OOleqzZ3.mp4","https://content.jwplatform.com/videos/wzSRrk05-OOleqzZ3.mp4","https://content.jwplatform.com/videos/mKSWYOEJ-OOleqzZ3.mp4","https://content.jwplatform.com/videos/xwjbD9cE-OOleqzZ3.mp4","https://content.jwplatform.com/videos/YxooB8Sf-OOleqzZ3.mp4"]}];
+
+        const TV_PROGRAMS = [{"id":0,"name":"Kamen Rider Ichigo","totalVideos":98},{"id":1,"name":"Kamen Rider V3","totalVideos":52},{"id":2,"name":"Kamen Rider X","totalVideos":34},{"id":3,"name":"Kamen Rider Amazon","totalVideos":24},{"id":4,"name":"Kamen Rider Stronger","totalVideos":37},{"id":5,"name":"Kamen Rider Skyrider","totalVideos":53},{"id":6,"name":"Kamen Rider Super-1","totalVideos":48},{"id":7,"name":"Kamen Rider Black","totalVideos":52}];
         const TV_PLAYLIST = [];
+        const PROGRAMMING_MODE = "grade";const TOTAL_PROGRAMS = 8;
+        const TOTAL_PLAYLIST_VIDEOS = 0;
+        const PROGRAM_VIDEO_COUNTS = [98,52,34,24,37,53,48,52];
         const TV_COMMERCIALS = [];
         const ENABLE_COMMERCIALS = false;
         const COMMERCIALS_PER_BREAK = 1;
@@ -2149,7 +2257,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.6";
+        const CHANNEL_VERSION = "1.0.0.7";
         const CHANNEL_ID = "3rU5bMAAIHMJGB546Qli";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2768,147 +2876,163 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-
-              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-        // Evitar múltiplos carregamentos simultâneos
-        if (isLoadingVideo) {
-            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-            return;
-        }
-        isLoadingVideo = true;
-        
-        
-        // Esconder player do YouTube se estiver visível
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
-        }
-        isYoutubeVideo = false;
-        
-        // Limpar container do YouTube se existir
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            youtubeContainer.innerHTML = '';
-        }
-        
-        // Verificar se temos elemento de vídeo
-        if (!videoElement) {
-            console.error('Elemento de vídeo não encontrado');
-            isLoadingVideo = false; // Resetar flag
-            return;
-        }
-        
-        // Parar qualquer vídeo atual ANTES de carregar novo
-        if (videoElement.src) {
-            videoElement.pause();
-            videoElement.src = '';
-        }
-        
-        // Configurações básicas
-videoElement.preload = 'auto';
-videoElement.playsInline = true;
-        
-        
-
-        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-        
-        // Remover event listeners antigos para evitar duplicação
-        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        videoElement.removeEventListener('canplay', handleCanPlay);
-        
-        // Configurar nova URL
-        videoElement.style.display = 'block';
-        videoElement.src = url;
-        
-        // ... continue com o resto do código existente ...
-            // Resetar mensagem de loading apenas se não for comercial
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-
-
-            // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-            if (loadingMessage && currentState !== 'commercial') {
-                loadingMessage.style.display = 'block';
-            }
+function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // Remover event listeners antigos para evitar duplicação
-    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-    videoElement.removeEventListener('canplay', handleCanPlay);
+    // Resetar flag IMEDIATAMENTE
+    isLoadingVideo = false;
     
-    // Configurar nova URL
+    // 1. Esconder YouTube
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+    }
+    isYoutubeVideo = false;
+    
+    // 2. Verificar se elemento de vídeo existe
+    if (!videoElement) {
+        console.error('❌ videoElement não existe no DOM');
+        return;
+    }
+    
+    // 3. PARAR e LIMPAR completamente
+    try {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
+    } catch (e) {
+        console.log('Não foi possível limpar vídeo anterior:', e);
+    }
+    
+    // 4. Configurar atributos ESSENCIAIS
+    videoElement.playsInline = true;
+    videoElement.preload = 'auto';
+    videoElement.crossOrigin = 'anonymous';
+    videoElement.setAttribute('playsinline', '');
+    videoElement.setAttribute('webkit-playsinline', '');
+    videoElement.setAttribute('crossorigin', 'anonymous');
+    
+    // 5. MOSTRAR elemento
     videoElement.style.display = 'block';
+    
+    // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
+    console.log('📥 Definindo src no elemento de vídeo');
     videoElement.src = url;
     
-    // Função para quando os metadados são carregados
-    function handleMetadataLoaded() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+    // 7. Configurar eventos
+    function handleLoadedMetadata() {
+        console.log('✅ loadedmetadata - Duração:', videoElement.duration);
+        
+        // Calcular tempo inicial
+        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1 && videoElement.duration) {
+            const startTime = videoElement.duration * iniciarNoPercentual;
+            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
         }
         
-        // Calcular tempo inicial baseado no percentual do slot
-        let startTime = 0;
-        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-            const videoDuration = videoElement.duration || 0;
-            if (videoDuration > 0) {
-                startTime = videoDuration * iniciarNoPercentual;
-                startTime = Math.min(startTime, videoDuration - 1);
-            }
-        }
-        
-        // Definir tempo inicial
-        videoElement.currentTime = startTime;
-        
-        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
+        // Reproduzir se necessário
         if (autoplay && userStartedPlayback) {
-            videoElement.muted = false;
+            console.log('▶️ Tentando reproduzir...');
             
-            const playPromise = videoElement.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log('Autoplay bloqueado:', error);
+            // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
+            videoElement.muted = false;
+            videoElement.volume = 1.0;
+            
+            videoElement.play()
+                .then(() => {
+                    console.log('✅ Vídeo reproduzindo (áudio ativo imediatamente)');
+                })
+                .catch(error => {
+                    console.error('❌ play() falhou:', error.name, error.message);
+                    
+                    // Se falhar por políticas de autoplay, tentar com mute e pedir interação
+                    if (error.name === 'NotAllowedError') {
+                        console.log('⚠️ Autoplay bloqueado. Tentando com mute...');
+                        videoElement.muted = true;
+                        videoElement.play()
+                            .then(() => {
+                                console.log('✅ Vídeo reproduzindo (muted por política)');
+                                // Mostrar botão para ativar áudio
+                                if (autoplayOverlay) {
+                                    // 🔥 CORREÇÃO: Use strings normais, não template literals aninhados
+                                    autoplayOverlay.classList.remove('hidden');
+                                    autoplayOverlay.innerHTML = 
+                                        '<h3>Clique para ativar o áudio</h3>' +
+                                        '<button class="autoplay-button" id="activateAudioBtn">' +
+                                        'Ativar Áudio' +
+                                        '</button>';
+                                    
+                                    // Adicionar evento separadamente
+                                    document.getElementById('activateAudioBtn').addEventListener('click', function() {
+                                        videoElement.muted = false;
+                                        autoplayOverlay.classList.add('hidden');
+                                    });
+                                }
+                            });
+                    }
                 });
+        }
+    }
+    
+    function handleError(e) {
+        console.error('❌ ERRO no elemento de vídeo:');
+        console.error('Código:', videoElement.error?.code);
+        console.error('Mensagem:', videoElement.error?.message);
+        console.error('URL tentada:', url);
+        
+        // Mostrar erro específico
+        if (videoElement.error) {
+            switch(videoElement.error.code) {
+                case 1: console.error('🚫 Erro: MEDIA_ERR_ABORTED'); break;
+                case 2: console.error('🚫 Erro: MEDIA_ERR_NETWORK'); break;
+                case 3: console.error('🚫 Erro: MEDIA_ERR_DECODE'); break;
+                case 4: console.error('🚫 Erro: MEDIA_ERR_SRC_NOT_SUPPORTED'); break;
             }
-        } else {
-            videoElement.pause();
         }
     }
     
-    // Função para quando o vídeo pode começar a tocar
     function handleCanPlay() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+        console.log('✅ canplay - Pronto para reprodução');
+    }
+    
+    function handlePlaying() {
+        console.log('▶️ playing - Vídeo começou a tocar');
+        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
+        if (videoElement.muted) {
+            videoElement.muted = false;
         }
     }
     
-    // Adicionar novos event listeners
-    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
+    // Remover listeners antigos
+    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.removeEventListener('error', handleError);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    videoElement.removeEventListener('playing', handlePlaying);
+    
+    // Adicionar novos listeners (APENAS UMA VEZ)
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    videoElement.addEventListener('playing', handlePlaying, { once: true });
     
-    // Resetar flag de carregamento quando o vídeo estiver pronto
-    const resetLoadingFlag = function() {
-        isLoadingVideo = false;
-    };
-    
-    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
-    
-    // Iniciar carregamento
+    // 8. INICIAR carregamento
+    console.log('🔄 Chamando videoElement.load()');
     videoElement.load();
     
-    // Timeout de segurança para vídeos que não carregam
+    // 9. Timeout para debug
     setTimeout(() => {
-        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
-            console.warn('Vídeo demorando para carregar:', url);
+        console.log('⏱️ Estado após 3s:', {
+            readyState: videoElement.readyState,
+            error: videoElement.error,
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            src: videoElement.src?.substring(0, 100)
+        });
+        
+        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
+        if (videoElement.muted && userStartedPlayback) {
+            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
+            videoElement.muted = false;
         }
-    }, 10000);
+    }, 3000);
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
@@ -3048,14 +3172,51 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            const cloudFunctionUrl = videoInfo.videoUrl;
+
+if (!cloudFunctionUrl) {
+    console.error('URL da Cloud Function não disponível');
+    return;
+}
+
+console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
+
+// FAZER A REQUISIÇÃO PARA OBTER A URL REAL DO VÍDEO
+fetch(cloudFunctionUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📦 Resposta da Cloud Function:', data);
+        
+        if (data.success && data.url && data.url.trim() !== '') {
+            console.log('✅ URL real do vídeo:', data.url.substring(0, 80) + '...');
             
-            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
+                carregarVideoYouTube(data.url, iniciarNoPercentual, true);
             } else {
-                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+                carregarVideoHTML5(data.url, iniciarNoPercentual, true);
             }
-            
+        } else {
+            console.error('❌ Cloud Function não retornou URL válida:', data);
+            // Tentar próximo slot após 3 segundos
+            setTimeout(() => {
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao buscar URL da Cloud Function:', error);
+        // Tentar próximo slot após 3 segundos
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+    });
             currentState = 'program';
         }
         
@@ -4155,6 +4316,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     </script>
     
+
 
 </body>
 </html>
