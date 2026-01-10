@@ -13,8 +13,9 @@
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 
+
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.3">
+    <meta name="version" content="1.0.0.4">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="grade">
@@ -1047,7 +1048,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.3
+            Versão 1.0.0.4
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1140,40 +1141,48 @@
 
                 
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-                function cleanupInactiveViewers() {
-                    if (!CHANNEL_ID) return;
-                    
-                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                    
-                    viewersRef.once('value').then(snapshot => {
-                        if (!snapshot.exists()) return;
-                        
-                        const viewers = snapshot.val();
-                        const now = Date.now();
-                        const updates = {};
-                        
-                        Object.keys(viewers).forEach(key => {
-                            const viewer = viewers[key];
-                            if (viewer && viewer.lastHeartbeat) {
-                                const timeDiff = now - viewer.lastHeartbeat;
-                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
-                                    updates[key] = null;
-                                }
-                            } else if (viewer && viewer.timestamp) {
-                                const timeDiff = now - viewer.timestamp;
-                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
-                                    updates[key] = null;
-                                }
-                            }
-                        });
-                        
-                        if (Object.keys(updates).length > 0) {
-                            viewersRef.update(updates)
-                                .then(() => console.log('Espectadores inativos removidos'))
-                                .catch(err => console.log('Não foi possível limpar espectadores'));
-                        }
-                    });
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -1204,73 +1213,134 @@
                 }
                 
                 async function handleVote(voteType) {
-                    if (!currentUserChannel) {
-                        document.getElementById('loginOverlayChannel').style.display = 'flex';
-                        return;
-                    }
-                    
-                    if (!channelStatsRef) return;
-                    
-                    const userId = currentUserChannel.uid;
-                    const userVoteRef = userVotesRef.child(userId);
-                    
-                    try {
-                        const snapshot = await userVoteRef.once('value');
-                        const currentVote = snapshot.val();
-                        
-                        if (currentVote === voteType) {
-                            await userVoteRef.remove();
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            currentUserVote = null;
-                        } else {
-                            if (currentVote === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else if (currentVote === 'dislike') {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            await userVoteRef.set(voteType);
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            }
-                            
-                            currentUserVote = voteType;
-                        }
-                        
-                        if (window.showControls) {
-                            window.showControls();
-                        }
-                        
-                        if (window.resetControlsTimer) {
-                            window.resetControlsTimer();
-                        }
-                        
-                    } catch (error) {
-                        console.error('Erro ao processar voto:', error);
-                        alert('Erro ao registrar voto. Tente novamente.');
-                    }
-                }
+    // 🔥 CORREÇÃO 1: Bloquear múltiplos cliques imediatamente
+    const likeBtn = document.getElementById('likeBtn');
+    const dislikeBtn = document.getElementById('dislikeBtn');
+    
+    // Desabilitar ambos os botões
+    if (likeBtn) likeBtn.disabled = true;
+    if (dislikeBtn) dislikeBtn.disabled = true;
+    
+    // 🔥 CORREÇÃO 2: Feedback visual imediato
+    if (voteType === 'like' && likeBtn) {
+        likeBtn.style.opacity = '0.7';
+    } else if (voteType === 'dislike' && dislikeBtn) {
+        dislikeBtn.style.opacity = '0.7';
+    }
+    
+    if (!currentUserChannel) {
+        document.getElementById('loginOverlayChannel').style.display = 'flex';
+        
+        // Reabilitar botões após 500ms
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    if (!channelStatsRef) {
+        // Reabilitar botões
+        if (likeBtn) {
+            likeBtn.disabled = false;
+            likeBtn.style.opacity = '1';
+        }
+        if (dislikeBtn) {
+            dislikeBtn.disabled = false;
+            dislikeBtn.style.opacity = '1';
+        }
+        return;
+    }
+    
+    const userId = currentUserChannel.uid;
+    const userVoteRef = userVotesRef.child(userId);
+    
+    try {
+        const snapshot = await userVoteRef.once('value');
+        const currentVote = snapshot.val();
+        
+        if (currentVote === voteType) {
+            // Remover voto existente
+            await userVoteRef.remove();
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            currentUserVote = null;
+        } else {
+            // Mudar voto
+            if (currentVote === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else if (currentVote === 'dislike') {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            await userVoteRef.set(voteType);
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            }
+            
+            currentUserVote = voteType;
+        }
+        
+        if (window.showControls) {
+            window.showControls();
+        }
+        
+        if (window.resetControlsTimer) {
+            window.resetControlsTimer();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar voto:', error);
+        alert('Erro ao registrar voto. Tente novamente.');
+    } finally {
+        // 🔥 CORREÇÃO 4: Sempre reabilitar botões após processamento
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 1000); // Delay de 1 segundo para evitar spam
+    }
+}
                 
                 function updateLikeDislikeUI() {
                     const likeCount = document.getElementById('likeCount');
@@ -1545,19 +1615,19 @@ function calcularSlotAtual() {
             const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
             const programa = TV_PROGRAMS[programIndex];
             
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
-            }
+            if (!programa) {
+    return null;
+}
             
             // Ajustar o vídeo baseado nos dias desde a estreia
-            const totalVideosSlot = programa.videos.length;
+            const totalVideosSlot = programa.totalVideos || 1;
             const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
             
-            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            currentVideoIndex = videoIndexAjustado - 1;
             
             return {
                 programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
+                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -1616,7 +1686,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: videoInfo.url,
+                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -1665,6 +1735,12 @@ if (slotIndex === currentPlayingSlot) {
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
+        // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
+        if (isYoutubeVideo) {
+            console.log('YouTube detectado - desativando sincronização');
+            return;
+        }
+        
         if (syncCheckInterval) {
             clearInterval(syncCheckInterval);
         }
@@ -1691,7 +1767,6 @@ if (slotIndex === currentPlayingSlot) {
         
         startAudioMonitoring();
     }
-
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -1788,6 +1863,9 @@ if (slotIndex === currentPlayingSlot) {
     function detectAndRecoverAudio() {
         const now = Date.now();
         
+        // 🔥 CORREÇÃO: Não recuperar áudio para YouTube
+        if (isYoutubeVideo) return false;
+        
         const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
         if (now - lastAudioRecoveryTime < recoveryCooldown) {
             return false;
@@ -1797,7 +1875,7 @@ if (slotIndex === currentPlayingSlot) {
             return false;
         }
         
-        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+        if (!videoElement || !userStartedPlayback) {
             return false;
         }
         
@@ -1854,7 +1932,34 @@ if (slotIndex === currentPlayingSlot) {
         return false;
     }
 
+// 🔥 FUNÇÃO FALTANDO: calculateExpectedTime
+function calculateExpectedTime(duration) {
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade: tempo baseado no slot atual
+        const slotAtual = obterSlotParaExibicao();
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    } else {
+        // Modo Playlist: tempo baseado no tempo desde estreia
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    }
+}
+
     function checkAndFixSync() {
+        // 🔥 CORREÇÃO: NÃO sincronizar vídeos do YouTube
+        if (isYoutubeVideo) {
+            return; // YouTube tem seu próprio sistema de sincronização
+        }
+        
         if (isManualSeeking || !userStartedPlayback) {
             return;
         }
@@ -1866,13 +1971,8 @@ if (slotIndex === currentPlayingSlot) {
         let currentTime, duration, playbackRate;
         
         if (isYoutubeVideo && youtubePlayer && playerReady) {
-            try {
-                currentTime = youtubePlayer.getCurrentTime();
-                duration = youtubePlayer.getDuration();
-                playbackRate = 1.0;
-            } catch (e) {
-                return;
-            }
+            // YouTube - não sincronizar
+            return;
         } else if (videoElement && videoElement.readyState >= 2) {
             currentTime = videoElement.currentTime;
             duration = videoElement.duration;
@@ -1916,6 +2016,9 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        // 🔥 CORREÇÃO: Não aplicar correções para YouTube
+        if (isYoutubeVideo) return;
+        
         const driftAbs = Math.abs(drift);
         
         const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
@@ -1953,9 +2056,7 @@ if (slotIndex === currentPlayingSlot) {
         const newTime = currentTime + adjustment;
         
         if (newTime >= 0 && newTime < duration - 0.5) {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(newTime, true);
-            } else if (videoElement) {
+            if (videoElement) {
                 const audioStateBeforeSeek = {
                     muted: videoElement.muted,
                     volume: videoElement.volume,
@@ -1987,6 +2088,7 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function imperceptibleRefresh() {
+        // 🔥 CORREÇÃO: Não fazer refresh para YouTube
         if (isYoutubeVideo || !videoElement || videoElement.paused) return;
         
         const currentTime = videoElement.currentTime;
@@ -2052,14 +2154,17 @@ if (slotIndex === currentPlayingSlot) {
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
-                setTimeout(initSyncSystem, 1000);
-                
-                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
-                setInterval(() => {
-                    if (!isManualSeeking && currentState !== 'commercial') {
-                        imperceptibleRefresh();
-                    }
-                }, refreshInterval);
+                // 🔥 CORREÇÃO: Não iniciar sincronização para YouTube
+                if (!isYoutubeVideo) {
+                    setTimeout(initSyncSystem, 1000);
+                    
+                    const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                    setInterval(() => {
+                        if (!isManualSeeking && currentState !== 'commercial' && !isYoutubeVideo) {
+                            imperceptibleRefresh();
+                        }
+                    }, refreshInterval);
+                }
             });
             
             videoElement.addEventListener('pause', () => {
@@ -2130,9 +2235,12 @@ if (slotIndex === currentPlayingSlot) {
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "grade";
-        const TV_PROGRAMS = [{"id":0,"name":"Power Rangers: Operação Ultraveloz","videos":["https://cdn.jwplayer.com/videos/0q9OLjxJ-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/waj5Nct1-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/GDTHKS1g-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/4NKLcVTf-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/ZjAehETc-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/sQnqL3NJ-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/XjTvbxaX-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/9w2jykJO-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/03WmNzsG-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/m93tlRIC-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/VL0RS0GT-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/5KaLNhnu-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/dkcqXZUf-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/lZh37QaI-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/gnYmxDmk-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/JP0jiBaf-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/oVnvosRA-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/QBYpRxou-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/H1eFQRnI-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/i4nRqytr-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/eEk2JpX0-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/uChqoFho-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/zDxarO9z-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/vMirofWs-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/rdzYAlss-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/gERztA6s-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/9LVXAL6T-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/TCKP8L9T-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/np1oTTwq-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/pAxcNBmL-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/3h7IjJOF-1tsxOltB.mp4","https://cdn.jwplayer.com/videos/5RuXLwTM-1tsxOltB.mp4"]},{"id":1,"name":"Power Rangers: Fúria da Selva","videos":["https://cdn.jwplayer.com/videos/r9rH6iIk-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/3jGT2x9n-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/fl1lfVVS-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/j7qqJ9Fl-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/LWPMxiFw-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/MAZp08uP-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/edNYCgPJ-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/INyNkide-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/TLwggMGz-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/Lh6qL5jj-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/lY0zDhgb-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/wQqE3jcz-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/CkgXamCk-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/JPVZQygA-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/HgCqH9Qz-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/ImXf7BND-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/yjcQ3W6x-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/fTYRAzuG-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/EVF1BJw9-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/H2Y3f0Ii-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/dNiFbN4l-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/YKeobhlp-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/LHZeMkHG-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/mMir6S30-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/QFSG5D1K-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/KkkKpbTF-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/dFWfe21T-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/XF5DEBNW-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/WvAI3ymp-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/ip6oJNBs-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/BNatJSPb-toDbf4G9.mp4","https://cdn.jwplayer.com/videos/4VgVWRuI-toDbf4G9.mp4"]},{"id":2,"name":"Power Rangers: RPM","videos":["https://cdn.jwplayer.com/videos/MnEtV2Eb-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/Va8uVLRG-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/RiOQhjii-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/Dd6qhTRp-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/7LGOe5uz-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/X7DKBehT-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/VD5ppAR7-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/XuNKLcAE-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/XzzGHCS1-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/j3g1aXUI-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/j3g1aXUI-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/iG2uPwWM-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/eWySOglV-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/RhlBE7Fp-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/J8g6sdI0-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/hUK8xMIg-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/pK4BmnR9-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/xIgI2SUv-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/HSI5lqBy-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/6bVRmF5G-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/PrdUvqgB-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/l698zQxH-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/JJvWq55D-sK5LwaWa.mp4","https://cdn.jwplayer.com/videos/Jef9jhuL-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/4NdNDmzW-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/4NdNDmzW-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/Rv8qyazO-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/EJ2aBjms-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/yMYdJxHI-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/RsnWXHub-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/NRKUp000-nKZCWnG8.mp4","https://cdn.jwplayer.com/videos/JOqtdUAz-nKZCWnG8.mp4"]},{"id":3,"name":"Power Rangers: Samurai","videos":["https://cdn.jwplayer.com/videos/7pXoysDe-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/CDfFSqay-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/3wblWTk0-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/APnmBOv9-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/APnmBOv9-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/TnSD9ItZ-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/N3JMWsYX-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/SId70Hnt-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/Zn90EENT-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/UUBrPB3T-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/hR9RiexB-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/xsPUsc7A-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/6njtqoCW-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/kRBs7sWg-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/a9A3kEr7-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/GcdyUaXz-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/HlF0rfA4-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/XOyEoS2C-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/vs7Jw09Z-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/9cC1SHLS-P4Mmy5H0.mp4","https://cdn.jwplayer.com/videos/UAkXKALz-yv2Og6Lv.mp4","https://cdn.jwplayer.com/videos/OZhbPW1B-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/uS2TG5qL-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/Slk2qeGY-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/4y880E1A-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/0MOmbU4e-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/EBN64aVu-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/mEKbbPht-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/qLGuuqjs-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/URRzscxk-yv2Og6Lv.mp4","https://cdn.jwplayer.com/videos/QfweQBNE-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/0h126rFb-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/Svknxb5b-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/G81mGHJ0-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/yPBjIv3Q-KTYyzdlF.mp4","https://cdn.jwplayer.com/videos/KnodSSx4-05cZgqjb.mp4","https://cdn.jwplayer.com/videos/9AP4NIRp-05cZgqjb.mp4","https://cdn.jwplayer.com/videos/8oKvXFSC-05cZgqjb.mp4","https://cdn.jwplayer.com/videos/Sops4Pgd-05cZgqjb.mp4","https://cdn.jwplayer.com/videos/PBrsZIMT-05cZgqjb.mp4","https://cdn.jwplayer.com/videos/4Neftw7p-yv2Og6Lv.mp4","https://cdn.jwplayer.com/videos/D6BbW5Se-yv2Og6Lv.mp4"]},{"id":4,"name":"Power Rangers: Megaforce","videos":["https://cdn.jwplayer.com/videos/wtIZbXsd-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/z6BpnuTq-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/z6gAfb3U-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/UFNbWnqu-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/Sv3jkGtI-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/ELlKgNzN-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/MveYc3AT-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/GjQ7eLq8-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/hwwBThkp-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/xz2nHyuf-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/poRuvrVM-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/e1OCeq34-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/KREuzMCq-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/hnHi8Hnf-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/ou60eUov-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/wESpjRwK-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/WfUsNu5S-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/WfUsNu5S-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/t5bBsZQ5-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/pTt6edVO-xIJwPDcP.mp4","https://cdn.jwplayer.com/videos/36Cg0CpY-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/VSDKRcZA-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/JsfM9N71-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/7hERtUb8-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/2sCF6gEU-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/MnYM4PQz-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/dC92iQRn-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/WpieMaVf-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/kcs54oxu-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/RpDpizTs-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/IASDrdaQ-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/PwQtcBOo-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/q4ZSykxX-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/BLRT4waj-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/3Txqv9dx-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/2BzpNZti-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/PgmrVIf5-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/zyLyX1Ru-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/VGGxdHW9-i3Ir3CFS.mp4","https://cdn.jwplayer.com/videos/ShxkBmGt-i3Ir3CFS.mp4"]},{"id":5,"name":"Power Rangers: Dino Charge","videos":["https://cdn.jwplayer.com/videos/olzigkN6-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/KwgtTguQ-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/UJ75kvXw-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/fdOys3BF-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/YLxsmyM5-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/4Sf9Nasz-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/B6bCH3KQ-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/0KLG1qGi-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/nb39i9qX-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/aczv48m5-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/yhShEX8c-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/B7QqWDq4-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/FSkFBccJ-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/Um3WvHRo-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/ah1ofpLK-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/ox9O0mFr-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/jsWWlnW2-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/dQyu0EXe-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/OP7o32jH-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/hsu4U9U7-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/4Ryufi4Z-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/SL1ckDBQ-sL6Qx3Dm.mp4","https://cdn.jwplayer.com/videos/bMAG2lyK-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/6vDBSwMQ-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/OnxcMUuN-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/ZpJFT8Dn-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/Jx4QoLFf-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/2VUX7CP3-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/rNt8UhJt-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/1jqk8VnV-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/aKzcRDvS-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/yhl6GuBp-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/YyZ4Q93s-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/05yt9Akc-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/mkRnMVmA-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/lSrK6tNA-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/w35Z5oyk-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/aTMG3SHp-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/OdT4Peny-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/B9aGrvP6-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/1XiayuhG-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/oGwkH5l3-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/dvj52uE6-O5aFrhW8.mp4","https://cdn.jwplayer.com/videos/7fzwHp0h-O5aFrhW8.mp4"]},{"id":6,"name":"Power Rangers Ninja Steel","videos":["https://cdn.jwplayer.com/videos/fWnfV2X7-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/JjD7x0bn-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/R62ZQ1ud-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/EZegRHG8-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/IOwJGiUJ-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/JizQ6HOE-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/2ZCMyURg-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/ileMiL3D-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/4gm8WCFh-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/uWlpCVOe-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/UE5N3kW6-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/E5ISZhom-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/hbTKdxVK-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/GGHyB8Ig-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/XxpHHj5P-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/rCUPVnpm-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/s3PLzzUZ-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/JxpEKVT8-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/TBfxLpK3-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/VGWrPeDD-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/gqwzthsr-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/7cgDf8UP-pZRSi24T.mp4","https://cdn.jwplayer.com/videos/GQwpe7X2-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/2XO1g0Jn-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/yDOkQtPs-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/ifr2sWC0-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/yvMq5yJ0-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/kaLmnKxB-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/c6aVWKga-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/gljC9jrE-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/IlnKZvUE-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/ZAuyBjqg-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/QeiSeihG-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/QsiedSTu-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/JdVk3ZiT-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/6iij72p9-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/FKKwgbZ8-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/XIZd2x89-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/KjXaOPmF-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/0VSQ5zDM-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/SubgdYMW-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/sA9vDIdD-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/uO9K0JoF-vK5cmksh.mp4","https://cdn.jwplayer.com/videos/Im0Cgy8y-vK5cmksh.mp4"]},{"id":7,"name":"Power Rangers: Morfagem Feroz","videos":["https://cdn.jwplayer.com/videos/PyJOYhc3-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/3nsbK2UV-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/2MyGtnkh-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/xEr8Tn2V-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/7viVIwt2-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/DEnSkcch-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/dSW7GeCt-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/DrZyHXbk-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/J4MFrC4l-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/rXTofWLv-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/SDMrNd9C-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/Vldw9lFu-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/Z1R1ZdKc-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/oG3Xx7Ki-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/X4wj0xzo-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/5VYapUpC-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/WYHVrpFp-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/jTPUDsjQ-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/7g6AakU4-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/5oUD7ZbL-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/yNgjXQKk-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/8YANiarH-oPmdmPBt.mp4","https://cdn.jwplayer.com/videos/9WfbtG24-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/suQFBTO3-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/uZWw33jw-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/Re0fgdzb-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/rffzVUjc-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/uctKz28X-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/NDB3glzt-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/SWhEIlhq-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/pXhrwUtz-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/qsDNfdjL-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/PuNm6S0m-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/pxmYV43t-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/Gti37uf6-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/QyO8y6Qj-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/xp4cOZDB-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/6GxjFzPx-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/xIVLWxuv-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/475nuQJx-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/jEEEz0VT-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/texnM4wh-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/BOMsB85w-fQYdc9hP.mp4","https://cdn.jwplayer.com/videos/Dmn3MYpY-fQYdc9hP.mp4"]},{"id":8,"name":"Power Rangers: Dino Fúria","videos":["https://cdn.jwplayer.com/videos/afokQPgJ-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/tbMReyC5-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/oBlMXLgW-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/daaLmEUR-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/FP3FwLg0-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/I4UyABVA-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/gDgOFP6W-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/1krhnl4V-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/kzWqxRid-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/ZyO2S7m6-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/TMXSUHJk-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/rPAYL11z-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/twiyy9z7-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/9Pf3iiU6-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/o9wHE6QO-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/udsbqaFU-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/EvqdS98C-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/43PVoeTJ-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/rAVaiTSa-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/idXoYNpf-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/vIPdqt1k-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/8IuOOkzb-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/afNwBj66-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/qQa3CPQ2-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/mfmy3auK-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/3pcJ2Y3b-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/MGdPfKHp-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/8tUlUQi3-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/9LyRDhdi-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/Ju1hFZ67-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/eDqipnDc-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/rxXekF7o-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/5ff7j1qt-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/luRGJydK-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/fxuk2WeA-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/HdiXTI5p-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/CCTeJOCN-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/E85eK1WN-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/GpX83eWN-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/sNHpaSD3-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/Z3B6LUU8-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/ySJCsjGt-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/wFE0RUyb-DlPqtdjl.mp4","https://cdn.jwplayer.com/videos/XhJwiktA-DlPqtdjl.mp4"]}];
+
+        const TV_PROGRAMS = [{"id":0,"name":"Power Rangers: Operação Ultraveloz","totalVideos":32},{"id":1,"name":"Power Rangers: Fúria da Selva","totalVideos":32},{"id":2,"name":"Power Rangers: RPM","totalVideos":32},{"id":3,"name":"Power Rangers: Samurai","totalVideos":42},{"id":4,"name":"Power Rangers: Megaforce","totalVideos":40},{"id":5,"name":"Power Rangers: Dino Charge","totalVideos":44},{"id":6,"name":"Power Rangers Ninja Steel","totalVideos":44},{"id":7,"name":"Power Rangers: Morfagem Feroz","totalVideos":44},{"id":8,"name":"Power Rangers: Dino Fúria","totalVideos":44}];
         const TV_PLAYLIST = [];
+        const PROGRAMMING_MODE = "grade";const TOTAL_PROGRAMS = 9;
+        const TOTAL_PLAYLIST_VIDEOS = 0;
+        const PROGRAM_VIDEO_COUNTS = [32,32,32,42,40,44,44,44,44];
         const TV_COMMERCIALS = [];
         const ENABLE_COMMERCIALS = false;
         const COMMERCIALS_PER_BREAK = 1;
@@ -2149,7 +2257,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.3";
+        const CHANNEL_VERSION = "1.0.0.4";
         const CHANNEL_ID = "cQbHUk31nsCZhuZZxUYi";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2768,147 +2876,163 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-
-              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-        // Evitar múltiplos carregamentos simultâneos
-        if (isLoadingVideo) {
-            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-            return;
-        }
-        isLoadingVideo = true;
-        
-        
-        // Esconder player do YouTube se estiver visível
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
-        }
-        isYoutubeVideo = false;
-        
-        // Limpar container do YouTube se existir
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            youtubeContainer.innerHTML = '';
-        }
-        
-        // Verificar se temos elemento de vídeo
-        if (!videoElement) {
-            console.error('Elemento de vídeo não encontrado');
-            isLoadingVideo = false; // Resetar flag
-            return;
-        }
-        
-        // Parar qualquer vídeo atual ANTES de carregar novo
-        if (videoElement.src) {
-            videoElement.pause();
-            videoElement.src = '';
-        }
-        
-        // Configurações básicas
-videoElement.preload = 'auto';
-videoElement.playsInline = true;
-        
-        
-
-        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-        
-        // Remover event listeners antigos para evitar duplicação
-        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        videoElement.removeEventListener('canplay', handleCanPlay);
-        
-        // Configurar nova URL
-        videoElement.style.display = 'block';
-        videoElement.src = url;
-        
-        // ... continue com o resto do código existente ...
-            // Resetar mensagem de loading apenas se não for comercial
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-
-
-            // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-            if (loadingMessage && currentState !== 'commercial') {
-                loadingMessage.style.display = 'block';
-            }
+function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // Remover event listeners antigos para evitar duplicação
-    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-    videoElement.removeEventListener('canplay', handleCanPlay);
+    // Resetar flag IMEDIATAMENTE
+    isLoadingVideo = false;
     
-    // Configurar nova URL
+    // 1. Esconder YouTube
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+    }
+    isYoutubeVideo = false;
+    
+    // 2. Verificar se elemento de vídeo existe
+    if (!videoElement) {
+        console.error('❌ videoElement não existe no DOM');
+        return;
+    }
+    
+    // 3. PARAR e LIMPAR completamente
+    try {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
+    } catch (e) {
+        console.log('Não foi possível limpar vídeo anterior:', e);
+    }
+    
+    // 4. Configurar atributos ESSENCIAIS
+    videoElement.playsInline = true;
+    videoElement.preload = 'auto';
+    videoElement.crossOrigin = 'anonymous';
+    videoElement.setAttribute('playsinline', '');
+    videoElement.setAttribute('webkit-playsinline', '');
+    videoElement.setAttribute('crossorigin', 'anonymous');
+    
+    // 5. MOSTRAR elemento
     videoElement.style.display = 'block';
+    
+    // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
+    console.log('📥 Definindo src no elemento de vídeo');
     videoElement.src = url;
     
-    // Função para quando os metadados são carregados
-    function handleMetadataLoaded() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+    // 7. Configurar eventos
+    function handleLoadedMetadata() {
+        console.log('✅ loadedmetadata - Duração:', videoElement.duration);
+        
+        // Calcular tempo inicial
+        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1 && videoElement.duration) {
+            const startTime = videoElement.duration * iniciarNoPercentual;
+            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
         }
         
-        // Calcular tempo inicial baseado no percentual do slot
-        let startTime = 0;
-        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-            const videoDuration = videoElement.duration || 0;
-            if (videoDuration > 0) {
-                startTime = videoDuration * iniciarNoPercentual;
-                startTime = Math.min(startTime, videoDuration - 1);
-            }
-        }
-        
-        // Definir tempo inicial
-        videoElement.currentTime = startTime;
-        
-        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
+        // Reproduzir se necessário
         if (autoplay && userStartedPlayback) {
-            videoElement.muted = false;
+            console.log('▶️ Tentando reproduzir...');
             
-            const playPromise = videoElement.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log('Autoplay bloqueado:', error);
+            // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
+            videoElement.muted = false;
+            videoElement.volume = 1.0;
+            
+            videoElement.play()
+                .then(() => {
+                    console.log('✅ Vídeo reproduzindo (áudio ativo imediatamente)');
+                })
+                .catch(error => {
+                    console.error('❌ play() falhou:', error.name, error.message);
+                    
+                    // Se falhar por políticas de autoplay, tentar com mute e pedir interação
+                    if (error.name === 'NotAllowedError') {
+                        console.log('⚠️ Autoplay bloqueado. Tentando com mute...');
+                        videoElement.muted = true;
+                        videoElement.play()
+                            .then(() => {
+                                console.log('✅ Vídeo reproduzindo (muted por política)');
+                                // Mostrar botão para ativar áudio
+                                if (autoplayOverlay) {
+                                    // 🔥 CORREÇÃO: Use strings normais, não template literals aninhados
+                                    autoplayOverlay.classList.remove('hidden');
+                                    autoplayOverlay.innerHTML = 
+                                        '<h3>Clique para ativar o áudio</h3>' +
+                                        '<button class="autoplay-button" id="activateAudioBtn">' +
+                                        'Ativar Áudio' +
+                                        '</button>';
+                                    
+                                    // Adicionar evento separadamente
+                                    document.getElementById('activateAudioBtn').addEventListener('click', function() {
+                                        videoElement.muted = false;
+                                        autoplayOverlay.classList.add('hidden');
+                                    });
+                                }
+                            });
+                    }
                 });
+        }
+    }
+    
+    function handleError(e) {
+        console.error('❌ ERRO no elemento de vídeo:');
+        console.error('Código:', videoElement.error?.code);
+        console.error('Mensagem:', videoElement.error?.message);
+        console.error('URL tentada:', url);
+        
+        // Mostrar erro específico
+        if (videoElement.error) {
+            switch(videoElement.error.code) {
+                case 1: console.error('🚫 Erro: MEDIA_ERR_ABORTED'); break;
+                case 2: console.error('🚫 Erro: MEDIA_ERR_NETWORK'); break;
+                case 3: console.error('🚫 Erro: MEDIA_ERR_DECODE'); break;
+                case 4: console.error('🚫 Erro: MEDIA_ERR_SRC_NOT_SUPPORTED'); break;
             }
-        } else {
-            videoElement.pause();
         }
     }
     
-    // Função para quando o vídeo pode começar a tocar
     function handleCanPlay() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+        console.log('✅ canplay - Pronto para reprodução');
+    }
+    
+    function handlePlaying() {
+        console.log('▶️ playing - Vídeo começou a tocar');
+        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
+        if (videoElement.muted) {
+            videoElement.muted = false;
         }
     }
     
-    // Adicionar novos event listeners
-    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
+    // Remover listeners antigos
+    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.removeEventListener('error', handleError);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    videoElement.removeEventListener('playing', handlePlaying);
+    
+    // Adicionar novos listeners (APENAS UMA VEZ)
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    videoElement.addEventListener('playing', handlePlaying, { once: true });
     
-    // Resetar flag de carregamento quando o vídeo estiver pronto
-    const resetLoadingFlag = function() {
-        isLoadingVideo = false;
-    };
-    
-    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
-    
-    // Iniciar carregamento
+    // 8. INICIAR carregamento
+    console.log('🔄 Chamando videoElement.load()');
     videoElement.load();
     
-    // Timeout de segurança para vídeos que não carregam
+    // 9. Timeout para debug
     setTimeout(() => {
-        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
-            console.warn('Vídeo demorando para carregar:', url);
+        console.log('⏱️ Estado após 3s:', {
+            readyState: videoElement.readyState,
+            error: videoElement.error,
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            src: videoElement.src?.substring(0, 100)
+        });
+        
+        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
+        if (videoElement.muted && userStartedPlayback) {
+            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
+            videoElement.muted = false;
         }
-    }, 10000);
+    }, 3000);
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
@@ -3048,14 +3172,51 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            const cloudFunctionUrl = videoInfo.videoUrl;
+
+if (!cloudFunctionUrl) {
+    console.error('URL da Cloud Function não disponível');
+    return;
+}
+
+console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
+
+// FAZER A REQUISIÇÃO PARA OBTER A URL REAL DO VÍDEO
+fetch(cloudFunctionUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📦 Resposta da Cloud Function:', data);
+        
+        if (data.success && data.url && data.url.trim() !== '') {
+            console.log('✅ URL real do vídeo:', data.url.substring(0, 80) + '...');
             
-            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
+                carregarVideoYouTube(data.url, iniciarNoPercentual, true);
             } else {
-                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+                carregarVideoHTML5(data.url, iniciarNoPercentual, true);
             }
-            
+        } else {
+            console.error('❌ Cloud Function não retornou URL válida:', data);
+            // Tentar próximo slot após 3 segundos
+            setTimeout(() => {
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao buscar URL da Cloud Function:', error);
+        // Tentar próximo slot após 3 segundos
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+    });
             currentState = 'program';
         }
         
@@ -4155,6 +4316,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     </script>
     
+
 
 </body>
 </html>
