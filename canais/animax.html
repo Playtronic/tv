@@ -13,8 +13,9 @@
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 
+
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.4">
+    <meta name="version" content="1.0.0.5">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="grade">
@@ -1047,7 +1048,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.4
+            Versão 1.0.0.5
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1140,40 +1141,48 @@
 
                 
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-                function cleanupInactiveViewers() {
-                    if (!CHANNEL_ID) return;
-                    
-                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                    
-                    viewersRef.once('value').then(snapshot => {
-                        if (!snapshot.exists()) return;
-                        
-                        const viewers = snapshot.val();
-                        const now = Date.now();
-                        const updates = {};
-                        
-                        Object.keys(viewers).forEach(key => {
-                            const viewer = viewers[key];
-                            if (viewer && viewer.lastHeartbeat) {
-                                const timeDiff = now - viewer.lastHeartbeat;
-                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
-                                    updates[key] = null;
-                                }
-                            } else if (viewer && viewer.timestamp) {
-                                const timeDiff = now - viewer.timestamp;
-                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
-                                    updates[key] = null;
-                                }
-                            }
-                        });
-                        
-                        if (Object.keys(updates).length > 0) {
-                            viewersRef.update(updates)
-                                .then(() => console.log('Espectadores inativos removidos'))
-                                .catch(err => console.log('Não foi possível limpar espectadores'));
-                        }
-                    });
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -1204,73 +1213,134 @@
                 }
                 
                 async function handleVote(voteType) {
-                    if (!currentUserChannel) {
-                        document.getElementById('loginOverlayChannel').style.display = 'flex';
-                        return;
-                    }
-                    
-                    if (!channelStatsRef) return;
-                    
-                    const userId = currentUserChannel.uid;
-                    const userVoteRef = userVotesRef.child(userId);
-                    
-                    try {
-                        const snapshot = await userVoteRef.once('value');
-                        const currentVote = snapshot.val();
-                        
-                        if (currentVote === voteType) {
-                            await userVoteRef.remove();
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            currentUserVote = null;
-                        } else {
-                            if (currentVote === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else if (currentVote === 'dislike') {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            await userVoteRef.set(voteType);
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            }
-                            
-                            currentUserVote = voteType;
-                        }
-                        
-                        if (window.showControls) {
-                            window.showControls();
-                        }
-                        
-                        if (window.resetControlsTimer) {
-                            window.resetControlsTimer();
-                        }
-                        
-                    } catch (error) {
-                        console.error('Erro ao processar voto:', error);
-                        alert('Erro ao registrar voto. Tente novamente.');
-                    }
-                }
+    // 🔥 CORREÇÃO 1: Bloquear múltiplos cliques imediatamente
+    const likeBtn = document.getElementById('likeBtn');
+    const dislikeBtn = document.getElementById('dislikeBtn');
+    
+    // Desabilitar ambos os botões
+    if (likeBtn) likeBtn.disabled = true;
+    if (dislikeBtn) dislikeBtn.disabled = true;
+    
+    // 🔥 CORREÇÃO 2: Feedback visual imediato
+    if (voteType === 'like' && likeBtn) {
+        likeBtn.style.opacity = '0.7';
+    } else if (voteType === 'dislike' && dislikeBtn) {
+        dislikeBtn.style.opacity = '0.7';
+    }
+    
+    if (!currentUserChannel) {
+        document.getElementById('loginOverlayChannel').style.display = 'flex';
+        
+        // Reabilitar botões após 500ms
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    if (!channelStatsRef) {
+        // Reabilitar botões
+        if (likeBtn) {
+            likeBtn.disabled = false;
+            likeBtn.style.opacity = '1';
+        }
+        if (dislikeBtn) {
+            dislikeBtn.disabled = false;
+            dislikeBtn.style.opacity = '1';
+        }
+        return;
+    }
+    
+    const userId = currentUserChannel.uid;
+    const userVoteRef = userVotesRef.child(userId);
+    
+    try {
+        const snapshot = await userVoteRef.once('value');
+        const currentVote = snapshot.val();
+        
+        if (currentVote === voteType) {
+            // Remover voto existente
+            await userVoteRef.remove();
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            currentUserVote = null;
+        } else {
+            // Mudar voto
+            if (currentVote === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else if (currentVote === 'dislike') {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            await userVoteRef.set(voteType);
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            }
+            
+            currentUserVote = voteType;
+        }
+        
+        if (window.showControls) {
+            window.showControls();
+        }
+        
+        if (window.resetControlsTimer) {
+            window.resetControlsTimer();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar voto:', error);
+        alert('Erro ao registrar voto. Tente novamente.');
+    } finally {
+        // 🔥 CORREÇÃO 4: Sempre reabilitar botões após processamento
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 1000); // Delay de 1 segundo para evitar spam
+    }
+}
                 
                 function updateLikeDislikeUI() {
                     const likeCount = document.getElementById('likeCount');
@@ -1545,19 +1615,19 @@ function calcularSlotAtual() {
             const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
             const programa = TV_PROGRAMS[programIndex];
             
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
-            }
+            if (!programa) {
+    return null;
+}
             
             // Ajustar o vídeo baseado nos dias desde a estreia
-            const totalVideosSlot = programa.videos.length;
+            const totalVideosSlot = programa.totalVideos || 1;
             const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
             
-            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            currentVideoIndex = videoIndexAjustado - 1;
             
             return {
                 programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
+                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -1616,7 +1686,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: videoInfo.url,
+                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -1665,6 +1735,12 @@ if (slotIndex === currentPlayingSlot) {
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
+        // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
+        if (isYoutubeVideo) {
+            console.log('YouTube detectado - desativando sincronização');
+            return;
+        }
+        
         if (syncCheckInterval) {
             clearInterval(syncCheckInterval);
         }
@@ -1691,7 +1767,6 @@ if (slotIndex === currentPlayingSlot) {
         
         startAudioMonitoring();
     }
-
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -1788,6 +1863,9 @@ if (slotIndex === currentPlayingSlot) {
     function detectAndRecoverAudio() {
         const now = Date.now();
         
+        // 🔥 CORREÇÃO: Não recuperar áudio para YouTube
+        if (isYoutubeVideo) return false;
+        
         const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
         if (now - lastAudioRecoveryTime < recoveryCooldown) {
             return false;
@@ -1797,7 +1875,7 @@ if (slotIndex === currentPlayingSlot) {
             return false;
         }
         
-        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+        if (!videoElement || !userStartedPlayback) {
             return false;
         }
         
@@ -1854,7 +1932,34 @@ if (slotIndex === currentPlayingSlot) {
         return false;
     }
 
+// 🔥 FUNÇÃO FALTANDO: calculateExpectedTime
+function calculateExpectedTime(duration) {
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade: tempo baseado no slot atual
+        const slotAtual = obterSlotParaExibicao();
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    } else {
+        // Modo Playlist: tempo baseado no tempo desde estreia
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    }
+}
+
     function checkAndFixSync() {
+        // 🔥 CORREÇÃO: NÃO sincronizar vídeos do YouTube
+        if (isYoutubeVideo) {
+            return; // YouTube tem seu próprio sistema de sincronização
+        }
+        
         if (isManualSeeking || !userStartedPlayback) {
             return;
         }
@@ -1866,13 +1971,8 @@ if (slotIndex === currentPlayingSlot) {
         let currentTime, duration, playbackRate;
         
         if (isYoutubeVideo && youtubePlayer && playerReady) {
-            try {
-                currentTime = youtubePlayer.getCurrentTime();
-                duration = youtubePlayer.getDuration();
-                playbackRate = 1.0;
-            } catch (e) {
-                return;
-            }
+            // YouTube - não sincronizar
+            return;
         } else if (videoElement && videoElement.readyState >= 2) {
             currentTime = videoElement.currentTime;
             duration = videoElement.duration;
@@ -1916,6 +2016,9 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        // 🔥 CORREÇÃO: Não aplicar correções para YouTube
+        if (isYoutubeVideo) return;
+        
         const driftAbs = Math.abs(drift);
         
         const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
@@ -1953,9 +2056,7 @@ if (slotIndex === currentPlayingSlot) {
         const newTime = currentTime + adjustment;
         
         if (newTime >= 0 && newTime < duration - 0.5) {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(newTime, true);
-            } else if (videoElement) {
+            if (videoElement) {
                 const audioStateBeforeSeek = {
                     muted: videoElement.muted,
                     volume: videoElement.volume,
@@ -1987,6 +2088,7 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function imperceptibleRefresh() {
+        // 🔥 CORREÇÃO: Não fazer refresh para YouTube
         if (isYoutubeVideo || !videoElement || videoElement.paused) return;
         
         const currentTime = videoElement.currentTime;
@@ -2052,14 +2154,17 @@ if (slotIndex === currentPlayingSlot) {
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
-                setTimeout(initSyncSystem, 1000);
-                
-                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
-                setInterval(() => {
-                    if (!isManualSeeking && currentState !== 'commercial') {
-                        imperceptibleRefresh();
-                    }
-                }, refreshInterval);
+                // 🔥 CORREÇÃO: Não iniciar sincronização para YouTube
+                if (!isYoutubeVideo) {
+                    setTimeout(initSyncSystem, 1000);
+                    
+                    const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                    setInterval(() => {
+                        if (!isManualSeeking && currentState !== 'commercial' && !isYoutubeVideo) {
+                            imperceptibleRefresh();
+                        }
+                    }, refreshInterval);
+                }
             });
             
             videoElement.addEventListener('pause', () => {
@@ -2130,14 +2235,17 @@ if (slotIndex === currentPlayingSlot) {
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "grade";
-        const TV_PROGRAMS = [{"id":0,"name":"ANIMAX CDZ","videos":["https://content.jwplatform.com/videos/6IpUxgAG-AaYFbLVA.mp4","https://content.jwplatform.com/videos/5fpTuEks-3pYZrRTc.mp4","https://content.jwplatform.com/videos/DlnkBZM9-3pYZrRTc.mp4","https://content.jwplatform.com/videos/o9hVdMF2-VbmMObuA.mp4","https://content.jwplatform.com/videos/0ebrc0OO-3pYZrRTc.mp4","https://content.jwplatform.com/videos/NRh69o62-3pYZrRTc.mp4","https://content.jwplatform.com/videos/1eeHgTMP-3pYZrRTc.mp4","https://content.jwplatform.com/videos/qMC7lEbn-3pYZrRTc.mp4","https://content.jwplatform.com/videos/BJmAKW9F-3pYZrRTc.mp4","https://content.jwplatform.com/videos/lZwiHaD3-3pYZrRTc.mp4","https://content.jwplatform.com/videos/KBrlR1lp-3pYZrRTc.mp4","https://content.jwplatform.com/videos/hBVLENGW-3pYZrRTc.mp4","https://content.jwplatform.com/videos/s3OXZM4L-3pYZrRTc.mp4","https://content.jwplatform.com/videos/xcDsfPmI-VbmMObuA.mp4","https://content.jwplatform.com/videos/qZ3JhusY-VbmMObuA.mp4","https://content.jwplatform.com/videos/qmo0JkUB-VbmMObuA.mp4","https://content.jwplatform.com/videos/TlF7SdtA-VbmMObuA.mp4","https://content.jwplatform.com/videos/lLENgjVl-3pYZrRTc.mp4","https://content.jwplatform.com/videos/tm0MifsX-3pYZrRTc.mp4","https://content.jwplatform.com/videos/CvDub89m-3pYZrRTc.mp4","https://content.jwplatform.com/videos/8EvARcU7-VbmMObuA.mp4","https://content.jwplatform.com/videos/249wRVkq-VbmMObuA.mp4","https://content.jwplatform.com/videos/hQcvmVie-3pYZrRTc.mp4","https://content.jwplatform.com/videos/C29wKJqM-VbmMObuA.mp4","https://content.jwplatform.com/videos/5GjrsztC-3pYZrRTc.mp4","https://content.jwplatform.com/videos/6cvQ5qiq-3pYZrRTc.mp4","https://content.jwplatform.com/videos/51JwUrki-VbmMObuA.mp4","https://content.jwplatform.com/videos/aiwqoznG-3pYZrRTc.mp4","https://content.jwplatform.com/videos/SnTNYRpv-3pYZrRTc.mp4","https://content.jwplatform.com/videos/ikjhYhJe-3pYZrRTc.mp4","https://content.jwplatform.com/videos/pVJrivfz-VbmMObuA.mp4","https://content.jwplatform.com/videos/ulh5aUv3-3pYZrRTc.mp4","https://content.jwplatform.com/videos/W3IVpm8c-3pYZrRTc.mp4","https://content.jwplatform.com/videos/G0lw1vti-3pYZrRTc.mp4","https://content.jwplatform.com/videos/7Ci4YkqW-3pYZrRTc.mp4","https://content.jwplatform.com/videos/OdJPrslL-3pYZrRTc.mp4","https://content.jwplatform.com/videos/saS6MOVk-3pYZrRTc.mp4","https://content.jwplatform.com/videos/gAREU2eO-VbmMObuA.mp4","https://content.jwplatform.com/videos/SEs2XdRV-3pYZrRTc.mp4","https://content.jwplatform.com/videos/iINnUb6a-3pYZrRTc.mp4","https://content.jwplatform.com/videos/mPcHIKSg-3pYZrRTc.mp4","https://content.jwplatform.com/videos/hR0FuBu2-3pYZrRTc.mp4","https://content.jwplatform.com/videos/1Vh122FC-3pYZrRTc.mp4","https://content.jwplatform.com/videos/tRKhiVrr-3pYZrRTc.mp4","https://content.jwplatform.com/videos/DjedHROy-VbmMObuA.mp4","https://content.jwplatform.com/videos/FDNhMi8V-3pYZrRTc.mp4","https://content.jwplatform.com/videos/6KJVRLxL-3pYZrRTc.mp4","https://content.jwplatform.com/videos/ptyoeOqc-3pYZrRTc.mp4","https://content.jwplatform.com/videos/sCTCrghP-3pYZrRTc.mp4","https://content.jwplatform.com/videos/T9dv9YFt-3pYZrRTc.mp4","https://content.jwplatform.com/videos/oNjM0Pn4-3pYZrRTc.mp4","https://content.jwplatform.com/videos/eGdjf9BP-3pYZrRTc.mp4","https://content.jwplatform.com/videos/ruGAtVZK-3pYZrRTc.mp4","https://content.jwplatform.com/videos/ZPkjwgKu-3pYZrRTc.mp4","https://content.jwplatform.com/videos/ZiBFd304-3pYZrRTc.mp4","https://content.jwplatform.com/videos/BIYRSH7v-VbmMObuA.mp4","https://content.jwplatform.com/videos/RdmwSCJn-3pYZrRTc.mp4","https://content.jwplatform.com/videos/FDxmKI30-VbmMObuA.mp4","https://content.jwplatform.com/videos/u5xKRhVp-3pYZrRTc.mp4","https://content.jwplatform.com/videos/gK5zlCbk-3pYZrRTc.mp4","https://content.jwplatform.com/videos/v5wPBt5J-VbmMObuA.mp4","https://content.jwplatform.com/videos/MNJuO2jk-3pYZrRTc.mp4","https://content.jwplatform.com/videos/q9Xdsf4B-3pYZrRTc.mp4","https://content.jwplatform.com/videos/zwlnJ8ay-3pYZrRTc.mp4","https://content.jwplatform.com/videos/3dfrGusK-3pYZrRTc.mp4","https://content.jwplatform.com/videos/zYGbv4JU-VbmMObuA.mp4","https://content.jwplatform.com/videos/thmkCRir-AaYFbLVA.mp4","https://content.jwplatform.com/videos/uotb7tUV-VbmMObuA.mp4","https://content.jwplatform.com/videos/gBn8hK8h-AaYFbLVA.mp4","https://content.jwplatform.com/videos/jIgM63Hz-AaYFbLVA.mp4","https://content.jwplatform.com/videos/JERnSzY9-VbmMObuA.mp4","https://content.jwplatform.com/videos/Ziq911tl-VbmMObuA.mp4","https://content.jwplatform.com/videos/NLNLkrq6-VbmMObuA.mp4","https://content.jwplatform.com/videos/EjdylvFZ-VbmMObuA.mp4","https://content.jwplatform.com/videos/aOrLTd2O-VbmMObuA.mp4","https://content.jwplatform.com/videos/8HHGtccb-VbmMObuA.mp4","https://content.jwplatform.com/videos/iqzyypc3-VbmMObuA.mp4","https://content.jwplatform.com/videos/rQHtheM8-VbmMObuA.mp4","https://content.jwplatform.com/videos/w3buLpPu-VbmMObuA.mp4","https://content.jwplatform.com/videos/uNB65UKD-VbmMObuA.mp4","https://content.jwplatform.com/videos/OUwQiudH-tgru4nSA.mp4","https://content.jwplatform.com/videos/YNvkwT0s-tgru4nSA.mp4","https://content.jwplatform.com/videos/DJbkrGHp-tgru4nSA.mp4","https://content.jwplatform.com/videos/jwia4CaY-tgru4nSA.mp4","https://content.jwplatform.com/videos/rBwPeZLR-tgru4nSA.mp4","https://content.jwplatform.com/videos/dXQNJY89-tgru4nSA.mp4","https://content.jwplatform.com/videos/XRcfXuvr-tgru4nSA.mp4","https://content.jwplatform.com/videos/UzJDee5p-tgru4nSA.mp4","https://content.jwplatform.com/videos/WuU7C9NP-tgru4nSA.mp4","https://content.jwplatform.com/videos/OsylEGXU-tgru4nSA.mp4","https://content.jwplatform.com/videos/g88RrcId-tgru4nSA.mp4","https://content.jwplatform.com/videos/pY7ZjJSc-tgru4nSA.mp4","https://content.jwplatform.com/videos/WH0pwoxl-tgru4nSA.mp4","https://content.jwplatform.com/videos/cetJI0QD-tgru4nSA.mp4","https://content.jwplatform.com/videos/FEeae1io-tgru4nSA.mp4","https://content.jwplatform.com/videos/xEXulF0z-tgru4nSA.mp4","https://content.jwplatform.com/videos/XYG9plnc-tgru4nSA.mp4","https://content.jwplatform.com/videos/OiSKjakj-tgru4nSA.mp4","https://content.jwplatform.com/videos/sVdGtdig-tgru4nSA.mp4","https://content.jwplatform.com/videos/Ykmglbms-tgru4nSA.mp4","https://content.jwplatform.com/videos/R4RXZJS6-tgru4nSA.mp4","https://content.jwplatform.com/videos/tzw1tZrk-tgru4nSA.mp4","https://content.jwplatform.com/videos/Fy1mBSch-tgru4nSA.mp4","https://content.jwplatform.com/videos/VgzI7FPR-tgru4nSA.mp4","https://content.jwplatform.com/videos/UCcJTRxh-tgru4nSA.mp4","https://content.jwplatform.com/videos/XVH0TJgp-tgru4nSA.mp4","https://content.jwplatform.com/videos/Dou2a9J1-tgru4nSA.mp4","https://content.jwplatform.com/videos/Eim9t927-tgru4nSA.mp4","https://content.jwplatform.com/videos/DO91fJSd-tgru4nSA.mp4","https://content.jwplatform.com/videos/Pgk6dgzm-tgru4nSA.mp4","https://content.jwplatform.com/videos/JOuStn0Y-tgru4nSA.mp4","https://content.jwplatform.com/videos/6QxuEK3n-tgru4nSA.mp4","https://content.jwplatform.com/videos/G0nPo1Ie-tgru4nSA.mp4","https://content.jwplatform.com/videos/O1yBwMSe-tgru4nSA.mp4","https://content.jwplatform.com/videos/qQWCJ7R5-tgru4nSA.mp4","https://content.jwplatform.com/videos/Dygvmqzs-tgru4nSA.mp4","https://content.jwplatform.com/videos/KkwYT2xC-tgru4nSA.mp4","https://content.jwplatform.com/videos/6YxuVgnP-tgru4nSA.mp4","https://content.jwplatform.com/videos/vw4PW9fi-tgru4nSA.mp4","https://content.jwplatform.com/videos/ANisPm4g-tgru4nSA.mp4","https://content.jwplatform.com/videos/uoXeW0qH-tgru4nSA.mp4","https://content.jwplatform.com/videos/vlsJuin8-tgru4nSA.mp4","https://content.jwplatform.com/videos/aVGIUcU7-tgru4nSA.mp4","https://content.jwplatform.com/videos/bf6SVt75-tgru4nSA.mp4","https://content.jwplatform.com/videos/gKLUswfO-tgru4nSA.mp4","https://content.jwplatform.com/videos/88CjUDUY-tgru4nSA.mp4","https://content.jwplatform.com/videos/xdv5OEbL-DXWtva0l.mp4","https://content.jwplatform.com/videos/FEZGsmwW-tgru4nSA.mp4","https://content.jwplatform.com/videos/QvXSEYBP-tgru4nSA.mp4","https://content.jwplatform.com/videos/K9hbsJFe-tgru4nSA.mp4","https://content.jwplatform.com/videos/lejZQYZh-tgru4nSA.mp4","https://content.jwplatform.com/videos/4TPUBipy-tgru4nSA.mp4","https://content.jwplatform.com/videos/SCnMXetf-tgru4nSA.mp4","https://content.jwplatform.com/videos/wPUP0ePt-tgru4nSA.mp4","https://content.jwplatform.com/videos/hwWDfju1-tgru4nSA.mp4","https://content.jwplatform.com/videos/CX8TyZK8-tgru4nSA.mp4","https://content.jwplatform.com/videos/i0LaEAe4-tgru4nSA.mp4","https://content.jwplatform.com/videos/NBjrwySb-tgru4nSA.mp4","https://content.jwplatform.com/videos/LzMXjoVg-tgru4nSA.mp4","https://content.jwplatform.com/videos/hGYUGEAn-tgru4nSA.mp4","https://content.jwplatform.com/videos/H3R7unPx-tgru4nSA.mp4","https://content.jwplatform.com/videos/2t96BSBt-tgru4nSA.mp4","https://content.jwplatform.com/videos/QiXrXm6N-tgru4nSA.mp4","https://content.jwplatform.com/videos/iVkG7m3Y-tgru4nSA.mp4","https://content.jwplatform.com/videos/eoF5ydjs-tgru4nSA.mp4","https://content.jwplatform.com/videos/UsWGk460-C0WtdC3o.mp4","https://content.jwplatform.com/videos/FvW7pzYN-C0WtdC3o.mp4","https://content.jwplatform.com/videos/V7vMgGf6-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ubJOm02M-C0WtdC3o.mp4","https://content.jwplatform.com/videos/KwBtP9YT-C0WtdC3o.mp4","https://content.jwplatform.com/videos/joEtwbBA-C0WtdC3o.mp4","https://content.jwplatform.com/videos/tC2OXp6j-C0WtdC3o.mp4","https://content.jwplatform.com/videos/IIjEangi-C0WtdC3o.mp4","https://content.jwplatform.com/videos/cobEvky5-C0WtdC3o.mp4","https://content.jwplatform.com/videos/nBt7LrIL-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Co5IMlEq-C0WtdC3o.mp4","https://content.jwplatform.com/videos/urqG49a9-C0WtdC3o.mp4","https://content.jwplatform.com/videos/9bhF9Le6-C0WtdC3o.mp4","https://content.jwplatform.com/videos/CSjlYjIn-C0WtdC3o.mp4","https://content.jwplatform.com/videos/m7DDYKct-C0WtdC3o.mp4","https://content.jwplatform.com/videos/yPGRNsWs-C0WtdC3o.mp4","https://content.jwplatform.com/videos/l7rmc4Db-C0WtdC3o.mp4","https://content.jwplatform.com/videos/KksQcUlb-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ZNhg4vBd-C0WtdC3o.mp4","https://content.jwplatform.com/videos/nPhq9u5G-C0WtdC3o.mp4","https://content.jwplatform.com/videos/KBoNzrZu-C0WtdC3o.mp4","https://content.jwplatform.com/videos/EIqyvhYi-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ssLZDqAH-C0WtdC3o.mp4","https://content.jwplatform.com/videos/CDm2kjLw-C0WtdC3o.mp4","https://content.jwplatform.com/videos/bDP6BXo9-C0WtdC3o.mp4","https://content.jwplatform.com/videos/xtfCx3NF-C0WtdC3o.mp4","https://content.jwplatform.com/videos/EllXHMjq-C0WtdC3o.mp4","https://content.jwplatform.com/videos/SFe5eN1k-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Qh3agH9c-C0WtdC3o.mp4","https://content.jwplatform.com/videos/HVyS7epG-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Ign19dKS-C0WtdC3o.mp4","https://content.jwplatform.com/videos/7B6908iw-C0WtdC3o.mp4","https://content.jwplatform.com/videos/60Nk2Okk-C0WtdC3o.mp4","https://content.jwplatform.com/videos/zxZ1wOfV-C0WtdC3o.mp4","https://content.jwplatform.com/videos/7Z2nr5uq-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ClqUTRQd-C0WtdC3o.mp4","https://content.jwplatform.com/videos/PpICTylI-C0WtdC3o.mp4","https://content.jwplatform.com/videos/hQaBRnCL-C0WtdC3o.mp4","https://content.jwplatform.com/videos/0LhDLdLc-C0WtdC3o.mp4","https://content.jwplatform.com/videos/DXfOy8Kg-C0WtdC3o.mp4","https://content.jwplatform.com/videos/BTzzNhlw-C0WtdC3o.mp4","https://content.jwplatform.com/videos/YxTnWsyW-C0WtdC3o.mp4","https://content.jwplatform.com/videos/NWwdHKLz-C0WtdC3o.mp4","https://content.jwplatform.com/videos/JgxqTCym-C0WtdC3o.mp4","https://content.jwplatform.com/videos/XzLLQBaH-C0WtdC3o.mp4","https://content.jwplatform.com/videos/eYREh6pu-C0WtdC3o.mp4","https://content.jwplatform.com/videos/mjm6TG9d-C0WtdC3o.mp4","https://content.jwplatform.com/videos/RBdUKDjD-C0WtdC3o.mp4","https://content.jwplatform.com/videos/SWvxK54e-C0WtdC3o.mp4","https://content.jwplatform.com/videos/KDpyTzPv-C0WtdC3o.mp4","https://content.jwplatform.com/videos/tnIEyeIi-C0WtdC3o.mp4","https://content.jwplatform.com/videos/JRLEEl5n-C0WtdC3o.mp4","https://content.jwplatform.com/videos/jG1XxKmr-C0WtdC3o.mp4","https://content.jwplatform.com/videos/u1bWE76w-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ZXu0Wria-C0WtdC3o.mp4","https://content.jwplatform.com/videos/hQkfhbLF-C0WtdC3o.mp4","https://content.jwplatform.com/videos/blZTC5UJ-C0WtdC3o.mp4","https://content.jwplatform.com/videos/7pyFEgvq-C0WtdC3o.mp4","https://content.jwplatform.com/videos/90l3lxMj-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ZUCikwxC-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Vr4dNWAN-C0WtdC3o.mp4","https://content.jwplatform.com/videos/CtKVFnhW-C0WtdC3o.mp4","https://content.jwplatform.com/videos/rkxAGMzz-C0WtdC3o.mp4","https://content.jwplatform.com/videos/NXUK7BLI-C0WtdC3o.mp4","https://content.jwplatform.com/videos/3uJo9oyo-C0WtdC3o.mp4","https://content.jwplatform.com/videos/SzHYXI84-C0WtdC3o.mp4","https://content.jwplatform.com/videos/smX1OKzv-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Qd3NSAff-C0WtdC3o.mp4","https://content.jwplatform.com/videos/zIM7vqzK-C0WtdC3o.mp4","https://content.jwplatform.com/videos/qLH0ejk1-C0WtdC3o.mp4","https://content.jwplatform.com/videos/FptOVXdC-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Ypn7l5NZ-C0WtdC3o.mp4","https://content.jwplatform.com/videos/yhOMwa2P-C0WtdC3o.mp4","https://content.jwplatform.com/videos/LnKuyTZP-C0WtdC3o.mp4","https://content.jwplatform.com/videos/lWrT2ssE-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ke87Ooy4-C0WtdC3o.mp4","https://content.jwplatform.com/videos/LDngrPXI-C0WtdC3o.mp4","https://content.jwplatform.com/videos/p3Mn59xD-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Aek8sq9f-C0WtdC3o.mp4","https://content.jwplatform.com/videos/jnKkbvqH-C0WtdC3o.mp4","https://content.jwplatform.com/videos/gWHGf0NM-C0WtdC3o.mp4","https://content.jwplatform.com/videos/dIGyDd0j-C0WtdC3o.mp4","https://content.jwplatform.com/videos/fSSsAClY-C0WtdC3o.mp4","https://content.jwplatform.com/videos/GSShy2a5-C0WtdC3o.mp4","https://content.jwplatform.com/videos/BEMx59Z7-C0WtdC3o.mp4","https://content.jwplatform.com/videos/9gbVn91D-C0WtdC3o.mp4","https://content.jwplatform.com/videos/dnVKlp46-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ecza0b9E-C0WtdC3o.mp4","https://content.jwplatform.com/videos/tjiOyzcU-C0WtdC3o.mp4","https://content.jwplatform.com/videos/9Nj3FMOm-C0WtdC3o.mp4","https://content.jwplatform.com/videos/B0nUFfrr-C0WtdC3o.mp4","https://content.jwplatform.com/videos/l4Myvvdo-C0WtdC3o.mp4","https://content.jwplatform.com/videos/RLRNnHpz-C0WtdC3o.mp4","https://content.jwplatform.com/videos/kislOQt1-C0WtdC3o.mp4","https://content.jwplatform.com/videos/H0UY7PiC-C0WtdC3o.mp4","https://content.jwplatform.com/videos/SKAtR5wZ-C0WtdC3o.mp4","https://content.jwplatform.com/videos/T4FlSuOi-C0WtdC3o.mp4","https://content.jwplatform.com/videos/XdbxMpa7-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Og6u3R66-C0WtdC3o.mp4","https://content.jwplatform.com/videos/1fE2TtEo-C0WtdC3o.mp4","https://content.jwplatform.com/videos/m0jcH7tL-C0WtdC3o.mp4","https://content.jwplatform.com/videos/KJrKDCzR-C0WtdC3o.mp4","https://content.jwplatform.com/videos/hxj0ha6z-C0WtdC3o.mp4","https://content.jwplatform.com/videos/FHw4XUek-C0WtdC3o.mp4","https://content.jwplatform.com/videos/sn0GZZ9L-C0WtdC3o.mp4","https://content.jwplatform.com/videos/sn0GZZ9L-C0WtdC3o.mp4","https://content.jwplatform.com/videos/HnDTDIH6-C0WtdC3o.mp4","https://content.jwplatform.com/videos/QzIoKHoi-C0WtdC3o.mp4","https://content.jwplatform.com/videos/B8nkbMYE-C0WtdC3o.mp4","https://content.jwplatform.com/videos/G0y8FgU7-C0WtdC3o.mp4","https://content.jwplatform.com/videos/baKD1v6u-C0WtdC3o.mp4","https://content.jwplatform.com/videos/uHaKGMGE-C0WtdC3o.mp4","https://content.jwplatform.com/videos/WsW9Mu6u-C0WtdC3o.mp4","https://content.jwplatform.com/videos/C7c0qnQz-C0WtdC3o.mp4","https://content.jwplatform.com/videos/TYOcCopa-C0WtdC3o.mp4","https://content.jwplatform.com/videos/TYOcCopa-C0WtdC3o.mp4","https://content.jwplatform.com/videos/2N5ttIPx-C0WtdC3o.mp4","https://content.jwplatform.com/videos/dm5B4Eva-C0WtdC3o.mp4","https://content.jwplatform.com/videos/IZBSwDZ5-C0WtdC3o.mp4","https://content.jwplatform.com/videos/5XGGVOUY-C0WtdC3o.mp4","https://content.jwplatform.com/videos/T1TSqOwN-C0WtdC3o.mp4","https://content.jwplatform.com/videos/yKkaatcx-C0WtdC3o.mp4","https://content.jwplatform.com/videos/qUtIVDy8-C0WtdC3o.mp4","https://content.jwplatform.com/videos/qUtIVDy8-C0WtdC3o.mp4","https://content.jwplatform.com/videos/akLSMn3l-C0WtdC3o.mp4","https://content.jwplatform.com/videos/5RuTwrPy-C0WtdC3o.mp4","https://content.jwplatform.com/videos/uF4FUMGT-C0WtdC3o.mp4","https://content.jwplatform.com/videos/7FwmmUlO-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Clg22qNR-C0WtdC3o.mp4","https://content.jwplatform.com/videos/wY0dbuBM-C0WtdC3o.mp4","https://content.jwplatform.com/videos/qc0ojz6G-C0WtdC3o.mp4","https://content.jwplatform.com/videos/niYoHbIj-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Bd3PstLi-C0WtdC3o.mp4","https://content.jwplatform.com/videos/TtlUCihi-C0WtdC3o.mp4","https://content.jwplatform.com/videos/p5jlBr5X-C0WtdC3o.mp4","https://content.jwplatform.com/videos/x3tU9fJC-C0WtdC3o.mp4","https://content.jwplatform.com/videos/XcSJFVnQ-C0WtdC3o.mp4","https://content.jwplatform.com/videos/qtniSdAE-C0WtdC3o.mp4","https://content.jwplatform.com/videos/FLmZlmk2-C0WtdC3o.mp4","https://content.jwplatform.com/videos/tFj3lLYR-C0WtdC3o.mp4","https://content.jwplatform.com/videos/0AHgFn4a-C0WtdC3o.mp4","https://content.jwplatform.com/videos/CTFYWePu-C0WtdC3o.mp4","https://content.jwplatform.com/videos/Q9tczY1P-C0WtdC3o.mp4","https://content.jwplatform.com/videos/ciIb3Law-C0WtdC3o.mp4","https://content.jwplatform.com/videos/EK1oFP5j-C0WtdC3o.mp4","https://content.jwplatform.com/videos/LnxXrql8-C0WtdC3o.mp4","https://content.jwplatform.com/videos/k9NbLl6E-C0WtdC3o.mp4","https://content.jwplatform.com/videos/L8Q8qiqd-C0WtdC3o.mp4","https://content.jwplatform.com/videos/0A8WeMym-C0WtdC3o.mp4"]},{"id":1,"name":"ANIMAX SPORTS","videos":["https://content.jwplatform.com/videos/dEvtXCNK-TNNppi0x.mp4","https://content.jwplatform.com/videos/XeN0qUeF-TNNppi0x.mp4","https://content.jwplatform.com/videos/Zai4Z6nT-TNNppi0x.mp4","https://content.jwplatform.com/videos/Xl5t7sZn-TNNppi0x.mp4","https://content.jwplatform.com/videos/iXEFY1Fc-VZG31U02.mp4","https://content.jwplatform.com/videos/PXREYLfh-VZG31U02.mp4","https://content.jwplatform.com/videos/Ko9D06xU-VZG31U02.mp4","https://content.jwplatform.com/videos/MMHkrC5Z-TNNppi0x.mp4","https://content.jwplatform.com/videos/un4lBM6i-TNNppi0x.mp4","https://content.jwplatform.com/videos/zgZgsFpF-TNNppi0x.mp4","https://content.jwplatform.com/videos/ltoqpU8H-TNNppi0x.mp4","https://content.jwplatform.com/videos/0CPl2w1n-TNNppi0x.mp4","https://content.jwplatform.com/videos/ThjXGlKB-TNNppi0x.mp4","https://content.jwplatform.com/videos/Jl2OkHj3-TNNppi0x.mp4","https://content.jwplatform.com/videos/AUvhey0r-TNNppi0x.mp4","https://content.jwplatform.com/videos/w8bgXhHy-TNNppi0x.mp4","https://content.jwplatform.com/videos/75fNxx3B-TNNppi0x.mp4","https://content.jwplatform.com/videos/sCFbeksL-TNNppi0x.mp4","https://content.jwplatform.com/videos/5eCpueAw-TNNppi0x.mp4","https://content.jwplatform.com/videos/WiTkOI1s-TNNppi0x.mp4","https://content.jwplatform.com/videos/MSFoXYSI-TNNppi0x.mp4","https://content.jwplatform.com/videos/j4FaSMDQ-TNNppi0x.mp4","https://content.jwplatform.com/videos/0EAdAyyY-TNNppi0x.mp4","https://content.jwplatform.com/videos/m8LCbBYW-TNNppi0x.mp4","https://content.jwplatform.com/videos/zPPUqPeG-TNNppi0x.mp4","https://content.jwplatform.com/videos/gwDOkZhb-TNNppi0x.mp4","https://content.jwplatform.com/videos/yql6xM3c-TNNppi0x.mp4","https://content.jwplatform.com/videos/dBoXcrYx-TNNppi0x.mp4","https://content.jwplatform.com/videos/evMAoilQ-TNNppi0x.mp4","https://content.jwplatform.com/videos/e9Q0TQ4j-TNNppi0x.mp4","https://content.jwplatform.com/videos/qaz98Kd0-TNNppi0x.mp4","https://content.jwplatform.com/videos/fdGlaOGS-TNNppi0x.mp4","https://content.jwplatform.com/videos/BUVGbIsg-TNNppi0x.mp4","https://content.jwplatform.com/videos/jcXUJhUr-TNNppi0x.mp4","https://content.jwplatform.com/videos/ahbUeBM7-TNNppi0x.mp4","https://content.jwplatform.com/videos/JteD2spp-TNNppi0x.mp4","https://content.jwplatform.com/videos/Gd7vf5iw-TNNppi0x.mp4","https://content.jwplatform.com/videos/syx8mB9J-TNNppi0x.mp4","https://content.jwplatform.com/videos/NKQCdxcy-TNNppi0x.mp4","https://content.jwplatform.com/videos/Sg7je8bj-TNNppi0x.mp4","https://content.jwplatform.com/videos/7xcQOzmf-TNNppi0x.mp4","https://content.jwplatform.com/videos/JeT2mlec-TNNppi0x.mp4","https://content.jwplatform.com/videos/ABYlAVHG-TNNppi0x.mp4","https://content.jwplatform.com/videos/mT64rkwG-TNNppi0x.mp4","https://content.jwplatform.com/videos/cjklUBQI-TNNppi0x.mp4","https://content.jwplatform.com/videos/oSm5NZQY-TNNppi0x.mp4","https://content.jwplatform.com/videos/6ictQrWF-TNNppi0x.mp4","https://content.jwplatform.com/videos/EgnZovIw-TNNppi0x.mp4","https://content.jwplatform.com/videos/VY1oKC1l-TNNppi0x.mp4","https://content.jwplatform.com/videos/u1cdUIAU-TNNppi0x.mp4","https://content.jwplatform.com/videos/JaHflG2s-TNNppi0x.mp4","https://content.jwplatform.com/videos/G4gB9c1Z-TNNppi0x.mp4","https://content.jwplatform.com/videos/p4SEoi6y-TNNppi0x.mp4","https://content.jwplatform.com/videos/z6sTDAPR-TNNppi0x.mp4","https://content.jwplatform.com/videos/lihu90ey-TNNppi0x.mp4","https://content.jwplatform.com/videos/K9yejT7S-TNNppi0x.mp4","https://content.jwplatform.com/videos/feyqzzFg-TNNppi0x.mp4","https://content.jwplatform.com/videos/t8qmnfzV-TNNppi0x.mp4","https://content.jwplatform.com/videos/GSOe8GSw-TNNppi0x.mp4","https://content.jwplatform.com/videos/GSOe8GSw-TNNppi0x.mp4","https://content.jwplatform.com/videos/h7BFDGTq-TNNppi0x.mp4","https://content.jwplatform.com/videos/D7CQwKRK-TNNppi0x.mp4","https://content.jwplatform.com/videos/D7CQwKRK-TNNppi0x.mp4","https://content.jwplatform.com/videos/lQ0bYEa6-TNNppi0x.mp4","https://content.jwplatform.com/videos/IdhClSRB-TNNppi0x.mp4","https://content.jwplatform.com/videos/TzWXIjuQ-TNNppi0x.mp4","https://content.jwplatform.com/videos/Bvkl7Kik-TNNppi0x.mp4","https://content.jwplatform.com/videos/X4q0qvqM-TNNppi0x.mp4","https://content.jwplatform.com/videos/W2QyF1W8-TNNppi0x.mp4","https://content.jwplatform.com/videos/LB1XsJTt-TNNppi0x.mp4","https://content.jwplatform.com/videos/ttN35ZYF-TNNppi0x.mp4","https://content.jwplatform.com/videos/7YGPYAc1-TNNppi0x.mp4","https://content.jwplatform.com/videos/u4mLYWIv-TNNppi0x.mp4","https://content.jwplatform.com/videos/nUjUEjPY-TNNppi0x.mp4","https://content.jwplatform.com/videos/Dt6E8UV5-TNNppi0x.mp4","https://content.jwplatform.com/videos/889ZcvY6-TNNppi0x.mp4","https://content.jwplatform.com/videos/GESGp7tY-TNNppi0x.mp4","https://content.jwplatform.com/videos/PENmIAV3-TNNppi0x.mp4","https://content.jwplatform.com/videos/eMFDMjQ6-TNNppi0x.mp4","https://content.jwplatform.com/videos/cUunOJz9-TNNppi0x.mp4","https://content.jwplatform.com/videos/uPiaPqq4-TNNppi0x.mp4","https://content.jwplatform.com/videos/Chc2hCEB-TNNppi0x.mp4","https://content.jwplatform.com/videos/k01bImTy-TNNppi0x.mp4","https://content.jwplatform.com/videos/BArLOo3P-TNNppi0x.mp4","https://content.jwplatform.com/videos/k8LelpDy-TNNppi0x.mp4","https://content.jwplatform.com/videos/eGkn7my4-TNNppi0x.mp4","https://content.jwplatform.com/videos/Mpw9Dw0j-TNNppi0x.mp4","https://content.jwplatform.com/videos/SzgM4x5H-TNNppi0x.mp4","https://content.jwplatform.com/videos/xhomCtF8-TNNppi0x.mp4","https://content.jwplatform.com/videos/4f9eFGD8-TNNppi0x.mp4","https://content.jwplatform.com/videos/ojrPwVBW-TNNppi0x.mp4","https://content.jwplatform.com/videos/5kmfYqPO-TNNppi0x.mp4","https://content.jwplatform.com/videos/VYI5PJXo-TNNppi0x.mp4","https://content.jwplatform.com/videos/4U7ypSOs-TNNppi0x.mp4","https://content.jwplatform.com/videos/YCCymnTy-TNNppi0x.mp4","https://content.jwplatform.com/videos/bRR0Ex5z-TNNppi0x.mp4","https://content.jwplatform.com/videos/VBmXoLz3-TNNppi0x.mp4","https://content.jwplatform.com/videos/5im03fly-bya3LxN2.mp4","https://content.jwplatform.com/videos/wtUIlWRr-bya3LxN2.mp4","https://content.jwplatform.com/videos/c3YJOmhq-bya3LxN2.mp4","https://content.jwplatform.com/videos/dKThah1i-bya3LxN2.mp4","https://content.jwplatform.com/videos/vy5ru9Th-bya3LxN2.mp4","https://content.jwplatform.com/videos/4o1PQfEU-bya3LxN2.mp4","https://content.jwplatform.com/videos/kwXGDx2i-bya3LxN2.mp4","https://content.jwplatform.com/videos/bB5N4YTo-bya3LxN2.mp4","https://content.jwplatform.com/videos/MWRERUWl-bya3LxN2.mp4","https://content.jwplatform.com/videos/q4dvuNe7-bya3LxN2.mp4","https://content.jwplatform.com/videos/vnqEJBC8-bya3LxN2.mp4","https://content.jwplatform.com/videos/E0IUoUSl-bya3LxN2.mp4","https://content.jwplatform.com/videos/daiMtH0K-bya3LxN2.mp4","https://content.jwplatform.com/videos/x2ZqZAgX-bya3LxN2.mp4","https://content.jwplatform.com/videos/NQaNiOX2-bya3LxN2.mp4","https://content.jwplatform.com/videos/2T4mHbZ2-bya3LxN2.mp4","https://content.jwplatform.com/videos/DdLedsH0-bya3LxN2.mp4","https://content.jwplatform.com/videos/KV9ukYje-bya3LxN2.mp4","https://content.jwplatform.com/videos/fh2CzCAH-bya3LxN2.mp4","https://content.jwplatform.com/videos/56gjn26b-bya3LxN2.mp4","https://content.jwplatform.com/videos/npUhv1OS-bya3LxN2.mp4","https://content.jwplatform.com/videos/sb8QciHE-bya3LxN2.mp4","https://content.jwplatform.com/videos/HdyNak8w-bya3LxN2.mp4","https://content.jwplatform.com/videos/vHhTsULC-bya3LxN2.mp4","https://content.jwplatform.com/videos/vxqaEpjx-hqNzpZwm.mp4","https://content.jwplatform.com/videos/6p8kmblL-bya3LxN2.mp4","https://content.jwplatform.com/videos/HDIJfovo-yQJKdDe9.mp4","https://content.jwplatform.com/videos/tO1XqMjE-yQJKdDe9.mp4","https://content.jwplatform.com/videos/KWCa0Dsi-yQJKdDe9.mp4","https://content.jwplatform.com/videos/FYG0a5DO-yQJKdDe9.mp4","https://content.jwplatform.com/videos/jt2zJTxK-yQJKdDe9.mp4","https://content.jwplatform.com/videos/GFvqpJEM-yQJKdDe9.mp4","https://content.jwplatform.com/videos/ZXp72Osm-yQJKdDe9.mp4","https://content.jwplatform.com/videos/lL5iDY9a-yQJKdDe9.mp4","https://content.jwplatform.com/videos/psdmsTZu-yQJKdDe9.mp4","https://content.jwplatform.com/videos/6w8znYC1-yQJKdDe9.mp4","https://content.jwplatform.com/videos/4v1WC6j1-yQJKdDe9.mp4","https://content.jwplatform.com/videos/AWxt2cYu-yQJKdDe9.mp4","https://content.jwplatform.com/videos/8u5RKs5R-yQJKdDe9.mp4","https://content.jwplatform.com/videos/gg9VkCIO-yQJKdDe9.mp4","https://content.jwplatform.com/videos/NIMz94DI-yQJKdDe9.mp4","https://content.jwplatform.com/videos/7gTWbGPY-yQJKdDe9.mp4","https://content.jwplatform.com/videos/6doIr5PC-yQJKdDe9.mp4","https://content.jwplatform.com/videos/hwwskp3r-yQJKdDe9.mp4","https://content.jwplatform.com/videos/wfx1YWBz-yQJKdDe9.mp4","https://content.jwplatform.com/videos/VBAyCU8e-yQJKdDe9.mp4","https://content.jwplatform.com/videos/8arZlckt-yQJKdDe9.mp4","https://content.jwplatform.com/videos/qFGvYgFn-yQJKdDe9.mp4","https://content.jwplatform.com/videos/1Z5OF3RS-yQJKdDe9.mp4","https://content.jwplatform.com/videos/p3AEsSWX-yQJKdDe9.mp4","https://content.jwplatform.com/videos/BF0LcQAR-53g3ceuB.mp4","https://content.jwplatform.com/videos/dMQnzCp9-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/BbsjcNj1-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/vS8iEZrK-53g3ceuB.mp4","https://content.jwplatform.com/videos/BZVqvqJz-53g3ceuB.mp4","https://content.jwplatform.com/videos/p3V5me6u-53g3ceuB.mp4","https://content.jwplatform.com/videos/HbjEqh11-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/O1CtCIp7-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/mLyUxnpd-53g3ceuB.mp4","https://content.jwplatform.com/videos/m1f2XScl-53g3ceuB.mp4","https://content.jwplatform.com/videos/qhvwvS1F-53g3ceuB.mp4","https://content.jwplatform.com/videos/fNkurCVI-53g3ceuB.mp4","https://content.jwplatform.com/videos/jcQyYTwB-53g3ceuB.mp4","https://content.jwplatform.com/videos/bRnFy9D6-53g3ceuB.mp4","https://content.jwplatform.com/videos/rc20czwS-53g3ceuB.mp4","https://content.jwplatform.com/videos/2Bxcl9C1-53g3ceuB.mp4","https://content.jwplatform.com/videos/Y1qmWUpC-53g3ceuB.mp4","https://content.jwplatform.com/videos/qBRslsOs-53g3ceuB.mp4","https://content.jwplatform.com/videos/RMNvb09a-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/UkwR0EwU-53g3ceuB.mp4","https://content.jwplatform.com/videos/id0qnvCC-53g3ceuB.mp4","https://content.jwplatform.com/videos/9FvZRbVg-53g3ceuB.mp4","https://content.jwplatform.com/videos/XodFvbzX-53g3ceuB.mp4","https://content.jwplatform.com/videos/fchE749f-lM8BlsAj.mp4","https://content.jwplatform.com/videos/dKRSYeVY-53g3ceuB.mp4","https://content.jwplatform.com/videos/ZU1E0UOe-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/urmEjclp-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/eAPlpW37-lM8BlsAj.mp4","https://content.jwplatform.com/videos/vRLo9Fbz-53g3ceuB.mp4","https://content.jwplatform.com/videos/E5nC79fi-53g3ceuB.mp4","https://content.jwplatform.com/videos/97AZYUuw-53g3ceuB.mp4","https://content.jwplatform.com/videos/bXmqfpBc-53g3ceuB.mp4","https://content.jwplatform.com/videos/Ztq6MAtc-53g3ceuB.mp4","https://content.jwplatform.com/videos/4ZNRriFZ-lM8BlsAj.mp4","https://content.jwplatform.com/videos/dtejjdzs-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/o6uRiHRj-53g3ceuB.mp4","https://content.jwplatform.com/videos/exQRX3vy-JRGkkKQ1.mp4","https://content.jwplatform.com/videos/SQoYIUzn-53g3ceuB.mp4","https://content.jwplatform.com/videos/LKXDFHl4-53g3ceuB.mp4","https://content.jwplatform.com/videos/ztQ0eWSv-53g3ceuB.mp4","https://content.jwplatform.com/videos/H8uQR1Rl-53g3ceuB.mp4","https://content.jwplatform.com/videos/xkRJmChv-lM8BlsAj.mp4","https://content.jwplatform.com/videos/JcvwH0qy-53g3ceuB.mp4","https://content.jwplatform.com/videos/MBX1nhyc-53g3ceuB.mp4","https://content.jwplatform.com/videos/bLx9vstu-53g3ceuB.mp4","https://content.jwplatform.com/videos/IAa0bmB6-53g3ceuB.mp4"]},{"id":2,"name":"ANIMAX FAMILY","videos":["https://content.jwplatform.com/videos/7TnEIM9u-y9rhxW5M.mp4","https://content.jwplatform.com/videos/9eKsYBO3-y9rhxW5M.mp4","https://content.jwplatform.com/videos/zajmHePP-y9rhxW5M.mp4","https://content.jwplatform.com/videos/JzpdfS3m-y9rhxW5M.mp4","https://content.jwplatform.com/videos/9xL0J59m-y9rhxW5M.mp4","https://content.jwplatform.com/videos/izpOGxIc-YEuCROCY.mp4","https://content.jwplatform.com/videos/f2m7AUiN-YEuCROCY.mp4","https://content.jwplatform.com/videos/BwyDaXts-y9rhxW5M.mp4","https://content.jwplatform.com/videos/mhZ69vZZ-y9rhxW5M.mp4","https://content.jwplatform.com/videos/hDQhnnef-YEuCROCY.mp4","https://content.jwplatform.com/videos/GB29y5Eh-y9rhxW5M.mp4","https://content.jwplatform.com/videos/Pe7y8l8T-y9rhxW5M.mp4","https://content.jwplatform.com/videos/PVDjlL75-YEuCROCY.mp4","https://content.jwplatform.com/videos/PVDjlL75-YEuCROCY.mp4","https://content.jwplatform.com/videos/OUV91LoD-y9rhxW5M.mp4","https://content.jwplatform.com/videos/60WpdpAa-y9rhxW5M.mp4","https://content.jwplatform.com/videos/C4Q0cJNx-y9rhxW5M.mp4","https://content.jwplatform.com/videos/nmaNDHwY-YEuCROCY.mp4","https://content.jwplatform.com/videos/LVklS53P-YEuCROCY.mp4","https://content.jwplatform.com/videos/PxEFWUBE-YEuCROCY.mp4","https://content.jwplatform.com/videos/93XBwdtE-YEuCROCY.mp4","https://content.jwplatform.com/videos/3FCDZgP9-YEuCROCY.mp4","https://content.jwplatform.com/videos/CP63bVJx-YEuCROCY.mp4","https://content.jwplatform.com/videos/aYWh2QSe-y9rhxW5M.mp4","https://content.jwplatform.com/videos/miVhzt7G-y9rhxW5M.mp4","https://content.jwplatform.com/videos/sZIpfMfh-y9rhxW5M.mp4","https://content.jwplatform.com/videos/5FqQgvbl-y9rhxW5M.mp4","https://content.jwplatform.com/videos/8iDROJ6O-y9rhxW5M.mp4","https://content.jwplatform.com/videos/fLB2OMbS-YEuCROCY.mp4","https://content.jwplatform.com/videos/smrIZFbV-YEuCROCY.mp4","https://content.jwplatform.com/videos/dZNvLBwu-YEuCROCY.mp4","https://content.jwplatform.com/videos/y8QfcpMu-YEuCROCY.mp4","https://content.jwplatform.com/videos/9lxXMB58-YEuCROCY.mp4","https://content.jwplatform.com/videos/mdlufWyY-YEuCROCY.mp4","https://content.jwplatform.com/videos/tBfMz90X-YEuCROCY.mp4","https://content.jwplatform.com/videos/VYlE1pEQ-YEuCROCY.mp4","https://content.jwplatform.com/videos/eLfsvlHN-YEuCROCY.mp4","https://content.jwplatform.com/videos/AMtYlXMl-YEuCROCY.mp4","https://content.jwplatform.com/videos/tUyX5iIN-YEuCROCY.mp4","https://content.jwplatform.com/videos/fpC9gyLI-YEuCROCY.mp4","https://content.jwplatform.com/videos/faTSdjMY-YEuCROCY.mp4","https://content.jwplatform.com/videos/touyWHja-YEuCROCY.mp4","https://content.jwplatform.com/videos/Q851C97E-YEuCROCY.mp4","https://content.jwplatform.com/videos/J9GGRAb5-YEuCROCY.mp4","https://content.jwplatform.com/videos/Ru3amKAT-YEuCROCY.mp4","https://content.jwplatform.com/videos/qpHthvLl-YEuCROCY.mp4","https://content.jwplatform.com/videos/ODiB9Iqy-YEuCROCY.mp4","https://content.jwplatform.com/videos/xvEKiPze-YEuCROCY.mp4","https://content.jwplatform.com/videos/0LKfFv2D-YEuCROCY.mp4","https://content.jwplatform.com/videos/rM9tWHzV-YEuCROCY.mp4","https://content.jwplatform.com/videos/e7tJeiZC-YEuCROCY.mp4","https://content.jwplatform.com/videos/uBwPL8Cd-tPCLKxOU.mp4","https://content.jwplatform.com/videos/acBI1oRO-tPCLKxOU.mp4","https://content.jwplatform.com/videos/o7jS8833-tPCLKxOU.mp4","https://content.jwplatform.com/videos/oQqSKWhy-tPCLKxOU.mp4","https://content.jwplatform.com/videos/46DrqCcP-tPCLKxOU.mp4","https://content.jwplatform.com/videos/fDkDyLTb-tPCLKxOU.mp4","https://content.jwplatform.com/videos/UKBmCKhP-tPCLKxOU.mp4","https://content.jwplatform.com/videos/kmLo5H86-tPCLKxOU.mp4","https://content.jwplatform.com/videos/Kn5klhGP-tPCLKxOU.mp4","https://content.jwplatform.com/videos/aBEnHMu1-tPCLKxOU.mp4","https://content.jwplatform.com/videos/GYIM1ysy-tPCLKxOU.mp4","https://content.jwplatform.com/videos/YKgFwwZ5-tPCLKxOU.mp4","https://content.jwplatform.com/videos/tHrZLVhz-tPCLKxOU.mp4","https://content.jwplatform.com/videos/QBwHY3fl-tPCLKxOU.mp4","https://content.jwplatform.com/videos/J0pWG3Nn-tPCLKxOU.mp4","https://content.jwplatform.com/videos/0kOubbvC-tPCLKxOU.mp4","https://content.jwplatform.com/videos/to70u6DW-tPCLKxOU.mp4","https://content.jwplatform.com/videos/8dNFrVq0-tPCLKxOU.mp4","https://content.jwplatform.com/videos/GpgquMkQ-QZiwCxgl.mp4","https://content.jwplatform.com/videos/EzhT8YCK-QZiwCxgl.mp4","https://content.jwplatform.com/videos/o7qKMI2R-QZiwCxgl.mp4","https://content.jwplatform.com/videos/651GZuF0-QZiwCxgl.mp4","https://content.jwplatform.com/videos/ElX9w7UU-QZiwCxgl.mp4","https://content.jwplatform.com/videos/F7rFv3f2-QZiwCxgl.mp4","https://content.jwplatform.com/videos/JgSh3aYa-QZiwCxgl.mp4","https://content.jwplatform.com/videos/gY4e2PEd-QZiwCxgl.mp4","https://content.jwplatform.com/videos/BBOQmqfM-QZiwCxgl.mp4","https://content.jwplatform.com/videos/VMMiY0PG-QZiwCxgl.mp4","https://content.jwplatform.com/videos/Kx3KcBlz-QZiwCxgl.mp4","https://content.jwplatform.com/videos/uNmJPD2E-QZiwCxgl.mp4","https://content.jwplatform.com/videos/iCDueHt2-QZiwCxgl.mp4","https://content.jwplatform.com/videos/15979nuE-QZiwCxgl.mp4","https://content.jwplatform.com/videos/Yzjb0tD3-QZiwCxgl.mp4","https://content.jwplatform.com/videos/RtYMTbsR-QZiwCxgl.mp4","https://content.jwplatform.com/videos/83YCJvWt-QZiwCxgl.mp4","https://content.jwplatform.com/videos/01yJ5nnj-QZiwCxgl.mp4","https://content.jwplatform.com/videos/q6Lwx45h-QZiwCxgl.mp4","https://content.jwplatform.com/videos/u3JNP6QR-QZiwCxgl.mp4","https://content.jwplatform.com/videos/EiHzQUur-QZiwCxgl.mp4","https://content.jwplatform.com/videos/QD6GTGI9-QZiwCxgl.mp4","https://content.jwplatform.com/videos/qci3YaK2-QZiwCxgl.mp4","https://content.jwplatform.com/videos/iLsWquTc-QZiwCxgl.mp4","https://content.jwplatform.com/videos/pqqlFQlh-QZiwCxgl.mp4"]},{"id":3,"name":"HEROÍNAS","videos":["https://content.jwplatform.com/videos/I3goKrjZ-I2nzU0dn.mp4","https://content.jwplatform.com/videos/DkCEh622-I2nzU0dn.mp4","https://content.jwplatform.com/videos/3441w9Ma-I2nzU0dn.mp4","https://content.jwplatform.com/videos/T0iKqZXu-I2nzU0dn.mp4","https://content.jwplatform.com/videos/6YG7W1Fy-I2nzU0dn.mp4","https://content.jwplatform.com/videos/Dp2f31k3-I2nzU0dn.mp4","https://content.jwplatform.com/videos/UDXw0NQh-I2nzU0dn.mp4","https://content.jwplatform.com/videos/ScdIN9h3-I2nzU0dn.mp4","https://content.jwplatform.com/videos/hlZsgQAT-I2nzU0dn.mp4","https://content.jwplatform.com/videos/IaH2R7df-I2nzU0dn.mp4","https://content.jwplatform.com/videos/CUvORTxk-I2nzU0dn.mp4","https://content.jwplatform.com/videos/x5EiUEks-I2nzU0dn.mp4","https://content.jwplatform.com/videos/G0wPDAT3-I2nzU0dn.mp4","https://content.jwplatform.com/videos/dalWqrLK-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/DIiEIHoS-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/g6APShg0-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/3vyUtlHl-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/liE7ySua-1lyKM90m.mp4","https://content.jwplatform.com/videos/6HE6kI5d-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/gEdqFoAg-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/TTReN045-1lyKM90m.mp4","https://content.jwplatform.com/videos/pQSuyL1F-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/NUZ2yF6i-1lyKM90m.mp4","https://content.jwplatform.com/videos/KNFGubeK-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/AvF81KiS-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/KyOaf9M7-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/ckOv6mnH-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/UHi3f5ve-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/iXuAdZzN-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/4ARuWMN7-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/6R2xLqHb-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/BT5ru7vt-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/e9oEf4nV-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/ajEO8qva-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/8LsG3QRS-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/mDHEboPb-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/HdI3JD8S-1lyKM90m.mp4","https://content.jwplatform.com/videos/WMs1kSdJ-Q6EAUJY6.mp4","https://content.jwplatform.com/videos/YlOyohJS-02y4WgCd.mp4","https://content.jwplatform.com/videos/UP9sKYzY-02y4WgCd.mp4","https://content.jwplatform.com/videos/8ukYX9ig-02y4WgCd.mp4","https://content.jwplatform.com/videos/zD5focfG-02y4WgCd.mp4","https://content.jwplatform.com/videos/JbXbdcnb-02y4WgCd.mp4","https://content.jwplatform.com/videos/byGCuKeD-02y4WgCd.mp4","https://content.jwplatform.com/videos/pIyZ4weG-02y4WgCd.mp4","https://content.jwplatform.com/videos/UCwAXGRV-02y4WgCd.mp4","https://content.jwplatform.com/videos/6rXGEpW9-hyZMuwFz.mp4","https://content.jwplatform.com/videos/2oAoGLzJ-02y4WgCd.mp4","https://content.jwplatform.com/videos/1J7tpLMu-02y4WgCd.mp4","https://content.jwplatform.com/videos/aDoepvJq-hyZMuwFz.mp4","https://content.jwplatform.com/videos/SBJgpzTp-I2nzU0dn.mp4","https://content.jwplatform.com/videos/I3yjop9D-I2nzU0dn.mp4","https://content.jwplatform.com/videos/xwy2SD5D-I2nzU0dn.mp4","https://content.jwplatform.com/videos/hsIuF28j-I2nzU0dn.mp4","https://content.jwplatform.com/videos/EANQcc3A-I2nzU0dn.mp4","https://content.jwplatform.com/videos/GvbRCr86-I2nzU0dn.mp4","https://content.jwplatform.com/videos/U0YIevaT-I2nzU0dn.mp4","https://content.jwplatform.com/videos/g7h3ssM7-I2nzU0dn.mp4","https://content.jwplatform.com/videos/W3Z9tjvc-I2nzU0dn.mp4","https://content.jwplatform.com/videos/mSX5DwNf-I2nzU0dn.mp4","https://content.jwplatform.com/videos/yZxtaaqu-I2nzU0dn.mp4","https://content.jwplatform.com/videos/IdsYth25-I2nzU0dn.mp4","https://content.jwplatform.com/videos/kFfXYBRg-frF7Ehe2.mp4","https://content.jwplatform.com/videos/yK9O3DAo-I2nzU0dn.mp4","https://content.jwplatform.com/videos/j0QS4je6-I2nzU0dn.mp4","https://content.jwplatform.com/videos/yXtwdWlH-I2nzU0dn.mp4","https://content.jwplatform.com/videos/r12ZWbLp-I2nzU0dn.mp4","https://content.jwplatform.com/videos/Ix5JLEM0-I2nzU0dn.mp4","https://content.jwplatform.com/videos/5jyCorPY-I2nzU0dn.mp4","https://content.jwplatform.com/videos/moT4bS6W-I2nzU0dn.mp4","https://content.jwplatform.com/videos/C0GfvG7v-frF7Ehe2.mp4","https://content.jwplatform.com/videos/A78FBIeg-I2nzU0dn.mp4","https://content.jwplatform.com/videos/pbBi0JD8-I2nzU0dn.mp4","https://content.jwplatform.com/videos/32XdWmoo-I2nzU0dn.mp4","https://content.jwplatform.com/videos/S9gJEEdh-02y4WgCd.mp4","https://content.jwplatform.com/videos/iHqCl8gE-02y4WgCd.mp4","https://content.jwplatform.com/videos/tdNL0eZr-02y4WgCd.mp4","https://content.jwplatform.com/videos/0yIspPhG-02y4WgCd.mp4","https://content.jwplatform.com/videos/saZXIi0m-02y4WgCd.mp4","https://content.jwplatform.com/videos/QISK14Z6-02y4WgCd.mp4","https://content.jwplatform.com/videos/d0FUP5Px-02y4WgCd.mp4","https://content.jwplatform.com/videos/o0hrSxfu-02y4WgCd.mp4","https://content.jwplatform.com/videos/eXkAQAJJ-02y4WgCd.mp4","https://content.jwplatform.com/videos/v7xMAV33-02y4WgCd.mp4","https://content.jwplatform.com/videos/eW5NHGnw-02y4WgCd.mp4","https://content.jwplatform.com/videos/ktqQrvkv-02y4WgCd.mp4","https://content.jwplatform.com/videos/VXJBJUeS-02y4WgCd.mp4","https://content.jwplatform.com/videos/pr7cWUin-02y4WgCd.mp4","https://content.jwplatform.com/videos/klmuVIRK-02y4WgCd.mp4","https://content.jwplatform.com/videos/NxQdRTbv-02y4WgCd.mp4","https://content.jwplatform.com/videos/RLNxOxte-02y4WgCd.mp4","https://content.jwplatform.com/videos/vKpEQcUV-02y4WgCd.mp4"]},{"id":4,"name":"HARDMAX","videos":["https://content.jwplatform.com/videos/ZLKZi9Rm-02y4WgCd.mp4","https://content.jwplatform.com/videos/njuNTl0B-02y4WgCd.mp4","https://content.jwplatform.com/videos/hrDAXzwy-02y4WgCd.mp4","https://content.jwplatform.com/videos/9mtIJ7TN-02y4WgCd.mp4","https://content.jwplatform.com/videos/Wx5Dlzjn-02y4WgCd.mp4","https://content.jwplatform.com/videos/k4L5IJfj-02y4WgCd.mp4","https://content.jwplatform.com/videos/VSninNMf-02y4WgCd.mp4","https://content.jwplatform.com/videos/jN94PORh-02y4WgCd.mp4","https://content.jwplatform.com/videos/LBDHJsHq-02y4WgCd.mp4","https://content.jwplatform.com/videos/dEH1ztG4-02y4WgCd.mp4","https://content.jwplatform.com/videos/aaobsYNi-rKMgFKYc.mp4","https://content.jwplatform.com/videos/CzEz7rIL-rKMgFKYc.mp4","https://content.jwplatform.com/videos/K5OCiKDR-rKMgFKYc.mp4","https://content.jwplatform.com/videos/zuS0u7dZ-rKMgFKYc.mp4","https://content.jwplatform.com/videos/pmizu1lW-rKMgFKYc.mp4","https://content.jwplatform.com/videos/b9hG2HBO-rKMgFKYc.mp4","https://content.jwplatform.com/videos/5gMs3Nyh-rKMgFKYc.mp4","https://content.jwplatform.com/videos/5gMs3Nyh-rKMgFKYc.mp4","https://content.jwplatform.com/videos/zHNFhuJX-rKMgFKYc.mp4","https://content.jwplatform.com/videos/tmG4GkO7-rKMgFKYc.mp4","https://content.jwplatform.com/videos/w3dinyT4-rKMgFKYc.mp4","https://content.jwplatform.com/videos/KHhnIE6U-dIMvCc5o.mp4","https://content.jwplatform.com/videos/Kj5sgdbb-dIMvCc5o.mp4","https://content.jwplatform.com/videos/alQqXbQU-dIMvCc5o.mp4","https://content.jwplatform.com/videos/UW0cmLUE-dIMvCc5o.mp4","https://content.jwplatform.com/videos/u1abM7TU-dIMvCc5o.mp4","https://content.jwplatform.com/videos/EmgowUkf-dIMvCc5o.mp4","https://content.jwplatform.com/videos/JgTymToE-dIMvCc5o.mp4","https://content.jwplatform.com/videos/PWqHT5MV-dIMvCc5o.mp4","https://content.jwplatform.com/videos/GN5nYCPc-dIMvCc5o.mp4","https://content.jwplatform.com/videos/DEXdniFj-dIMvCc5o.mp4","https://content.jwplatform.com/videos/mfnDv3fc-dIMvCc5o.mp4","https://content.jwplatform.com/videos/SbsxWy60-dIMvCc5o.mp4","https://content.jwplatform.com/videos/9Te3EHrp-dIMvCc5o.mp4","https://content.jwplatform.com/videos/oAW1xcF9-MLFL75H9.mp4","https://content.jwplatform.com/videos/yuIkqiYo-DVAHa6on.mp4","https://content.jwplatform.com/videos/9M5pS8cg-MLFL75H9.mp4","https://content.jwplatform.com/videos/7hBs7tVc-MLFL75H9.mp4","https://content.jwplatform.com/videos/yJfI6jY5-MLFL75H9.mp4","https://content.jwplatform.com/videos/APNJZi5i-MLFL75H9.mp4","https://content.jwplatform.com/videos/70GZ2MGg-MLFL75H9.mp4","https://content.jwplatform.com/videos/T0wiMzyJ-DVAHa6on.mp4","https://content.jwplatform.com/videos/hajhpYTW-MLFL75H9.mp4","https://content.jwplatform.com/videos/Xy7U2yGQ-MLFL75H9.mp4","https://content.jwplatform.com/videos/AETpPSga-DVAHa6on.mp4","https://content.jwplatform.com/videos/vG8DNsty-DVAHa6on.mp4","https://content.jwplatform.com/videos/X3Gx8stx-twbQt1lz.mp4","https://content.jwplatform.com/videos/uK6qKKTO-twbQt1lz.mp4","https://content.jwplatform.com/videos/HUq6GUvK-twbQt1lz.mp4","https://content.jwplatform.com/videos/uhnpUCmo-twbQt1lz.mp4","https://content.jwplatform.com/videos/uhnpUCmo-twbQt1lz.mp4","https://content.jwplatform.com/videos/VQn3f0bG-twbQt1lz.mp4","https://content.jwplatform.com/videos/vfOpUTD0-twbQt1lz.mp4","https://content.jwplatform.com/videos/U82t5AX7-twbQt1lz.mp4","https://content.jwplatform.com/videos/iWl8ZKrh-twbQt1lz.mp4","https://content.jwplatform.com/videos/rQWQZcNC-twbQt1lz.mp4","https://content.jwplatform.com/videos/6fWJylKx-twbQt1lz.mp4","https://content.jwplatform.com/videos/6fWJylKx-twbQt1lz.mp4","https://content.jwplatform.com/videos/Ody1BgOC-twbQt1lz.mp4","https://content.jwplatform.com/videos/p4KnFg5q-twbQt1lz.mp4","https://content.jwplatform.com/videos/8Uf9vsXi-twbQt1lz.mp4","https://content.jwplatform.com/videos/oIuK8dkx-twbQt1lz.mp4","https://content.jwplatform.com/videos/3W48234N-twbQt1lz.mp4","https://content.jwplatform.com/videos/SPg2Ulny-twbQt1lz.mp4","https://content.jwplatform.com/videos/PGMgO9Me-twbQt1lz.mp4","https://content.jwplatform.com/videos/jfGhADmp-twbQt1lz.mp4","https://content.jwplatform.com/videos/fnAvLeHE-twbQt1lz.mp4","https://content.jwplatform.com/videos/INXJbrug-twbQt1lz.mp4","https://content.jwplatform.com/videos/qXiIK76O-twbQt1lz.mp4","https://content.jwplatform.com/videos/1oh61zdv-twbQt1lz.mp4","https://content.jwplatform.com/videos/1oh61zdv-twbQt1lz.mp4","https://content.jwplatform.com/videos/GJs5DYkj-twbQt1lz.mp4","https://content.jwplatform.com/videos/enjJtV64-twbQt1lz.mp4","https://content.jwplatform.com/videos/Qqb95UMA-twbQt1lz.mp4","https://content.jwplatform.com/videos/xfXNzyak-twbQt1lz.mp4","https://content.jwplatform.com/videos/0NC8yRUH-twbQt1lz.mp4","https://content.jwplatform.com/videos/wLFnUD0O-twbQt1lz.mp4","https://content.jwplatform.com/videos/S5eA60Qb-twbQt1lz.mp4","https://content.jwplatform.com/videos/OZWQKkR9-twbQt1lz.mp4","https://content.jwplatform.com/videos/fniMR0xN-twbQt1lz.mp4","https://content.jwplatform.com/videos/zCBZBN24-twbQt1lz.mp4","https://content.jwplatform.com/videos/tDL274KC-twbQt1lz.mp4","https://content.jwplatform.com/videos/8MyLDhiJ-twbQt1lz.mp4"]},{"id":5,"name":"Naruto Shippuden","videos":["https://content.jwplatform.com/videos/sQRTa876-oIi2PJso.mp4","https://content.jwplatform.com/videos/Vd7DClXy-oIi2PJso.mp4","https://content.jwplatform.com/videos/SGk249xQ-oIi2PJso.mp4","https://content.jwplatform.com/videos/upPurMrr-oIi2PJso.mp4","https://content.jwplatform.com/videos/k8iiOeSk-oIi2PJso.mp4","https://content.jwplatform.com/videos/d5JwI0b4-oIi2PJso.mp4","https://content.jwplatform.com/videos/kcckw6Zh-oIi2PJso.mp4","https://content.jwplatform.com/videos/TlJIedpR-oIi2PJso.mp4","https://content.jwplatform.com/videos/5Vp49z4z-oIi2PJso.mp4","https://content.jwplatform.com/videos/QyJK08po-oIi2PJso.mp4","https://content.jwplatform.com/videos/cdVe4Isd-oIi2PJso.mp4","https://content.jwplatform.com/videos/ef7Eky9d-oIi2PJso.mp4","https://content.jwplatform.com/videos/iaSqMxPR-oIi2PJso.mp4","https://content.jwplatform.com/videos/tk3hZ5bA-oIi2PJso.mp4","https://content.jwplatform.com/videos/FLYQlsaK-oIi2PJso.mp4","https://content.jwplatform.com/videos/sESCZ1QQ-oIi2PJso.mp4","https://content.jwplatform.com/videos/MPkbBfhU-oIi2PJso.mp4","https://content.jwplatform.com/videos/TxfwTjKQ-oIi2PJso.mp4","https://content.jwplatform.com/videos/3wKw8w6v-oIi2PJso.mp4","https://content.jwplatform.com/videos/9gP3jhQ7-oIi2PJso.mp4","https://content.jwplatform.com/videos/SKQoPSJ5-oIi2PJso.mp4","https://content.jwplatform.com/videos/Svou28NA-oIi2PJso.mp4","https://content.jwplatform.com/videos/N2oixGM1-oIi2PJso.mp4","https://content.jwplatform.com/videos/9ZtPvhyX-oIi2PJso.mp4","https://content.jwplatform.com/videos/BCv1Plax-oIi2PJso.mp4","https://content.jwplatform.com/videos/rrp90YXp-oIi2PJso.mp4","https://content.jwplatform.com/videos/eQ5hKkfz-oIi2PJso.mp4","https://content.jwplatform.com/videos/A8XdtFQ2-oIi2PJso.mp4","https://content.jwplatform.com/videos/MujYa4la-oIi2PJso.mp4","https://content.jwplatform.com/videos/faNKEboU-oIi2PJso.mp4","https://content.jwplatform.com/videos/c8ooDlzZ-oIi2PJso.mp4","https://content.jwplatform.com/videos/7GNKP6UB-oIi2PJso.mp4","https://content.jwplatform.com/videos/34hv6RVv-oIi2PJso.mp4","https://content.jwplatform.com/videos/Q7UOAMtv-oIi2PJso.mp4","https://content.jwplatform.com/videos/yvGaQNVl-oIi2PJso.mp4","https://content.jwplatform.com/videos/tCon53Lt-oIi2PJso.mp4","https://content.jwplatform.com/videos/KHnJASgU-oIi2PJso.mp4","https://content.jwplatform.com/videos/bW4Xbcht-oIi2PJso.mp4","https://content.jwplatform.com/videos/7ShYHGFa-oIi2PJso.mp4","https://content.jwplatform.com/videos/mQ2GUdDC-oIi2PJso.mp4","https://content.jwplatform.com/videos/HtobCHZW-oIi2PJso.mp4","https://content.jwplatform.com/videos/C6wSIVJU-oIi2PJso.mp4","https://content.jwplatform.com/videos/Q9KP8ERC-oIi2PJso.mp4","https://content.jwplatform.com/videos/CEjEkG0Y-oIi2PJso.mp4","https://content.jwplatform.com/videos/VzkdkHZy-oIi2PJso.mp4","https://content.jwplatform.com/videos/10Giechf-oIi2PJso.mp4","https://content.jwplatform.com/videos/U7QHHZHI-oIi2PJso.mp4","https://content.jwplatform.com/videos/818oQP9I-oIi2PJso.mp4","https://content.jwplatform.com/videos/J4ZH84fD-oIi2PJso.mp4","https://content.jwplatform.com/videos/BdSJUS5G-oIi2PJso.mp4","https://content.jwplatform.com/videos/GLokbOTP-oIi2PJso.mp4","https://content.jwplatform.com/videos/31PztPiS-oIi2PJso.mp4","https://content.jwplatform.com/videos/vtmBU8rC-oIi2PJso.mp4","https://content.jwplatform.com/videos/guHjBVf2-oIi2PJso.mp4","https://content.jwplatform.com/videos/A4OywwMk-oIi2PJso.mp4","https://content.jwplatform.com/videos/PXKrak2L-oIi2PJso.mp4","https://content.jwplatform.com/videos/HnmUOwLK-oIi2PJso.mp4","https://content.jwplatform.com/videos/lpysr9sP-oIi2PJso.mp4","https://content.jwplatform.com/videos/vleN7W8w-oIi2PJso.mp4","https://content.jwplatform.com/videos/6sYHaD9n-oIi2PJso.mp4","https://content.jwplatform.com/videos/PCMSxW2N-oIi2PJso.mp4","https://content.jwplatform.com/videos/Q9IJQFPC-oIi2PJso.mp4","https://content.jwplatform.com/videos/erG2KO5r-oIi2PJso.mp4","https://content.jwplatform.com/videos/y1xp736K-oIi2PJso.mp4","https://content.jwplatform.com/videos/UyOeUQ6P-oIi2PJso.mp4","https://content.jwplatform.com/videos/kIKom3Dm-oIi2PJso.mp4","https://content.jwplatform.com/videos/5rDS9CwH-oIi2PJso.mp4","https://content.jwplatform.com/videos/nojjvS6o-oIi2PJso.mp4","https://content.jwplatform.com/videos/XAlUzKRd-oIi2PJso.mp4","https://content.jwplatform.com/videos/YW7bRzZH-oIi2PJso.mp4","https://content.jwplatform.com/videos/MBds9SiF-oIi2PJso.mp4","https://content.jwplatform.com/videos/qVTnTVVJ-oIi2PJso.mp4","https://content.jwplatform.com/videos/nFSXl1lk-oIi2PJso.mp4","https://content.jwplatform.com/videos/dZEZfB0P-oIi2PJso.mp4","https://content.jwplatform.com/videos/XavtkKly-oIi2PJso.mp4","https://content.jwplatform.com/videos/9e02Hzbx-oIi2PJso.mp4","https://content.jwplatform.com/videos/c5xQVp3F-oIi2PJso.mp4","https://content.jwplatform.com/videos/C7AcMVSd-oIi2PJso.mp4","https://content.jwplatform.com/videos/smdWHgTB-oIi2PJso.mp4","https://content.jwplatform.com/videos/PwZEooKb-oIi2PJso.mp4","https://content.jwplatform.com/videos/GLeSaZaA-oIi2PJso.mp4","https://content.jwplatform.com/videos/kPbyOLY6-oIi2PJso.mp4","https://content.jwplatform.com/videos/2hNU00c5-oIi2PJso.mp4","https://content.jwplatform.com/videos/ZCxIcWWJ-oIi2PJso.mp4","https://content.jwplatform.com/videos/ymoo6MfJ-oIi2PJso.mp4","https://content.jwplatform.com/videos/PoyX3VVd-oIi2PJso.mp4","https://content.jwplatform.com/videos/tbzRHdwD-oIi2PJso.mp4","https://content.jwplatform.com/videos/FwQsHFKn-oIi2PJso.mp4","https://content.jwplatform.com/videos/5gnye4mF-oIi2PJso.mp4","https://content.jwplatform.com/videos/nq9RhOpX-oIi2PJso.mp4","https://content.jwplatform.com/videos/dhkfAf9I-oIi2PJso.mp4","https://content.jwplatform.com/videos/NLXSdSgo-oIi2PJso.mp4","https://content.jwplatform.com/videos/OkZhIncI-oIi2PJso.mp4","https://content.jwplatform.com/videos/5YSTK8dN-oIi2PJso.mp4","https://content.jwplatform.com/videos/IxbqbG5d-oIi2PJso.mp4","https://content.jwplatform.com/videos/zE8PdEPB-oIi2PJso.mp4","https://content.jwplatform.com/videos/EAniwM0R-oIi2PJso.mp4","https://content.jwplatform.com/videos/l58IU82q-oIi2PJso.mp4","https://content.jwplatform.com/videos/ja1Vm3uT-oIi2PJso.mp4","https://content.jwplatform.com/videos/dg4UKCmo-oIi2PJso.mp4","https://content.jwplatform.com/videos/h05qXWmM-oIi2PJso.mp4","https://content.jwplatform.com/videos/0PH5lte8-oIi2PJso.mp4","https://content.jwplatform.com/videos/3Q8wZWVB-oIi2PJso.mp4","https://content.jwplatform.com/videos/zqyuYbXl-oIi2PJso.mp4","https://content.jwplatform.com/videos/pKDm8Zow-oIi2PJso.mp4","https://content.jwplatform.com/videos/xokiPzrP-oIi2PJso.mp4","https://content.jwplatform.com/videos/Jy4NqFgr-oIi2PJso.mp4","https://content.jwplatform.com/videos/4LabAnjs-oIi2PJso.mp4","https://content.jwplatform.com/videos/XWh5LyQX-oIi2PJso.mp4","https://content.jwplatform.com/videos/LlaWmV9V-oIi2PJso.mp4","https://content.jwplatform.com/videos/WkriT3oz-oIi2PJso.mp4","https://content.jwplatform.com/videos/pcG0i9Nq-oIi2PJso.mp4"]},{"id":6,"name":"Bleach","videos":["https://content.jwplatform.com/videos/MeN6HuKB-IyOrtDQl.mp4","https://content.jwplatform.com/videos/u28OyYcA-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LMN630Fa-IyOrtDQl.mp4","https://content.jwplatform.com/videos/GuJMFeBZ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/5ZkzcVQv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6DwGze5S-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Ip0zzzig-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ogvxFumj-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bAr1c8We-IyOrtDQl.mp4","https://content.jwplatform.com/videos/lYj0gzj4-IyOrtDQl.mp4","https://content.jwplatform.com/videos/OXRYx2dT-IyOrtDQl.mp4","https://content.jwplatform.com/videos/CI6hbVaE-IyOrtDQl.mp4","https://content.jwplatform.com/videos/0CExsBa9-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ngMnbC35-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Os9o2K7f-IyOrtDQl.mp4","https://content.jwplatform.com/videos/XUDh4EvM-IyOrtDQl.mp4","https://content.jwplatform.com/videos/t90a1Sfj-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6j0JN6er-IyOrtDQl.mp4","https://content.jwplatform.com/videos/XYAArumn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/2vFCKgRP-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bdjWZhia-IyOrtDQl.mp4","https://content.jwplatform.com/videos/4q9ZI7sd-IyOrtDQl.mp4","https://content.jwplatform.com/videos/n1fUYnIl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/oDywygE7-IyOrtDQl.mp4","https://content.jwplatform.com/videos/XaILh2tX-IyOrtDQl.mp4","https://content.jwplatform.com/videos/mzdo3KvQ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/1sg7LkWg-IyOrtDQl.mp4","https://content.jwplatform.com/videos/nELwZcEh-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Taci2U4j-IyOrtDQl.mp4","https://content.jwplatform.com/videos/4eWUwmRL-IyOrtDQl.mp4","https://content.jwplatform.com/videos/JTnU6DAN-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bZgFLEif-IyOrtDQl.mp4","https://content.jwplatform.com/videos/L6x87SWr-IyOrtDQl.mp4","https://content.jwplatform.com/videos/BqI18xPY-IyOrtDQl.mp4","https://content.jwplatform.com/videos/gw81hGBX-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ammT6WdY-IyOrtDQl.mp4","https://content.jwplatform.com/videos/PsGn4Yev-IyOrtDQl.mp4","https://content.jwplatform.com/videos/POLeQbcW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/AumFfTjq-IyOrtDQl.mp4","https://content.jwplatform.com/videos/RBJrWMol-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Zwn3u5sI-IyOrtDQl.mp4","https://content.jwplatform.com/videos/OViX5rmF-IyOrtDQl.mp4","https://content.jwplatform.com/videos/BX52SK9B-IyOrtDQl.mp4","https://content.jwplatform.com/videos/d0zSyW9K-IyOrtDQl.mp4","https://content.jwplatform.com/videos/yErDEyGS-IyOrtDQl.mp4","https://content.jwplatform.com/videos/iPJVA41w-IyOrtDQl.mp4","https://content.jwplatform.com/videos/M13GY8px-IyOrtDQl.mp4","https://content.jwplatform.com/videos/StruXo8o-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ihkgtFpv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/moRWnWqn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/tqsLdEQZ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/hlUduNhW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/vxumrXc5-IyOrtDQl.mp4","https://content.jwplatform.com/videos/FPS5GlVr-IyOrtDQl.mp4","https://content.jwplatform.com/videos/pqa1CWni-IyOrtDQl.mp4","https://content.jwplatform.com/videos/et5QiDuw-IyOrtDQl.mp4","https://content.jwplatform.com/videos/5txOj2wW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/l4bjQZFG-IyOrtDQl.mp4","https://content.jwplatform.com/videos/O7dRwZn7-IyOrtDQl.mp4","https://content.jwplatform.com/videos/dDRai9xQ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/OP2u5wBU-IyOrtDQl.mp4","https://content.jwplatform.com/videos/xzUPLrb3-IyOrtDQl.mp4","https://content.jwplatform.com/videos/gnOihw9Y-IyOrtDQl.mp4","https://content.jwplatform.com/videos/tpgWpVgi-IyOrtDQl.mp4","https://content.jwplatform.com/videos/y57cBvj6-IyOrtDQl.mp4","https://content.jwplatform.com/videos/UiEBGRum-IyOrtDQl.mp4","https://content.jwplatform.com/videos/YicH8Sr0-IyOrtDQl.mp4","https://content.jwplatform.com/videos/wlEBl4CL-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Kh0wRNzU-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Fjmc7r34-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Qt9faqI3-IyOrtDQl.mp4","https://content.jwplatform.com/videos/DEuuEuug-IyOrtDQl.mp4","https://content.jwplatform.com/videos/PLqk4olq-IyOrtDQl.mp4","https://content.jwplatform.com/videos/D2mVD9aW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/pEGENexd-IyOrtDQl.mp4","https://content.jwplatform.com/videos/4sgqafUv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/kNj1QwFv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/KzmR5AZR-IyOrtDQl.mp4","https://content.jwplatform.com/videos/wLcEAPbE-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bW337DFP-IyOrtDQl.mp4","https://content.jwplatform.com/videos/kc2G9AXi-IyOrtDQl.mp4","https://content.jwplatform.com/videos/1OF1AHJn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/IGcofSY3-IyOrtDQl.mp4","https://content.jwplatform.com/videos/4XyeUrkE-IyOrtDQl.mp4","https://content.jwplatform.com/videos/j6fWbSMC-IyOrtDQl.mp4","https://content.jwplatform.com/videos/3A7CxtTh-IyOrtDQl.mp4","https://content.jwplatform.com/videos/tqWgyefa-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Fpf166tY-IyOrtDQl.mp4","https://content.jwplatform.com/videos/2ZEXGy00-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ma7QJCVD-IyOrtDQl.mp4","https://content.jwplatform.com/videos/QigSazSM-IyOrtDQl.mp4","https://content.jwplatform.com/videos/n1VVzMSW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/sYxuEiqH-IyOrtDQl.mp4","https://content.jwplatform.com/videos/vEHSl0jW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/UM0RBBrE-IyOrtDQl.mp4","https://content.jwplatform.com/videos/I4zMeX5S-IyOrtDQl.mp4","https://content.jwplatform.com/videos/q7aae16R-IyOrtDQl.mp4","https://content.jwplatform.com/videos/EhdaPgTS-IyOrtDQl.mp4","https://content.jwplatform.com/videos/CTrkiYdV-IyOrtDQl.mp4","https://content.jwplatform.com/videos/d225hzz0-IyOrtDQl.mp4","https://content.jwplatform.com/videos/NFwHhSwN-IyOrtDQl.mp4","https://content.jwplatform.com/videos/HLFt2OCE-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LHvnJ1Cn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Zb0LlMYv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Z5sCSNvF-IyOrtDQl.mp4","https://content.jwplatform.com/videos/DtGJG1CN-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Wa6wJFkq-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LwivGAlR-IyOrtDQl.mp4","https://content.jwplatform.com/videos/vOpaBSLO-IyOrtDQl.mp4","https://content.jwplatform.com/videos/EZ0jOW3s-IyOrtDQl.mp4","https://content.jwplatform.com/videos/PZoylddu-IyOrtDQl.mp4","https://content.jwplatform.com/videos/SHJHvcU4-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Pl0A0bjf-IyOrtDQl.mp4","https://content.jwplatform.com/videos/KyrOjjeI-IyOrtDQl.mp4","https://content.jwplatform.com/videos/J86Fkx1J-IyOrtDQl.mp4","https://content.jwplatform.com/videos/CyJ0h6VK-IyOrtDQl.mp4","https://content.jwplatform.com/videos/CXNyjwuD-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bOp4Zrdu-IyOrtDQl.mp4","https://content.jwplatform.com/videos/P6Tt4iHs-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Rg2EdZbf-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Rg2EdZbf-IyOrtDQl.mp4","https://content.jwplatform.com/videos/inycmRKx-IyOrtDQl.mp4","https://content.jwplatform.com/videos/YVSrswc7-IyOrtDQl.mp4","https://content.jwplatform.com/videos/lrh04KiG-IyOrtDQl.mp4","https://content.jwplatform.com/videos/UoLfiQg6-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bjH5ZINs-IyOrtDQl.mp4","https://content.jwplatform.com/videos/e8KHUHZ7-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ugueEnaG-IyOrtDQl.mp4","https://content.jwplatform.com/videos/8kuLY5HF-IyOrtDQl.mp4","https://content.jwplatform.com/videos/z4bBoRnk-IyOrtDQl.mp4","https://content.jwplatform.com/videos/gMzuEbT3-IyOrtDQl.mp4","https://content.jwplatform.com/videos/VPDZe5sP-IyOrtDQl.mp4","https://content.jwplatform.com/videos/oudciFMB-IyOrtDQl.mp4","https://content.jwplatform.com/videos/M4xzsO7b-IyOrtDQl.mp4","https://content.jwplatform.com/videos/SqlJM0x7-IyOrtDQl.mp4","https://content.jwplatform.com/videos/yPd3OnkF-IyOrtDQl.mp4","https://content.jwplatform.com/videos/xCj5RpZM-IyOrtDQl.mp4","https://content.jwplatform.com/videos/5CIgK5Hl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/wGpTWGe0-IyOrtDQl.mp4","https://content.jwplatform.com/videos/lhlRXkA1-IyOrtDQl.mp4","https://content.jwplatform.com/videos/gyCNNkmX-IyOrtDQl.mp4","https://content.jwplatform.com/videos/kuNh9GVE-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Z7oPfAiD-IyOrtDQl.mp4","https://content.jwplatform.com/videos/iJF90dqQ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/GDLwtm6U-IyOrtDQl.mp4","https://content.jwplatform.com/videos/W0kkZvIV-IyOrtDQl.mp4","https://content.jwplatform.com/videos/mx72PUPm-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LM7vgCUZ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/t3sYJLM9-IyOrtDQl.mp4","https://content.jwplatform.com/videos/VFS2mMxN-IyOrtDQl.mp4","https://content.jwplatform.com/videos/xYqWuxS4-IyOrtDQl.mp4","https://content.jwplatform.com/videos/HU7odStg-IyOrtDQl.mp4","https://content.jwplatform.com/videos/wS7TJPzn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6Bb294Rl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/vaQbsfIQ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ACwGmZ17-IyOrtDQl.mp4","https://content.jwplatform.com/videos/zVqblcjp-IyOrtDQl.mp4","https://content.jwplatform.com/videos/RevBtgGw-IyOrtDQl.mp4","https://content.jwplatform.com/videos/J0nHMhO8-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Ko7mkEnF-IyOrtDQl.mp4","https://content.jwplatform.com/videos/HBs1nFvC-IyOrtDQl.mp4","https://content.jwplatform.com/videos/mgdI1dvy-IyOrtDQl.mp4","https://content.jwplatform.com/videos/9sNDcCMM-IyOrtDQl.mp4","https://content.jwplatform.com/videos/0mnlZQzf-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ZaRVxP65-IyOrtDQl.mp4","https://content.jwplatform.com/videos/aPgzXUIU-IyOrtDQl.mp4","https://content.jwplatform.com/videos/WVX9MubI-IyOrtDQl.mp4","https://content.jwplatform.com/videos/nzCF2pmg-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6o8XqSFe-IyOrtDQl.mp4","https://content.jwplatform.com/videos/gtXRoi9N-IyOrtDQl.mp4","https://content.jwplatform.com/videos/8lMorebk-IyOrtDQl.mp4","https://content.jwplatform.com/videos/8lMorebk-IyOrtDQl.mp4","https://content.jwplatform.com/videos/84qM9Sxc-IyOrtDQl.mp4","https://content.jwplatform.com/videos/BoUdYbYm-IyOrtDQl.mp4","https://content.jwplatform.com/videos/A25VD3LU-IyOrtDQl.mp4","https://content.jwplatform.com/videos/8pfRFCct-IyOrtDQl.mp4","https://content.jwplatform.com/videos/c3bwmeSv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/sNY4AcW8-IyOrtDQl.mp4","https://content.jwplatform.com/videos/KRorurZp-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ezuoBiUW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/HpudtSNM-IyOrtDQl.mp4","https://content.jwplatform.com/videos/p8CroASa-IyOrtDQl.mp4","https://content.jwplatform.com/videos/3NRadvDA-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ikfH54Pw-IyOrtDQl.mp4","https://content.jwplatform.com/videos/dxw2jRSB-IyOrtDQl.mp4","https://content.jwplatform.com/videos/tDMVlSa5-IyOrtDQl.mp4","https://content.jwplatform.com/videos/7k2S333n-IyOrtDQl.mp4","https://content.jwplatform.com/videos/84lptKnk-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ymRx1jx2-IyOrtDQl.mp4","https://content.jwplatform.com/videos/iU2gDtWN-IyOrtDQl.mp4","https://content.jwplatform.com/videos/TwCO0jFz-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ZP1geZq8-IyOrtDQl.mp4","https://content.jwplatform.com/videos/scJqgm1f-IyOrtDQl.mp4","https://content.jwplatform.com/videos/dxJJZ91A-IyOrtDQl.mp4","https://content.jwplatform.com/videos/aASBB478-IyOrtDQl.mp4","https://content.jwplatform.com/videos/iEW6qfvG-IyOrtDQl.mp4","https://content.jwplatform.com/videos/xnv2sno6-IyOrtDQl.mp4","https://content.jwplatform.com/videos/CfkPWsGu-IyOrtDQl.mp4","https://content.jwplatform.com/videos/km7eC7RX-IyOrtDQl.mp4","https://content.jwplatform.com/videos/VSe9AxhZ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/84wBxCqJ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/sDlzianD-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Pn17H5uk-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bgZlDoS1-IyOrtDQl.mp4","https://content.jwplatform.com/videos/lchPRsa5-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6MO0B3S1-IyOrtDQl.mp4","https://content.jwplatform.com/videos/qil66YQT-IyOrtDQl.mp4","https://content.jwplatform.com/videos/TmPNhnpO-IyOrtDQl.mp4","https://content.jwplatform.com/videos/iZBVjplK-IyOrtDQl.mp4","https://content.jwplatform.com/videos/qxyigj4w-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6OdzC6Ew-IyOrtDQl.mp4","https://content.jwplatform.com/videos/eVGgdF9m-IyOrtDQl.mp4","https://content.jwplatform.com/videos/C814rqlc-IyOrtDQl.mp4","https://content.jwplatform.com/videos/1nXF80Id-IyOrtDQl.mp4","https://content.jwplatform.com/videos/K98UEBnF-IyOrtDQl.mp4","https://content.jwplatform.com/videos/gecZkcHV-IyOrtDQl.mp4","https://content.jwplatform.com/videos/RWp7bEUn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ASxvfXZV-IyOrtDQl.mp4","https://content.jwplatform.com/videos/qhMYkh8A-IyOrtDQl.mp4","https://content.jwplatform.com/videos/8gL9aY74-IyOrtDQl.mp4","https://content.jwplatform.com/videos/YUNSuZBD-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bxVlXScn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/RU9JmZ8w-IyOrtDQl.mp4","https://content.jwplatform.com/videos/MkA9pQbW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/JjPiIXtm-IyOrtDQl.mp4","https://content.jwplatform.com/videos/1pOO72uZ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/pg3C72D1-IyOrtDQl.mp4","https://content.jwplatform.com/videos/f7U7mql7-IyOrtDQl.mp4","https://content.jwplatform.com/videos/dPIrM8rJ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/WglqrBqB-IyOrtDQl.mp4","https://content.jwplatform.com/videos/CQBMojiL-IyOrtDQl.mp4","https://content.jwplatform.com/videos/NXJno5Ss-IyOrtDQl.mp4","https://content.jwplatform.com/videos/wC5giSme-IyOrtDQl.mp4","https://content.jwplatform.com/videos/cPiofSCG-IyOrtDQl.mp4","https://content.jwplatform.com/videos/MEUkmdYS-IyOrtDQl.mp4","https://content.jwplatform.com/videos/hNjUEzWE-IyOrtDQl.mp4","https://content.jwplatform.com/videos/sthdNewB-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Z88b5zqx-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Z8KTAiqq-IyOrtDQl.mp4","https://content.jwplatform.com/videos/cl98ftVA-IyOrtDQl.mp4","https://content.jwplatform.com/videos/2nrDXQZn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/d68EdEML-IyOrtDQl.mp4","https://content.jwplatform.com/videos/r7UPja0M-IyOrtDQl.mp4","https://content.jwplatform.com/videos/5YaUjqVM-IyOrtDQl.mp4","https://content.jwplatform.com/videos/HeTjfx9D-IyOrtDQl.mp4","https://content.jwplatform.com/videos/YDVRFl36-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ktirL2Kw-IyOrtDQl.mp4","https://content.jwplatform.com/videos/dSu6qpF7-IyOrtDQl.mp4","https://content.jwplatform.com/videos/zrPXFBQu-IyOrtDQl.mp4","https://content.jwplatform.com/videos/4TII1ISw-IyOrtDQl.mp4","https://content.jwplatform.com/videos/XPIJGGSq-IyOrtDQl.mp4","https://content.jwplatform.com/videos/t6UVAIDf-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LV1UEDe8-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ckuCLYge-IyOrtDQl.mp4","https://content.jwplatform.com/videos/fcbfTCJH-IyOrtDQl.mp4","https://content.jwplatform.com/videos/TksPtvnd-IyOrtDQl.mp4","https://content.jwplatform.com/videos/FfLz7bRl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/AvlnsErf-IyOrtDQl.mp4","https://content.jwplatform.com/videos/P3XW13Ue-IyOrtDQl.mp4","https://content.jwplatform.com/videos/0I0bYfMl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/DuTx6zn8-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6FhvvO16-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Imxnnk2s-IyOrtDQl.mp4","https://content.jwplatform.com/videos/qXFTBvVe-IyOrtDQl.mp4","https://content.jwplatform.com/videos/iPLVqAd1-IyOrtDQl.mp4","https://content.jwplatform.com/videos/zxikL9hl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/xULEG7ds-IyOrtDQl.mp4","https://content.jwplatform.com/videos/eIEq6Fb3-IyOrtDQl.mp4","https://content.jwplatform.com/videos/bsL2JLpE-IyOrtDQl.mp4","https://content.jwplatform.com/videos/blheYBx5-IyOrtDQl.mp4","https://content.jwplatform.com/videos/OoMM6BVC-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LXLimWE4-IyOrtDQl.mp4","https://content.jwplatform.com/videos/98lU9g6P-IyOrtDQl.mp4","https://content.jwplatform.com/videos/tec7Op7F-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Wptrp0wo-IyOrtDQl.mp4","https://content.jwplatform.com/videos/O2snHEXx-IyOrtDQl.mp4","https://content.jwplatform.com/videos/CGjdRHrD-IyOrtDQl.mp4","https://content.jwplatform.com/videos/MP8WTpB6-IyOrtDQl.mp4","https://content.jwplatform.com/videos/1ib43B0u-IyOrtDQl.mp4","https://content.jwplatform.com/videos/vOs3pY1C-IyOrtDQl.mp4","https://content.jwplatform.com/videos/FsI2G7Nx-IyOrtDQl.mp4","https://content.jwplatform.com/videos/SV6KQAoP-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LBbBbuOl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/fdqBFgSm-IyOrtDQl.mp4","https://content.jwplatform.com/videos/NQ7KKBiU-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ZF2d8HAn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/kdQpQb84-IyOrtDQl.mp4","https://content.jwplatform.com/videos/7yM0Jsjr-IyOrtDQl.mp4","https://content.jwplatform.com/videos/T8iaTvfw-IyOrtDQl.mp4","https://content.jwplatform.com/videos/En0SWdEF-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Tz3PpUhc-IyOrtDQl.mp4","https://content.jwplatform.com/videos/EPtoTp4T-IyOrtDQl.mp4","https://content.jwplatform.com/videos/FZnjy7oU-IyOrtDQl.mp4","https://content.jwplatform.com/videos/hM9ixOek-IyOrtDQl.mp4","https://content.jwplatform.com/videos/BcYMu270-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6WMXVPKA-IyOrtDQl.mp4","https://content.jwplatform.com/videos/6WMXVPKA-IyOrtDQl.mp4","https://content.jwplatform.com/videos/D1JH23HW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/9QkGXXdv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LIRrSvw1-IyOrtDQl.mp4","https://content.jwplatform.com/videos/DpeKEflL-IyOrtDQl.mp4","https://content.jwplatform.com/videos/cbRt4Awn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/5yc3rsyt-IyOrtDQl.mp4","https://content.jwplatform.com/videos/58cBw7ev-IyOrtDQl.mp4","https://content.jwplatform.com/videos/UL1uqUl7-IyOrtDQl.mp4","https://content.jwplatform.com/videos/HSYqzZzZ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/qF7HtFRz-IyOrtDQl.mp4","https://content.jwplatform.com/videos/tZT2F62M-IyOrtDQl.mp4","https://content.jwplatform.com/videos/5ZomjYIo-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Gy6JX6GU-IyOrtDQl.mp4","https://content.jwplatform.com/videos/nuvvMquM-IyOrtDQl.mp4","https://content.jwplatform.com/videos/s9fauGjd-IyOrtDQl.mp4","https://content.jwplatform.com/videos/SAKtank8-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ItXaRR6A-IyOrtDQl.mp4","https://content.jwplatform.com/videos/8FJ43ndI-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ejP9JOkQ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/XQeJsz9M-IyOrtDQl.mp4","https://content.jwplatform.com/videos/eBmfcjnm-IyOrtDQl.mp4","https://content.jwplatform.com/videos/dpRz7ryl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/YR8xB8sl-IyOrtDQl.mp4","https://content.jwplatform.com/videos/HZPfkM6O-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Iw2xj1fG-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ArwItsLs-IyOrtDQl.mp4","https://content.jwplatform.com/videos/5iFYFLqW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/UoJu1iqV-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LmpdJ1E4-IyOrtDQl.mp4","https://content.jwplatform.com/videos/2UBCbGyK-IyOrtDQl.mp4","https://content.jwplatform.com/videos/7drDqbKn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/0bRxZwkv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/Jwu8lD4N-IyOrtDQl.mp4","https://content.jwplatform.com/videos/V2fvlPis-IyOrtDQl.mp4","https://content.jwplatform.com/videos/RJscxK0T-IyOrtDQl.mp4","https://content.jwplatform.com/videos/5SZ0ASJP-IyOrtDQl.mp4","https://content.jwplatform.com/videos/yJfPm2of-IyOrtDQl.mp4","https://content.jwplatform.com/videos/kCZH1kqv-IyOrtDQl.mp4","https://content.jwplatform.com/videos/lP7t2Gbu-IyOrtDQl.mp4","https://content.jwplatform.com/videos/oBU6pAko-IyOrtDQl.mp4","https://content.jwplatform.com/videos/PgXqKevh-IyOrtDQl.mp4","https://content.jwplatform.com/videos/sUNW8nYL-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LFmDyERn-IyOrtDQl.mp4","https://content.jwplatform.com/videos/LUuAXh00-IyOrtDQl.mp4","https://content.jwplatform.com/videos/H3XwC8xW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/m5YKZEfJ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/QgtA5bxW-IyOrtDQl.mp4","https://content.jwplatform.com/videos/p24DxslO-IyOrtDQl.mp4","https://content.jwplatform.com/videos/I1nwdewf-IyOrtDQl.mp4","https://content.jwplatform.com/videos/4g2o59Cw-IyOrtDQl.mp4","https://content.jwplatform.com/videos/VYSFRMUQ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/cXCW5wwc-IyOrtDQl.mp4","https://content.jwplatform.com/videos/N01sS3yI-IyOrtDQl.mp4","https://content.jwplatform.com/videos/BlmsoYQS-IyOrtDQl.mp4","https://content.jwplatform.com/videos/9HJKIkFz-IyOrtDQl.mp4","https://content.jwplatform.com/videos/p2KScMa2-IyOrtDQl.mp4","https://content.jwplatform.com/videos/myYxB8dZ-IyOrtDQl.mp4","https://content.jwplatform.com/videos/dNaWa6KV-IyOrtDQl.mp4","https://content.jwplatform.com/videos/mtWVQj69-IyOrtDQl.mp4","https://content.jwplatform.com/videos/CPS3DJlG-IyOrtDQl.mp4","https://content.jwplatform.com/videos/lBUwafhR-IyOrtDQl.mp4","https://content.jwplatform.com/videos/PdQSrpAR-IyOrtDQl.mp4","https://content.jwplatform.com/videos/45YKQ0ym-IyOrtDQl.mp4","https://content.jwplatform.com/videos/U3fzHIk5-IyOrtDQl.mp4","https://content.jwplatform.com/videos/KnM1q6u4-IyOrtDQl.mp4","https://content.jwplatform.com/videos/efNZrtt2-IyOrtDQl.mp4","https://content.jwplatform.com/videos/fMNmWXyu-IyOrtDQl.mp4","https://content.jwplatform.com/videos/ss1PUlmg-IyOrtDQl.mp4","https://content.jwplatform.com/videos/9xBQn9UO-IyOrtDQl.mp4"]},{"id":7,"name":"Dragon Ball Super","videos":["https://content.jwplatform.com/videos/5FsBnCEV-mgLMuPc7.mp4","https://content.jwplatform.com/videos/lbZ06Tfj-mgLMuPc7.mp4","https://content.jwplatform.com/videos/8s3k8Yy3-mgLMuPc7.mp4","https://content.jwplatform.com/videos/4ClwyOKT-mgLMuPc7.mp4","https://content.jwplatform.com/videos/14B7BMqr-mgLMuPc7.mp4","https://content.jwplatform.com/videos/kYxHPjHP-mgLMuPc7.mp4","https://content.jwplatform.com/videos/CwkdXNcl-mgLMuPc7.mp4","https://content.jwplatform.com/videos/fSOVNWbc-mgLMuPc7.mp4","https://content.jwplatform.com/videos/n3DY5n7E-mgLMuPc7.mp4","https://content.jwplatform.com/videos/Ny784Vjj-mgLMuPc7.mp4","https://content.jwplatform.com/videos/kzTnPsfk-mgLMuPc7.mp4","https://content.jwplatform.com/videos/plHrb94c-mgLMuPc7.mp4","https://content.jwplatform.com/videos/hhFFeBUf-mgLMuPc7.mp4","https://content.jwplatform.com/videos/CVOxgnNl-mgLMuPc7.mp4","https://content.jwplatform.com/videos/UDhBNzBn-mgLMuPc7.mp4","https://content.jwplatform.com/videos/IMhH9P77-mgLMuPc7.mp4","https://content.jwplatform.com/videos/9kl93ZFS-mgLMuPc7.mp4","https://content.jwplatform.com/videos/qGU5A0oo-mgLMuPc7.mp4","https://content.jwplatform.com/videos/MBbTM5Bt-mgLMuPc7.mp4","https://content.jwplatform.com/videos/FpiRs5nD-mgLMuPc7.mp4","https://content.jwplatform.com/videos/ogGRJ5SD-mgLMuPc7.mp4","https://content.jwplatform.com/videos/4KsosDZ0-mgLMuPc7.mp4","https://content.jwplatform.com/videos/WKgNpSzO-mgLMuPc7.mp4","https://content.jwplatform.com/videos/CuHHV9a3-mgLMuPc7.mp4","https://content.jwplatform.com/videos/MaqDOMpt-mgLMuPc7.mp4","https://content.jwplatform.com/videos/SYJkfFit-mgLMuPc7.mp4","https://content.jwplatform.com/videos/FF5kPxeI-mgLMuPc7.mp4","https://content.jwplatform.com/videos/6QgefCOv-mgLMuPc7.mp4","https://content.jwplatform.com/videos/kv5GMdkC-mgLMuPc7.mp4","https://content.jwplatform.com/videos/xlf4b5a2-mgLMuPc7.mp4","https://content.jwplatform.com/videos/isgfHnBl-mgLMuPc7.mp4","https://content.jwplatform.com/videos/pYs3BEA0-mgLMuPc7.mp4","https://content.jwplatform.com/videos/Xy5tyRMe-mgLMuPc7.mp4","https://content.jwplatform.com/videos/4X2pUjln-mgLMuPc7.mp4","https://content.jwplatform.com/videos/G5oR3Fyx-mgLMuPc7.mp4","https://content.jwplatform.com/videos/2aHJl8JE-mgLMuPc7.mp4","https://content.jwplatform.com/videos/dBRxAFbl-mgLMuPc7.mp4","https://content.jwplatform.com/videos/g7aDI2gM-mgLMuPc7.mp4","https://content.jwplatform.com/videos/JMCnlLWw-mgLMuPc7.mp4","https://content.jwplatform.com/videos/ZqyZV8MF-mgLMuPc7.mp4","https://content.jwplatform.com/videos/0YSb5x9C-mgLMuPc7.mp4","https://content.jwplatform.com/videos/5o0pmDmo-mgLMuPc7.mp4","https://content.jwplatform.com/videos/1wFOhH94-mgLMuPc7.mp4","https://content.jwplatform.com/videos/IlshLWA9-mgLMuPc7.mp4","https://content.jwplatform.com/videos/OdbieOUL-mgLMuPc7.mp4","https://content.jwplatform.com/videos/QHl9b4Kr-mgLMuPc7.mp4","https://content.jwplatform.com/videos/3ENCFUnw-mgLMuPc7.mp4","https://content.jwplatform.com/videos/OPqgxkmi-mgLMuPc7.mp4","https://content.jwplatform.com/videos/HU3vLNr3-mgLMuPc7.mp4","https://content.jwplatform.com/videos/dq9rLWJl-mgLMuPc7.mp4","https://content.jwplatform.com/videos/BPBFNfoD-mgLMuPc7.mp4","https://content.jwplatform.com/videos/OFtLYddC-mgLMuPc7.mp4","https://content.jwplatform.com/videos/mOFo5Gip-mgLMuPc7.mp4","https://content.jwplatform.com/videos/xuRuGo8V-mgLMuPc7.mp4","https://content.jwplatform.com/videos/0aQ7lCbW-mgLMuPc7.mp4","https://content.jwplatform.com/videos/uXlNHtMU-mgLMuPc7.mp4","https://content.jwplatform.com/videos/dGoU2zrf-mgLMuPc7.mp4","https://content.jwplatform.com/videos/pLfg3EcC-mgLMuPc7.mp4","https://content.jwplatform.com/videos/h3meQv25-mgLMuPc7.mp4","https://content.jwplatform.com/videos/XiqFALJ1-mgLMuPc7.mp4","https://content.jwplatform.com/videos/T0jH5I5c-mgLMuPc7.mp4","https://content.jwplatform.com/videos/mhTwyhdD-mgLMuPc7.mp4","https://content.jwplatform.com/videos/NvjhuTtf-mgLMuPc7.mp4","https://content.jwplatform.com/videos/anRIC0Ho-mgLMuPc7.mp4","https://content.jwplatform.com/videos/5XKDTahm-mgLMuPc7.mp4","https://content.jwplatform.com/videos/ZkBeftSF-mgLMuPc7.mp4","https://content.jwplatform.com/videos/tcya1Mmv-mgLMuPc7.mp4","https://content.jwplatform.com/videos/lL7YBaGt-mgLMuPc7.mp4","https://content.jwplatform.com/videos/4DBeq6sZ-mgLMuPc7.mp4","https://content.jwplatform.com/videos/zWBa53eh-mgLMuPc7.mp4","https://content.jwplatform.com/videos/SLrQjwNH-mgLMuPc7.mp4","https://content.jwplatform.com/videos/MzNVtWEO-mgLMuPc7.mp4","https://content.jwplatform.com/videos/TYiF63HH-mgLMuPc7.mp4","https://content.jwplatform.com/videos/aDDiDGSX-mgLMuPc7.mp4","https://content.jwplatform.com/videos/fxcuYk98-mgLMuPc7.mp4","https://content.jwplatform.com/videos/ouKb7Tou-mgLMuPc7.mp4","https://content.jwplatform.com/videos/9NpAbvei-mgLMuPc7.mp4","https://content.jwplatform.com/videos/CgF7vVfC-mgLMuPc7.mp4","https://content.jwplatform.com/videos/YHWtRLW1-mgLMuPc7.mp4","https://content.jwplatform.com/videos/ijp5oSVT-mgLMuPc7.mp4","https://content.jwplatform.com/videos/PSpZsAAG-mgLMuPc7.mp4","https://content.jwplatform.com/videos/pIGCZRcP-mgLMuPc7.mp4","https://content.jwplatform.com/videos/5GENNX2C-mgLMuPc7.mp4","https://content.jwplatform.com/videos/Kif1Ihnf-mgLMuPc7.mp4","https://content.jwplatform.com/videos/zNWRpe3W-mgLMuPc7.mp4","https://content.jwplatform.com/videos/ze0JDywt-mgLMuPc7.mp4","https://content.jwplatform.com/videos/UsOQKEUe-mgLMuPc7.mp4","https://content.jwplatform.com/videos/JNaW7Tp0-mgLMuPc7.mp4","https://content.jwplatform.com/videos/riunL5Ow-mgLMuPc7.mp4","https://content.jwplatform.com/videos/Ghy7AdkC-mgLMuPc7.mp4","https://content.jwplatform.com/videos/BFdhhLyx-mgLMuPc7.mp4","https://content.jwplatform.com/videos/JXesOWKY-mgLMuPc7.mp4","https://content.jwplatform.com/videos/0ausGFec-mgLMuPc7.mp4","https://content.jwplatform.com/videos/0QBeCl9n-mgLMuPc7.mp4","https://content.jwplatform.com/videos/NZEl5s8S-mgLMuPc7.mp4","https://content.jwplatform.com/videos/DyffaBLm-mgLMuPc7.mp4","https://content.jwplatform.com/videos/OmoIYa1b-mgLMuPc7.mp4","https://content.jwplatform.com/videos/pplgbhrc-mgLMuPc7.mp4","https://content.jwplatform.com/videos/w2r9tNqq-mgLMuPc7.mp4","https://content.jwplatform.com/videos/3Taxga6K-mgLMuPc7.mp4","https://content.jwplatform.com/videos/SGgwYXL3-mgLMuPc7.mp4","https://content.jwplatform.com/videos/mLB9UpeC-mgLMuPc7.mp4","https://content.jwplatform.com/videos/baFeeoB9-mgLMuPc7.mp4","https://content.jwplatform.com/videos/h3UeglZW-mgLMuPc7.mp4","https://content.jwplatform.com/videos/L7fKKDiw-mgLMuPc7.mp4","https://content.jwplatform.com/videos/7OFakkDr-mgLMuPc7.mp4","https://content.jwplatform.com/videos/KkNmh6E8-mgLMuPc7.mp4","https://content.jwplatform.com/videos/d3aSi3Ak-mgLMuPc7.mp4","https://content.jwplatform.com/videos/XbqrmqcZ-mgLMuPc7.mp4","https://content.jwplatform.com/videos/0xQq0i1e-mgLMuPc7.mp4","https://content.jwplatform.com/videos/leF5IsT6-mgLMuPc7.mp4","https://content.jwplatform.com/videos/3ZKhGmH5-mgLMuPc7.mp4","https://content.jwplatform.com/videos/B0iM3hI4-mgLMuPc7.mp4","https://content.jwplatform.com/videos/anhAGA0C-mgLMuPc7.mp4","https://content.jwplatform.com/videos/5xyfg62p-mgLMuPc7.mp4","https://content.jwplatform.com/videos/St9EEp3x-mgLMuPc7.mp4","https://content.jwplatform.com/videos/ffXYiJ9J-mgLMuPc7.mp4","https://content.jwplatform.com/videos/fu7r7jF9-mgLMuPc7.mp4","https://content.jwplatform.com/videos/XHHLXywW-mgLMuPc7.mp4","https://content.jwplatform.com/videos/JOlK0NS6-mgLMuPc7.mp4","https://content.jwplatform.com/videos/ClPCDBY1-mgLMuPc7.mp4","https://content.jwplatform.com/videos/7xr3myvj-mgLMuPc7.mp4","https://content.jwplatform.com/videos/IYa88zA0-mgLMuPc7.mp4","https://content.jwplatform.com/videos/3dbad2iY-mgLMuPc7.mp4","https://content.jwplatform.com/videos/QcrXFzoo-mgLMuPc7.mp4","https://content.jwplatform.com/videos/abNi1mpv-mgLMuPc7.mp4","https://content.jwplatform.com/videos/HtcWx8E6-mgLMuPc7.mp4","https://content.jwplatform.com/videos/lgIdaiVM-mgLMuPc7.mp4","https://content.jwplatform.com/videos/iGWwFtU8-mgLMuPc7.mp4","https://content.jwplatform.com/videos/BwdYARUA-mgLMuPc7.mp4","https://content.jwplatform.com/videos/RbjX91Rj-mgLMuPc7.mp4"]},{"id":8,"name":"Yu Yu Hakusho","videos":["https://content.jwplatform.com/videos/SoAYRmbo-N6g4a1L4.mp4","https://content.jwplatform.com/videos/JKnE9N8e-N6g4a1L4.mp4","https://content.jwplatform.com/videos/yQss2YhC-N6g4a1L4.mp4","https://content.jwplatform.com/videos/7bl4WVOF-N6g4a1L4.mp4","https://content.jwplatform.com/videos/um2Goht0-N6g4a1L4.mp4","https://content.jwplatform.com/videos/EkaJespD-N6g4a1L4.mp4","https://content.jwplatform.com/videos/6eachH1I-N6g4a1L4.mp4","https://content.jwplatform.com/videos/FEe53PI7-N6g4a1L4.mp4","https://content.jwplatform.com/videos/DI6hQiBW-N6g4a1L4.mp4","https://content.jwplatform.com/videos/uQYiJ56D-N6g4a1L4.mp4","https://content.jwplatform.com/videos/uSEnoduX-N6g4a1L4.mp4","https://content.jwplatform.com/videos/WOb348Bz-N6g4a1L4.mp4","https://content.jwplatform.com/videos/1ueW4GEY-N6g4a1L4.mp4","https://content.jwplatform.com/videos/szu9VU4V-N6g4a1L4.mp4","https://content.jwplatform.com/videos/UznU2604-N6g4a1L4.mp4","https://content.jwplatform.com/videos/vdpOVQgd-N6g4a1L4.mp4","https://content.jwplatform.com/videos/T2FjFRLH-N6g4a1L4.mp4","https://content.jwplatform.com/videos/9H1vs8tY-N6g4a1L4.mp4","https://content.jwplatform.com/videos/CKPMkeZt-N6g4a1L4.mp4","https://content.jwplatform.com/videos/zakxeHGl-N6g4a1L4.mp4","https://content.jwplatform.com/videos/GRen6o5f-N6g4a1L4.mp4","https://content.jwplatform.com/videos/8IVNrjAw-N6g4a1L4.mp4","https://content.jwplatform.com/videos/EZak2nOn-N6g4a1L4.mp4","https://content.jwplatform.com/videos/VqYs6oHi-N6g4a1L4.mp4","https://content.jwplatform.com/videos/NWAyWcyT-N6g4a1L4.mp4","https://content.jwplatform.com/videos/ljuVIMYN-N6g4a1L4.mp4","https://content.jwplatform.com/videos/T9tXNZvH-N6g4a1L4.mp4","https://content.jwplatform.com/videos/kFSmqOck-N6g4a1L4.mp4","https://content.jwplatform.com/videos/2TkWrvDR-N6g4a1L4.mp4","https://content.jwplatform.com/videos/KksScPwK-N6g4a1L4.mp4","https://content.jwplatform.com/videos/RbKHJKUo-N6g4a1L4.mp4","https://content.jwplatform.com/videos/wV6S8y5e-N6g4a1L4.mp4","https://content.jwplatform.com/videos/s49KDYhP-N6g4a1L4.mp4","https://content.jwplatform.com/videos/49Z0q6WJ-N6g4a1L4.mp4","https://content.jwplatform.com/videos/Asaa0w3Y-N6g4a1L4.mp4","https://content.jwplatform.com/videos/45chfEgF-N6g4a1L4.mp4","https://content.jwplatform.com/videos/Cr3or1WO-N6g4a1L4.mp4","https://content.jwplatform.com/videos/1yfASUJq-N6g4a1L4.mp4","https://content.jwplatform.com/videos/htWs2uso-N6g4a1L4.mp4","https://content.jwplatform.com/videos/n17OXXY6-N6g4a1L4.mp4","https://content.jwplatform.com/videos/ZYsfpA2d-N6g4a1L4.mp4","https://content.jwplatform.com/videos/ve1ZdC2i-N6g4a1L4.mp4","https://content.jwplatform.com/videos/D2UwsLAo-N6g4a1L4.mp4","https://content.jwplatform.com/videos/UTCqkIaT-N6g4a1L4.mp4","https://content.jwplatform.com/videos/xZ9jw9wC-N6g4a1L4.mp4","https://content.jwplatform.com/videos/iboCZKyq-N6g4a1L4.mp4","https://content.jwplatform.com/videos/AQ2YJCUv-N6g4a1L4.mp4","https://content.jwplatform.com/videos/olUex370-N6g4a1L4.mp4","https://content.jwplatform.com/videos/cMt9FdSN-N6g4a1L4.mp4","https://content.jwplatform.com/videos/6xhYoCLD-N6g4a1L4.mp4","https://content.jwplatform.com/videos/ileNzwMt-N6g4a1L4.mp4","https://content.jwplatform.com/videos/SDXKMAiv-N6g4a1L4.mp4","https://content.jwplatform.com/videos/4LIRJOBS-N6g4a1L4.mp4","https://content.jwplatform.com/videos/GupY1KAc-N6g4a1L4.mp4","https://content.jwplatform.com/videos/m2x0dAcV-N6g4a1L4.mp4","https://content.jwplatform.com/videos/azXCc5dW-N6g4a1L4.mp4","https://content.jwplatform.com/videos/3jYMNhAu-N6g4a1L4.mp4","https://content.jwplatform.com/videos/wxoNRXIL-N6g4a1L4.mp4","https://content.jwplatform.com/videos/qjsrMptj-N6g4a1L4.mp4","https://content.jwplatform.com/videos/IkdlzKFZ-N6g4a1L4.mp4","https://content.jwplatform.com/videos/9LZnxFYf-N6g4a1L4.mp4","https://content.jwplatform.com/videos/R1Fmjayo-N6g4a1L4.mp4","https://content.jwplatform.com/videos/EIB2hlEH-N6g4a1L4.mp4","https://content.jwplatform.com/videos/CNpcsKkr-N6g4a1L4.mp4","https://content.jwplatform.com/videos/5psvb0g7-N6g4a1L4.mp4","https://content.jwplatform.com/videos/EEwTyo4u-N6g4a1L4.mp4","https://content.jwplatform.com/videos/tjRgMMdv-N6g4a1L4.mp4","https://content.jwplatform.com/videos/7RzuWaWq-N6g4a1L4.mp4","https://content.jwplatform.com/videos/C0mGT6Ns-N6g4a1L4.mp4","https://content.jwplatform.com/videos/WWREjF1p-N6g4a1L4.mp4","https://content.jwplatform.com/videos/80UHbCav-N6g4a1L4.mp4","https://content.jwplatform.com/videos/6lFHhkLp-N6g4a1L4.mp4","https://content.jwplatform.com/videos/Hnmyy4oK-N6g4a1L4.mp4","https://content.jwplatform.com/videos/WlwYVtEg-N6g4a1L4.mp4","https://content.jwplatform.com/videos/c7kgpMO2-N6g4a1L4.mp4","https://content.jwplatform.com/videos/l6XxYGrw-N6g4a1L4.mp4","https://content.jwplatform.com/videos/epfi3dzM-N6g4a1L4.mp4","https://content.jwplatform.com/videos/mWtuoqyz-N6g4a1L4.mp4","https://content.jwplatform.com/videos/CZ7ltf4S-N6g4a1L4.mp4","https://content.jwplatform.com/videos/285g3bNk-N6g4a1L4.mp4","https://content.jwplatform.com/videos/nJvIEhB4-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/LbGGA8P3-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/ULD4fkmF-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/lkMdnUiY-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/tcFdS8g2-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/LtpMGrUM-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/eXTbOFr0-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/zEw1byoB-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/EwKbgNBa-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/R4Erh38v-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/6pnyKlsd-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/aNwZqTl2-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/RvDRR9r9-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/XGj4ke1Y-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/DNqblbZ0-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/lB0IWaOP-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/EbYQ8tse-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/2OLB3h4E-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/FDuJpmx8-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/m3CYmLWF-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/8WilSiqX-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/6V7kbYHk-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/AYgb6rOC-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/dgx73Kiq-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/5y5flZXZ-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/AgeyEdS8-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/BRtp7Iss-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/85u4E6Al-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/cJTeoq5M-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/FfiHNWAn-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/Y7qMfQSv-hQh1ZpqX.mp4","https://content.jwplatform.com/videos/oP39HC0E-hQh1ZpqX.mp4"]},{"id":9,"name":"Inuyasha","videos":["https://content.jwplatform.com/videos/xekCFh2z-TEOiYGLa.mp4","https://content.jwplatform.com/videos/Avve5daN-TEOiYGLa.mp4","https://content.jwplatform.com/videos/O9j1OAl0-TEOiYGLa.mp4","https://content.jwplatform.com/videos/cGS4uTSM-TEOiYGLa.mp4","https://content.jwplatform.com/videos/mi9LMVm4-TEOiYGLa.mp4","https://content.jwplatform.com/videos/SL5M0JTR-TEOiYGLa.mp4","https://content.jwplatform.com/videos/BQPmMhPC-TEOiYGLa.mp4","https://content.jwplatform.com/videos/y0OjVNlG-TEOiYGLa.mp4","https://content.jwplatform.com/videos/y5g0dVUF-TEOiYGLa.mp4","https://content.jwplatform.com/videos/kkQAgI6M-TEOiYGLa.mp4","https://content.jwplatform.com/videos/vvYZWSuJ-TEOiYGLa.mp4","https://content.jwplatform.com/videos/FKR7N3Wp-TEOiYGLa.mp4","https://content.jwplatform.com/videos/WAtgqGzN-TEOiYGLa.mp4","https://content.jwplatform.com/videos/khhOqIFH-TEOiYGLa.mp4","https://content.jwplatform.com/videos/vRjWU3Kl-TEOiYGLa.mp4","https://content.jwplatform.com/videos/anEHRW4D-TEOiYGLa.mp4","https://content.jwplatform.com/videos/PBLn3WMj-TEOiYGLa.mp4","https://content.jwplatform.com/videos/VV2lzySW-TEOiYGLa.mp4","https://content.jwplatform.com/videos/bCk6oJh6-TEOiYGLa.mp4","https://content.jwplatform.com/videos/rWEs2y0Q-TEOiYGLa.mp4","https://content.jwplatform.com/videos/lGdNRB1f-TEOiYGLa.mp4","https://content.jwplatform.com/videos/eRBfLwNf-TEOiYGLa.mp4","https://content.jwplatform.com/videos/lZfhT7EQ-TEOiYGLa.mp4","https://content.jwplatform.com/videos/TKjfh8jQ-TEOiYGLa.mp4","https://content.jwplatform.com/videos/EADLj8d3-TEOiYGLa.mp4","https://content.jwplatform.com/videos/AmgqyNoz-TEOiYGLa.mp4","https://content.jwplatform.com/videos/YH9K83Fv-TEOiYGLa.mp4","https://content.jwplatform.com/videos/DJqiIedi-TEOiYGLa.mp4","https://content.jwplatform.com/videos/cZ85P6lG-TEOiYGLa.mp4","https://content.jwplatform.com/videos/xIdMv6dx-TEOiYGLa.mp4","https://content.jwplatform.com/videos/NXpvLcbd-TEOiYGLa.mp4","https://content.jwplatform.com/videos/vgPUyY3h-TEOiYGLa.mp4","https://content.jwplatform.com/videos/2S3wqoNo-TEOiYGLa.mp4","https://content.jwplatform.com/videos/df1FZEHy-TEOiYGLa.mp4","https://content.jwplatform.com/videos/fRYGEOST-TEOiYGLa.mp4","https://content.jwplatform.com/videos/VMI217AW-TEOiYGLa.mp4","https://content.jwplatform.com/videos/AM9qbgP5-TEOiYGLa.mp4","https://content.jwplatform.com/videos/cOrzgKl3-TEOiYGLa.mp4","https://content.jwplatform.com/videos/GWtAGXmL-TEOiYGLa.mp4","https://content.jwplatform.com/videos/BHyDttrq-TEOiYGLa.mp4","https://content.jwplatform.com/videos/vsuN1SI6-TEOiYGLa.mp4","https://content.jwplatform.com/videos/cLVXiDCA-TEOiYGLa.mp4","https://content.jwplatform.com/videos/AsSi3zcB-TEOiYGLa.mp4","https://content.jwplatform.com/videos/KkVzgTtZ-TEOiYGLa.mp4","https://content.jwplatform.com/videos/Cpv3D2r9-TEOiYGLa.mp4","https://content.jwplatform.com/videos/UdElFK9h-TEOiYGLa.mp4","https://content.jwplatform.com/videos/JGur9YZ5-TEOiYGLa.mp4","https://content.jwplatform.com/videos/7vdcRxFK-TEOiYGLa.mp4","https://content.jwplatform.com/videos/gAxkv5yB-TEOiYGLa.mp4","https://content.jwplatform.com/videos/WnxJDvZr-TEOiYGLa.mp4","https://content.jwplatform.com/videos/w45rwbj3-TEOiYGLa.mp4","https://content.jwplatform.com/videos/RDoJ0Ugt-TEOiYGLa.mp4","https://content.jwplatform.com/videos/OfmZgxd4-TEOiYGLa.mp4","https://content.jwplatform.com/videos/osuTSEEb-TEOiYGLa.mp4","https://content.jwplatform.com/videos/ZX6wTaA7-TEOiYGLa.mp4","https://content.jwplatform.com/videos/b3avEwFY-TEOiYGLa.mp4","https://content.jwplatform.com/videos/hyvNcXEM-TEOiYGLa.mp4","https://content.jwplatform.com/videos/ytxRW5U3-TEOiYGLa.mp4","https://content.jwplatform.com/videos/wRHRUNc3-TEOiYGLa.mp4","https://content.jwplatform.com/videos/LudagRai-TEOiYGLa.mp4","https://content.jwplatform.com/videos/GW4n4NeX-TEOiYGLa.mp4","https://content.jwplatform.com/videos/xCb5yPNq-TEOiYGLa.mp4","https://content.jwplatform.com/videos/vKfRY9lz-TEOiYGLa.mp4","https://content.jwplatform.com/videos/sTU8yuSu-TEOiYGLa.mp4","https://content.jwplatform.com/videos/VTj262qR-TEOiYGLa.mp4","https://content.jwplatform.com/videos/l9szS0UI-TEOiYGLa.mp4","https://content.jwplatform.com/videos/5jxKwriA-TEOiYGLa.mp4","https://content.jwplatform.com/videos/fhP54oYJ-TEOiYGLa.mp4","https://content.jwplatform.com/videos/WB9pVLpN-TEOiYGLa.mp4","https://content.jwplatform.com/videos/duCHUTmn-TEOiYGLa.mp4","https://content.jwplatform.com/videos/lfllFSf5-TEOiYGLa.mp4","https://content.jwplatform.com/videos/fM2G7CnI-TEOiYGLa.mp4","https://content.jwplatform.com/videos/r9fqVnYX-TEOiYGLa.mp4","https://content.jwplatform.com/videos/u518Z0rs-TEOiYGLa.mp4","https://content.jwplatform.com/videos/ys6trkti-TEOiYGLa.mp4","https://content.jwplatform.com/videos/k8CEYBZp-TEOiYGLa.mp4","https://content.jwplatform.com/videos/iR2XqFXU-TEOiYGLa.mp4","https://content.jwplatform.com/videos/mL8V4fps-TEOiYGLa.mp4","https://content.jwplatform.com/videos/KzGhhiYw-TEOiYGLa.mp4","https://content.jwplatform.com/videos/Okn8qSUS-TEOiYGLa.mp4","https://content.jwplatform.com/videos/0MNBtG8k-TEOiYGLa.mp4","https://content.jwplatform.com/videos/wTUWjTU5-TEOiYGLa.mp4","https://content.jwplatform.com/videos/9Qv43tYW-TEOiYGLa.mp4","https://content.jwplatform.com/videos/1l9phKCE-TEOiYGLa.mp4","https://content.jwplatform.com/videos/nc6YtWZ3-TEOiYGLa.mp4","https://content.jwplatform.com/videos/S4zaoK8K-TEOiYGLa.mp4","https://content.jwplatform.com/videos/Cw5PcenF-TEOiYGLa.mp4","https://content.jwplatform.com/videos/se4BBqpN-TEOiYGLa.mp4","https://content.jwplatform.com/videos/se4BBqpN-TEOiYGLa.mp4","https://content.jwplatform.com/videos/VTYNhN86-TEOiYGLa.mp4","https://content.jwplatform.com/videos/CzY3s2EP-TEOiYGLa.mp4","https://content.jwplatform.com/videos/MWDEC3Oi-TEOiYGLa.mp4","https://content.jwplatform.com/videos/DpWL9dDU-TEOiYGLa.mp4","https://content.jwplatform.com/videos/tP1JI7ga-TEOiYGLa.mp4","https://content.jwplatform.com/videos/8sDAi9W0-TEOiYGLa.mp4","https://content.jwplatform.com/videos/HMbkWMNN-TEOiYGLa.mp4","https://content.jwplatform.com/videos/WFFLh2rQ-TEOiYGLa.mp4","https://content.jwplatform.com/videos/AFy8CTPV-TEOiYGLa.mp4","https://content.jwplatform.com/videos/WH0LRnjs-TEOiYGLa.mp4","https://content.jwplatform.com/videos/oV9QT5Iw-TEOiYGLa.mp4","https://content.jwplatform.com/videos/MHf0UvQO-TEOiYGLa.mp4","https://content.jwplatform.com/videos/g2Es9gOP-TEOiYGLa.mp4","https://content.jwplatform.com/videos/74zslIEY-TEOiYGLa.mp4","https://content.jwplatform.com/videos/8kHOnFVX-TEOiYGLa.mp4","https://content.jwplatform.com/videos/OXEHEwdD-TEOiYGLa.mp4","https://content.jwplatform.com/videos/cfA7NKoI-TEOiYGLa.mp4","https://content.jwplatform.com/videos/YY8iykE0-TEOiYGLa.mp4","https://content.jwplatform.com/videos/BO39zQ43-TEOiYGLa.mp4","https://content.jwplatform.com/videos/TBeRE8q5-TEOiYGLa.mp4","https://content.jwplatform.com/videos/CF6jpB2S-TEOiYGLa.mp4","https://content.jwplatform.com/videos/ivIkdxQm-TEOiYGLa.mp4","https://content.jwplatform.com/videos/AuLdSLLN-TEOiYGLa.mp4","https://content.jwplatform.com/videos/kgpWB9kn-TEOiYGLa.mp4","https://content.jwplatform.com/videos/0a714iup-TEOiYGLa.mp4","https://content.jwplatform.com/videos/l5Ni6WHm-TEOiYGLa.mp4","https://content.jwplatform.com/videos/C3xS4uQB-TEOiYGLa.mp4","https://content.jwplatform.com/videos/zJC0vg4q-TEOiYGLa.mp4","https://content.jwplatform.com/videos/NC0Uaw8G-TEOiYGLa.mp4","https://content.jwplatform.com/videos/uPKt3TXR-TEOiYGLa.mp4","https://content.jwplatform.com/videos/Ws7Jl77q-TEOiYGLa.mp4","https://content.jwplatform.com/videos/j9z2ylDF-TEOiYGLa.mp4","https://content.jwplatform.com/videos/6a9w64HG-TEOiYGLa.mp4","https://content.jwplatform.com/videos/cGRI3zDF-TEOiYGLa.mp4","https://content.jwplatform.com/videos/YjyDbifi-TEOiYGLa.mp4","https://content.jwplatform.com/videos/tSn3gWI9-TEOiYGLa.mp4","https://content.jwplatform.com/videos/LrcnQkOX-TEOiYGLa.mp4","https://content.jwplatform.com/videos/8dNFZ2T1-TEOiYGLa.mp4","https://content.jwplatform.com/videos/ePODtGyI-TEOiYGLa.mp4","https://content.jwplatform.com/videos/0HqPHpv4-TEOiYGLa.mp4","https://content.jwplatform.com/videos/QTSJrq3e-TEOiYGLa.mp4","https://content.jwplatform.com/videos/ACgGsFyR-TEOiYGLa.mp4","https://content.jwplatform.com/videos/i57kSBhn-TEOiYGLa.mp4","https://content.jwplatform.com/videos/fglrbQ2N-TEOiYGLa.mp4","https://content.jwplatform.com/videos/fglrbQ2N-TEOiYGLa.mp4","https://content.jwplatform.com/videos/vN6KEFwZ-TEOiYGLa.mp4","https://content.jwplatform.com/videos/z4Q2HXcm-TEOiYGLa.mp4","https://content.jwplatform.com/videos/H1gZO1Up-TEOiYGLa.mp4","https://content.jwplatform.com/videos/8vzQT6j8-TEOiYGLa.mp4","https://content.jwplatform.com/videos/2adP41Wo-TEOiYGLa.mp4","https://content.jwplatform.com/videos/NeGvT3Jk-TEOiYGLa.mp4","https://content.jwplatform.com/videos/ZVrA6gPj-TEOiYGLa.mp4","https://content.jwplatform.com/videos/u7qt1DTL-TEOiYGLa.mp4","https://content.jwplatform.com/videos/DOcuFF1F-TEOiYGLa.mp4","https://content.jwplatform.com/videos/T3fZc5Oy-TEOiYGLa.mp4","https://content.jwplatform.com/videos/f51ugSY2-TEOiYGLa.mp4","https://content.jwplatform.com/videos/Og3G7XLH-TEOiYGLa.mp4","https://content.jwplatform.com/videos/HxBM43u0-TEOiYGLa.mp4","https://content.jwplatform.com/videos/HxBM43u0-TEOiYGLa.mp4","https://content.jwplatform.com/videos/t5TZTHB1-TEOiYGLa.mp4","https://content.jwplatform.com/videos/hbXZYaZ3-TEOiYGLa.mp4","https://content.jwplatform.com/videos/52o6eKWL-TEOiYGLa.mp4","https://content.jwplatform.com/videos/FOE5coM0-TEOiYGLa.mp4","https://content.jwplatform.com/videos/DzUrSeWm-TEOiYGLa.mp4","https://content.jwplatform.com/videos/c2IfcFNt-TEOiYGLa.mp4","https://content.jwplatform.com/videos/5Cpdv9K5-TEOiYGLa.mp4","https://content.jwplatform.com/videos/CJIcD5EN-TEOiYGLa.mp4","https://content.jwplatform.com/videos/Pjr3cMB8-TEOiYGLa.mp4","https://content.jwplatform.com/videos/fLOHnaQb-TEOiYGLa.mp4","https://content.jwplatform.com/videos/CW9Y4VPV-TEOiYGLa.mp4","https://content.jwplatform.com/videos/WJvdlfcg-TEOiYGLa.mp4","https://content.jwplatform.com/videos/4V1IUvgC-TEOiYGLa.mp4","https://content.jwplatform.com/videos/YgdOB0L0-TEOiYGLa.mp4","https://content.jwplatform.com/videos/OYIf00XF-TEOiYGLa.mp4","https://content.jwplatform.com/videos/1zLu9oId-TEOiYGLa.mp4","https://content.jwplatform.com/videos/bku5s2FT-TEOiYGLa.mp4","https://content.jwplatform.com/videos/dh6ugSlO-TEOiYGLa.mp4"]},{"id":10,"name":"Pokémon","videos":["https://content.jwplatform.com/videos/xGIgSrsw-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/dHW3Zd6y-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/78AvUjvU-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/92ci6Kcj-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/B4ky8yAy-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/3PYULQJM-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/JGaIj2mg-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/VCDrlh8g-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/WyKRA8Le-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/xVNMSXgW-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/vTWnoPnh-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/X58QdsFi-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/dejUYlPj-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/V6dRZkfj-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/sY07vOYi-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/bgfQHwHe-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/ciMBD46f-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/zgilqy5J-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/RiUI2ZuZ-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/KoXYz4qJ-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/DFHR6c26-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/6Fdrh9al-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/Gv6Lpv6d-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/aMfdRJVj-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/LdaBUaXT-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/0yb3MW2c-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/uMC6F311-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/7dnrqkum-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/ufhgYir0-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/7S2XS3Hj-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/jDQ5EctK-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/sg1rDTBQ-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/tnATccCm-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/MOtXnE4o-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/C7pPazcN-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/nYhUqTE3-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/Ye1lelt4-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/UGCBDndp-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/FOw4Q9k3-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/th3KFCHI-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/RwzzFEyU-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/ARRXvk7O-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/AJD79wJM-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/ScCOxx1j-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/dxiSmA3e-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/uoIoYOOp-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/5ttPJp96-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/NMDTAJVP-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/rIHhcgC9-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/EmApOgVd-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/jIjsfCgK-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/oJLSpb53-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/KKoorDC7-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/4I3hD4b4-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/FSLOsGYR-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/FJqKDKQs-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/2J90LkD1-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/s5j2cFes-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/vC8qYYZ5-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/2mWLkLBO-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/LQ5kXc2r-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/4KMOrLns-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/VBOJyoV8-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/b0dYRUHd-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/iTQsPuFv-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/L2oCQ5fz-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/8hAXBqY9-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/kJDMbqH4-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/XtAksczc-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/JM8qk3Nb-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/LqtKaK1J-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/bXDhEsJy-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/f5j9UvDj-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/uSDK9lxK-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/TZor5vCN-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/j2YkUJfJ-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/aIReorKS-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/Cl62jIrr-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/m65XhgeA-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/VICWzw92-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/pAMgQWBR-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/nGPvwJAA-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/or3igFaH-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/ppkgy9tG-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/ir4aKoh7-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/B1uGIYEY-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/95JfIjc7-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/jKW32hI4-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/gjwOaN7t-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/8yMuU9xX-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/z1V8USwj-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/H88NguFA-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/J8wTHo2S-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/y2bJIjcn-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/5zRxIHmr-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/Fa3C2NuG-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/ex8ejssZ-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/VFqTH9jD-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/6HoLEjFt-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/pcYXoXlD-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/MJR0mVIz-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/VkiVHVby-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/7NHsOEjU-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/LtSiJ7gt-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/jriKTeqi-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/Oa08H9W7-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/XfDqFDzc-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/sDxVykAh-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/0GYYm1V6-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/XjeDevao-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/LyBex0VR-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/UvvywS6o-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/aROoAqV2-6NjZ0F1D.mp4","https://content.jwplatform.com/videos/IGq9kE4j-6NjZ0F1D.mp4"]}];
+
+        const TV_PROGRAMS = [{"id":0,"name":"ANIMAX CDZ","totalVideos":294},{"id":1,"name":"ANIMAX SPORTS","totalVideos":193},{"id":2,"name":"ANIMAX FAMILY","totalVideos":94},{"id":3,"name":"HEROÍNAS","totalVideos":92},{"id":4,"name":"HARDMAX","totalVideos":83},{"id":5,"name":"Naruto Shippuden","totalVideos":112},{"id":6,"name":"Bleach","totalVideos":366},{"id":7,"name":"Dragon Ball Super","totalVideos":131},{"id":8,"name":"Yu Yu Hakusho","totalVideos":112},{"id":9,"name":"Inuyasha","totalVideos":166},{"id":10,"name":"Pokémon","totalVideos":114},{"id":11,"name":"Hunter X Hunter","totalVideos":148},{"id":12,"name":"Fullmetal Alchemist: Brotherhood","totalVideos":64}];
         const TV_PLAYLIST = [];
+        const PROGRAMMING_MODE = "grade";const TOTAL_PROGRAMS = 13;
+        const TOTAL_PLAYLIST_VIDEOS = 0;
+        const PROGRAM_VIDEO_COUNTS = [294,193,94,92,83,112,366,131,112,166,114,148,64];
         const TV_COMMERCIALS = ["https://www.youtube.com/watch?v=SMjfwFhAchQ","https://www.youtube.com/watch?v=OhoMfCyUHAs"];
         const ENABLE_COMMERCIALS = true;
         const COMMERCIALS_PER_BREAK = 1;
         const COMMERCIALS_ORDER = "sequential";
-        const GRADE = [0,1,2,3,4,5,6,7,8,9,10,0,1,2,3,4,5,6,7,8,9,10,0,1,2,3,4,5,6,7,8,9,10,0,1,2,3,4,5,6,7,8,9,10,0,1,2,3,4,5,6,7,8,9,10,0,1,2];
+        const GRADE = [0,1,2,3,4,5,6,7,8,9,10,11,12,0,1,2,3,4,5,6,7,8,9,10,11,12,0,1,2,3,4,5,6,7,8,9,10,11,12,0,1,2,3,4,5,6,7,8,9,10,11,12,0,1,2,3,4,5];
         const TOTAL_SLOTS = 58;
         const SLOT_DURATION = 25;
         const SHOW_TIME = true;
@@ -2149,7 +2257,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.4";
+        const CHANNEL_VERSION = "1.0.0.5";
         const CHANNEL_ID = "pG5v77WSdrg0eU0VpcMF";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2768,147 +2876,163 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-
-              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-        // Evitar múltiplos carregamentos simultâneos
-        if (isLoadingVideo) {
-            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-            return;
-        }
-        isLoadingVideo = true;
-        
-        
-        // Esconder player do YouTube se estiver visível
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
-        }
-        isYoutubeVideo = false;
-        
-        // Limpar container do YouTube se existir
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            youtubeContainer.innerHTML = '';
-        }
-        
-        // Verificar se temos elemento de vídeo
-        if (!videoElement) {
-            console.error('Elemento de vídeo não encontrado');
-            isLoadingVideo = false; // Resetar flag
-            return;
-        }
-        
-        // Parar qualquer vídeo atual ANTES de carregar novo
-        if (videoElement.src) {
-            videoElement.pause();
-            videoElement.src = '';
-        }
-        
-        // Configurações básicas
-videoElement.preload = 'auto';
-videoElement.playsInline = true;
-        
-        
-
-        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-        
-        // Remover event listeners antigos para evitar duplicação
-        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        videoElement.removeEventListener('canplay', handleCanPlay);
-        
-        // Configurar nova URL
-        videoElement.style.display = 'block';
-        videoElement.src = url;
-        
-        // ... continue com o resto do código existente ...
-            // Resetar mensagem de loading apenas se não for comercial
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-
-
-            // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-            if (loadingMessage && currentState !== 'commercial') {
-                loadingMessage.style.display = 'block';
-            }
+function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // Remover event listeners antigos para evitar duplicação
-    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-    videoElement.removeEventListener('canplay', handleCanPlay);
+    // Resetar flag IMEDIATAMENTE
+    isLoadingVideo = false;
     
-    // Configurar nova URL
+    // 1. Esconder YouTube
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+    }
+    isYoutubeVideo = false;
+    
+    // 2. Verificar se elemento de vídeo existe
+    if (!videoElement) {
+        console.error('❌ videoElement não existe no DOM');
+        return;
+    }
+    
+    // 3. PARAR e LIMPAR completamente
+    try {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
+    } catch (e) {
+        console.log('Não foi possível limpar vídeo anterior:', e);
+    }
+    
+    // 4. Configurar atributos ESSENCIAIS
+    videoElement.playsInline = true;
+    videoElement.preload = 'auto';
+    videoElement.crossOrigin = 'anonymous';
+    videoElement.setAttribute('playsinline', '');
+    videoElement.setAttribute('webkit-playsinline', '');
+    videoElement.setAttribute('crossorigin', 'anonymous');
+    
+    // 5. MOSTRAR elemento
     videoElement.style.display = 'block';
+    
+    // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
+    console.log('📥 Definindo src no elemento de vídeo');
     videoElement.src = url;
     
-    // Função para quando os metadados são carregados
-    function handleMetadataLoaded() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+    // 7. Configurar eventos
+    function handleLoadedMetadata() {
+        console.log('✅ loadedmetadata - Duração:', videoElement.duration);
+        
+        // Calcular tempo inicial
+        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1 && videoElement.duration) {
+            const startTime = videoElement.duration * iniciarNoPercentual;
+            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
         }
         
-        // Calcular tempo inicial baseado no percentual do slot
-        let startTime = 0;
-        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-            const videoDuration = videoElement.duration || 0;
-            if (videoDuration > 0) {
-                startTime = videoDuration * iniciarNoPercentual;
-                startTime = Math.min(startTime, videoDuration - 1);
-            }
-        }
-        
-        // Definir tempo inicial
-        videoElement.currentTime = startTime;
-        
-        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
+        // Reproduzir se necessário
         if (autoplay && userStartedPlayback) {
-            videoElement.muted = false;
+            console.log('▶️ Tentando reproduzir...');
             
-            const playPromise = videoElement.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log('Autoplay bloqueado:', error);
+            // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
+            videoElement.muted = false;
+            videoElement.volume = 1.0;
+            
+            videoElement.play()
+                .then(() => {
+                    console.log('✅ Vídeo reproduzindo (áudio ativo imediatamente)');
+                })
+                .catch(error => {
+                    console.error('❌ play() falhou:', error.name, error.message);
+                    
+                    // Se falhar por políticas de autoplay, tentar com mute e pedir interação
+                    if (error.name === 'NotAllowedError') {
+                        console.log('⚠️ Autoplay bloqueado. Tentando com mute...');
+                        videoElement.muted = true;
+                        videoElement.play()
+                            .then(() => {
+                                console.log('✅ Vídeo reproduzindo (muted por política)');
+                                // Mostrar botão para ativar áudio
+                                if (autoplayOverlay) {
+                                    // 🔥 CORREÇÃO: Use strings normais, não template literals aninhados
+                                    autoplayOverlay.classList.remove('hidden');
+                                    autoplayOverlay.innerHTML = 
+                                        '<h3>Clique para ativar o áudio</h3>' +
+                                        '<button class="autoplay-button" id="activateAudioBtn">' +
+                                        'Ativar Áudio' +
+                                        '</button>';
+                                    
+                                    // Adicionar evento separadamente
+                                    document.getElementById('activateAudioBtn').addEventListener('click', function() {
+                                        videoElement.muted = false;
+                                        autoplayOverlay.classList.add('hidden');
+                                    });
+                                }
+                            });
+                    }
                 });
+        }
+    }
+    
+    function handleError(e) {
+        console.error('❌ ERRO no elemento de vídeo:');
+        console.error('Código:', videoElement.error?.code);
+        console.error('Mensagem:', videoElement.error?.message);
+        console.error('URL tentada:', url);
+        
+        // Mostrar erro específico
+        if (videoElement.error) {
+            switch(videoElement.error.code) {
+                case 1: console.error('🚫 Erro: MEDIA_ERR_ABORTED'); break;
+                case 2: console.error('🚫 Erro: MEDIA_ERR_NETWORK'); break;
+                case 3: console.error('🚫 Erro: MEDIA_ERR_DECODE'); break;
+                case 4: console.error('🚫 Erro: MEDIA_ERR_SRC_NOT_SUPPORTED'); break;
             }
-        } else {
-            videoElement.pause();
         }
     }
     
-    // Função para quando o vídeo pode começar a tocar
     function handleCanPlay() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+        console.log('✅ canplay - Pronto para reprodução');
+    }
+    
+    function handlePlaying() {
+        console.log('▶️ playing - Vídeo começou a tocar');
+        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
+        if (videoElement.muted) {
+            videoElement.muted = false;
         }
     }
     
-    // Adicionar novos event listeners
-    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
+    // Remover listeners antigos
+    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.removeEventListener('error', handleError);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    videoElement.removeEventListener('playing', handlePlaying);
+    
+    // Adicionar novos listeners (APENAS UMA VEZ)
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    videoElement.addEventListener('playing', handlePlaying, { once: true });
     
-    // Resetar flag de carregamento quando o vídeo estiver pronto
-    const resetLoadingFlag = function() {
-        isLoadingVideo = false;
-    };
-    
-    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
-    
-    // Iniciar carregamento
+    // 8. INICIAR carregamento
+    console.log('🔄 Chamando videoElement.load()');
     videoElement.load();
     
-    // Timeout de segurança para vídeos que não carregam
+    // 9. Timeout para debug
     setTimeout(() => {
-        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
-            console.warn('Vídeo demorando para carregar:', url);
+        console.log('⏱️ Estado após 3s:', {
+            readyState: videoElement.readyState,
+            error: videoElement.error,
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            src: videoElement.src?.substring(0, 100)
+        });
+        
+        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
+        if (videoElement.muted && userStartedPlayback) {
+            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
+            videoElement.muted = false;
         }
-    }, 10000);
+    }, 3000);
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
@@ -3048,14 +3172,51 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            const cloudFunctionUrl = videoInfo.videoUrl;
+
+if (!cloudFunctionUrl) {
+    console.error('URL da Cloud Function não disponível');
+    return;
+}
+
+console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
+
+// FAZER A REQUISIÇÃO PARA OBTER A URL REAL DO VÍDEO
+fetch(cloudFunctionUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📦 Resposta da Cloud Function:', data);
+        
+        if (data.success && data.url && data.url.trim() !== '') {
+            console.log('✅ URL real do vídeo:', data.url.substring(0, 80) + '...');
             
-            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
+                carregarVideoYouTube(data.url, iniciarNoPercentual, true);
             } else {
-                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+                carregarVideoHTML5(data.url, iniciarNoPercentual, true);
             }
-            
+        } else {
+            console.error('❌ Cloud Function não retornou URL válida:', data);
+            // Tentar próximo slot após 3 segundos
+            setTimeout(() => {
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao buscar URL da Cloud Function:', error);
+        // Tentar próximo slot após 3 segundos
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+    });
             currentState = 'program';
         }
         
@@ -4155,6 +4316,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     </script>
     
+
 
 </body>
 </html>
