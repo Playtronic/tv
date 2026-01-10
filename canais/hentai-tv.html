@@ -13,8 +13,9 @@
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 
+
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.3">
+    <meta name="version" content="1.0.0.4">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="true">
     <meta name="programming-mode" content="playlist">
@@ -1032,7 +1033,7 @@
         
  <div class="contact-info">Contato: acmebrasil@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.3
+            Versão 1.0.0.4
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1108,40 +1109,48 @@
 
                 
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-                function cleanupInactiveViewers() {
-                    if (!CHANNEL_ID) return;
-                    
-                    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                    
-                    viewersRef.once('value').then(snapshot => {
-                        if (!snapshot.exists()) return;
-                        
-                        const viewers = snapshot.val();
-                        const now = Date.now();
-                        const updates = {};
-                        
-                        Object.keys(viewers).forEach(key => {
-                            const viewer = viewers[key];
-                            if (viewer && viewer.lastHeartbeat) {
-                                const timeDiff = now - viewer.lastHeartbeat;
-                                if (timeDiff > 90000) { // 🔥 90 segundos inativo
-                                    updates[key] = null;
-                                }
-                            } else if (viewer && viewer.timestamp) {
-                                const timeDiff = now - viewer.timestamp;
-                                if (timeDiff > 180000) { // 🔥 3 minutos sem heartbeat
-                                    updates[key] = null;
-                                }
-                            }
-                        });
-                        
-                        if (Object.keys(updates).length > 0) {
-                            viewersRef.update(updates)
-                                .then(() => console.log('Espectadores inativos removidos'))
-                                .catch(err => console.log('Não foi possível limpar espectadores'));
-                        }
-                    });
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -1172,73 +1181,134 @@
                 }
                 
                 async function handleVote(voteType) {
-                    if (!currentUserChannel) {
-                        document.getElementById('loginOverlayChannel').style.display = 'flex';
-                        return;
-                    }
-                    
-                    if (!channelStatsRef) return;
-                    
-                    const userId = currentUserChannel.uid;
-                    const userVoteRef = userVotesRef.child(userId);
-                    
-                    try {
-                        const snapshot = await userVoteRef.once('value');
-                        const currentVote = snapshot.val();
-                        
-                        if (currentVote === voteType) {
-                            await userVoteRef.remove();
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            currentUserVote = null;
-                        } else {
-                            if (currentVote === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            } else if (currentVote === 'dislike') {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) - 1;
-                                });
-                            }
-                            
-                            await userVoteRef.set(voteType);
-                            
-                            if (voteType === 'like') {
-                                await likesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            } else {
-                                await dislikesRef.transaction((current) => {
-                                    return (current || 0) + 1;
-                                });
-                            }
-                            
-                            currentUserVote = voteType;
-                        }
-                        
-                        if (window.showControls) {
-                            window.showControls();
-                        }
-                        
-                        if (window.resetControlsTimer) {
-                            window.resetControlsTimer();
-                        }
-                        
-                    } catch (error) {
-                        console.error('Erro ao processar voto:', error);
-                        alert('Erro ao registrar voto. Tente novamente.');
-                    }
-                }
+    // 🔥 CORREÇÃO 1: Bloquear múltiplos cliques imediatamente
+    const likeBtn = document.getElementById('likeBtn');
+    const dislikeBtn = document.getElementById('dislikeBtn');
+    
+    // Desabilitar ambos os botões
+    if (likeBtn) likeBtn.disabled = true;
+    if (dislikeBtn) dislikeBtn.disabled = true;
+    
+    // 🔥 CORREÇÃO 2: Feedback visual imediato
+    if (voteType === 'like' && likeBtn) {
+        likeBtn.style.opacity = '0.7';
+    } else if (voteType === 'dislike' && dislikeBtn) {
+        dislikeBtn.style.opacity = '0.7';
+    }
+    
+    if (!currentUserChannel) {
+        document.getElementById('loginOverlayChannel').style.display = 'flex';
+        
+        // Reabilitar botões após 500ms
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    if (!channelStatsRef) {
+        // Reabilitar botões
+        if (likeBtn) {
+            likeBtn.disabled = false;
+            likeBtn.style.opacity = '1';
+        }
+        if (dislikeBtn) {
+            dislikeBtn.disabled = false;
+            dislikeBtn.style.opacity = '1';
+        }
+        return;
+    }
+    
+    const userId = currentUserChannel.uid;
+    const userVoteRef = userVotesRef.child(userId);
+    
+    try {
+        const snapshot = await userVoteRef.once('value');
+        const currentVote = snapshot.val();
+        
+        if (currentVote === voteType) {
+            // Remover voto existente
+            await userVoteRef.remove();
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            currentUserVote = null;
+        } else {
+            // Mudar voto
+            if (currentVote === 'like') {
+                await likesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            } else if (currentVote === 'dislike') {
+                await dislikesRef.transaction((current) => {
+                    // 🔥 CORREÇÃO 3: Evitar números negativos
+                    const newValue = (current || 0) - 1;
+                    return newValue < 0 ? 0 : newValue;
+                });
+            }
+            
+            await userVoteRef.set(voteType);
+            
+            if (voteType === 'like') {
+                await likesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            } else {
+                await dislikesRef.transaction((current) => {
+                    return (current || 0) + 1;
+                });
+            }
+            
+            currentUserVote = voteType;
+        }
+        
+        if (window.showControls) {
+            window.showControls();
+        }
+        
+        if (window.resetControlsTimer) {
+            window.resetControlsTimer();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar voto:', error);
+        alert('Erro ao registrar voto. Tente novamente.');
+    } finally {
+        // 🔥 CORREÇÃO 4: Sempre reabilitar botões após processamento
+        setTimeout(() => {
+            if (likeBtn) {
+                likeBtn.disabled = false;
+                likeBtn.style.opacity = '1';
+            }
+            if (dislikeBtn) {
+                dislikeBtn.disabled = false;
+                dislikeBtn.style.opacity = '1';
+            }
+        }, 1000); // Delay de 1 segundo para evitar spam
+    }
+}
                 
                 function updateLikeDislikeUI() {
                     const likeCount = document.getElementById('likeCount');
@@ -1513,19 +1583,19 @@ function calcularSlotAtual() {
             const programIndex = GRADE[slotIndex - 1]; // slotIndex é base 1, GRADE é base 0
             const programa = TV_PROGRAMS[programIndex];
             
-            if (!programa || !programa.videos || programa.videos.length === 0) {
-                return null;
-            }
+            if (!programa) {
+    return null;
+}
             
             // Ajustar o vídeo baseado nos dias desde a estreia
-            const totalVideosSlot = programa.videos.length;
+            const totalVideosSlot = programa.totalVideos || 1;
             const videoIndexAjustado = ajustarVideoNoSlot(diasDesdeEstreia, totalVideosSlot);
             
-            currentVideoIndex = videoIndexAjustado - 1; // Converter para base 0
+            currentVideoIndex = videoIndexAjustado - 1;
             
             return {
                 programa: programa,
-                videoUrl: programa.videos[currentVideoIndex],
+                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -1584,7 +1654,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: videoInfo.url,
+                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -1633,6 +1703,12 @@ if (slotIndex === currentPlayingSlot) {
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
+        // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
+        if (isYoutubeVideo) {
+            console.log('YouTube detectado - desativando sincronização');
+            return;
+        }
+        
         if (syncCheckInterval) {
             clearInterval(syncCheckInterval);
         }
@@ -1659,7 +1735,6 @@ if (slotIndex === currentPlayingSlot) {
         
         startAudioMonitoring();
     }
-
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -1756,6 +1831,9 @@ if (slotIndex === currentPlayingSlot) {
     function detectAndRecoverAudio() {
         const now = Date.now();
         
+        // 🔥 CORREÇÃO: Não recuperar áudio para YouTube
+        if (isYoutubeVideo) return false;
+        
         const recoveryCooldown = intensiveMonitoring ? 500 : SYNC_CONFIG.audioRecoveryThreshold;
         if (now - lastAudioRecoveryTime < recoveryCooldown) {
             return false;
@@ -1765,7 +1843,7 @@ if (slotIndex === currentPlayingSlot) {
             return false;
         }
         
-        if (isYoutubeVideo || !videoElement || !userStartedPlayback) {
+        if (!videoElement || !userStartedPlayback) {
             return false;
         }
         
@@ -1822,7 +1900,34 @@ if (slotIndex === currentPlayingSlot) {
         return false;
     }
 
+// 🔥 FUNÇÃO FALTANDO: calculateExpectedTime
+function calculateExpectedTime(duration) {
+    if (PROGRAMMING_MODE === 'grade') {
+        // Modo Grade: tempo baseado no slot atual
+        const slotAtual = obterSlotParaExibicao();
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    } else {
+        // Modo Playlist: tempo baseado no tempo desde estreia
+        const percentualSlot = calcularPercentualSlot();
+        
+        if (duration && duration > 0) {
+            return duration * percentualSlot;
+        }
+        return 0;
+    }
+}
+
     function checkAndFixSync() {
+        // 🔥 CORREÇÃO: NÃO sincronizar vídeos do YouTube
+        if (isYoutubeVideo) {
+            return; // YouTube tem seu próprio sistema de sincronização
+        }
+        
         if (isManualSeeking || !userStartedPlayback) {
             return;
         }
@@ -1834,13 +1939,8 @@ if (slotIndex === currentPlayingSlot) {
         let currentTime, duration, playbackRate;
         
         if (isYoutubeVideo && youtubePlayer && playerReady) {
-            try {
-                currentTime = youtubePlayer.getCurrentTime();
-                duration = youtubePlayer.getDuration();
-                playbackRate = 1.0;
-            } catch (e) {
-                return;
-            }
+            // YouTube - não sincronizar
+            return;
         } else if (videoElement && videoElement.readyState >= 2) {
             currentTime = videoElement.currentTime;
             duration = videoElement.duration;
@@ -1884,6 +1984,9 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function subtleSyncFix(drift, currentTime, duration, playbackRate) {
+        // 🔥 CORREÇÃO: Não aplicar correções para YouTube
+        if (isYoutubeVideo) return;
+        
         const driftAbs = Math.abs(drift);
         
         const adjustmentMultiplier = intensiveMonitoring ? 1.5 : 1.0;
@@ -1921,9 +2024,7 @@ if (slotIndex === currentPlayingSlot) {
         const newTime = currentTime + adjustment;
         
         if (newTime >= 0 && newTime < duration - 0.5) {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(newTime, true);
-            } else if (videoElement) {
+            if (videoElement) {
                 const audioStateBeforeSeek = {
                     muted: videoElement.muted,
                     volume: videoElement.volume,
@@ -1955,6 +2056,7 @@ if (slotIndex === currentPlayingSlot) {
     }
 
     function imperceptibleRefresh() {
+        // 🔥 CORREÇÃO: Não fazer refresh para YouTube
         if (isYoutubeVideo || !videoElement || videoElement.paused) return;
         
         const currentTime = videoElement.currentTime;
@@ -2020,14 +2122,17 @@ if (slotIndex === currentPlayingSlot) {
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
-                setTimeout(initSyncSystem, 1000);
-                
-                const refreshInterval = intensiveMonitoring ? 45000 : 120000;
-                setInterval(() => {
-                    if (!isManualSeeking && currentState !== 'commercial') {
-                        imperceptibleRefresh();
-                    }
-                }, refreshInterval);
+                // 🔥 CORREÇÃO: Não iniciar sincronização para YouTube
+                if (!isYoutubeVideo) {
+                    setTimeout(initSyncSystem, 1000);
+                    
+                    const refreshInterval = intensiveMonitoring ? 45000 : 120000;
+                    setInterval(() => {
+                        if (!isManualSeeking && currentState !== 'commercial' && !isYoutubeVideo) {
+                            imperceptibleRefresh();
+                        }
+                    }, refreshInterval);
+                }
             });
             
             videoElement.addEventListener('pause', () => {
@@ -2098,9 +2203,12 @@ if (slotIndex === currentPlayingSlot) {
     
     <script>
         // CONFIGURAÇÕES DO CANAL
-        const PROGRAMMING_MODE = "playlist";
+
         const TV_PROGRAMS = [];
-        const TV_PLAYLIST = [{"id":0,"name":"A Forbidden Time 01","url":"https://content.jwplatform.com/videos/mc5fJTV7-le7IbEwe.mp4"},{"id":1,"name":"A Forbidden Time 02","url":"https://content.jwplatform.com/videos/CRZIy1tU-le7IbEwe.mp4"},{"id":2,"name":"A Forbidden Time 03","url":"https://content.jwplatform.com/videos/DctcuBpJ-3aDotwOX.mp4"},{"id":3,"name":"A Forbidden Time 04","url":"https://content.jwplatform.com/videos/IETPk91R-le7IbEwe.mp4"},{"id":4,"name":"A Forbidden Time 05","url":"https://videos.assistirhentai.com/pubfolder/hentai/AForbiddenTime/5.mp4"},{"id":5,"name":"A Forbidden Time 06","url":"https://content.jwplatform.com/videos/vDvhr562-le7IbEwe.mp4"},{"id":6,"name":"A Forbidden Time 07","url":"https://content.jwplatform.com/videos/kNfe6HIR-le7IbEwe.mp4"},{"id":7,"name":"After The Animation 01","url":"https://content.jwplatform.com/videos/M2E4bV3m-le7IbEwe.mp4"},{"id":8,"name":"After The Animation 02","url":"https://content.jwplatform.com/videos/134jiBV3-le7IbEwe.mp4"},{"id":9,"name":"Ai Doll 01","url":"https://content.jwplatform.com/videos/yuJNRq5i-GrAHi5fx.mp4"},{"id":10,"name":"Ai Doll 02","url":"https://content.jwplatform.com/videos/22f66dyf-GrAHi5fx.mp4"},{"id":11,"name":"Ai Doll 03","url":"https://content.jwplatform.com/videos/EvdK6KTP-GrAHi5fx.mp4"},{"id":12,"name":"Ai Doll 04","url":"https://content.jwplatform.com/videos/uUbbBO19-GrAHi5fx.mp4"},{"id":13,"name":"Akebi No Hana Maho","url":"https://content.jwplatform.com/videos/6S2d60Z1-le7IbEwe.mp4"},{"id":14,"name":"Alice Doll 01","url":"https://content.jwplatform.com/videos/tB2CMdNT-GrAHi5fx.mp4"},{"id":15,"name":"Alice Doll 02","url":"https://content.jwplatform.com/videos/Gff3VCsW-GrAHi5fx.mp4"},{"id":16,"name":"Amanee!","url":"https://content.jwplatform.com/videos/3hN7H3Zc-GrAHi5fx.mp4"},{"id":17,"name":"Anata Dake Konbanwa 01","url":"https://content.jwplatform.com/videos/bqGUt3Lv-GrAHi5fx.mp4"},{"id":18,"name":"Anata Dake Konbanwa 02","url":"https://content.jwplatform.com/videos/dTOVUnAH-GrAHi5fx.mp4"},{"id":19,"name":"Anata Dake Konbanwa 03","url":"https://content.jwplatform.com/videos/YRBKKxJq-GrAHi5fx.mp4"},{"id":20,"name":"Anata Dake Konbanwa 04","url":"https://content.jwplatform.com/videos/Zv1v22BL-GrAHi5fx.mp4"},{"id":21,"name":"Anata Dake Konbanwa 05","url":"https://content.jwplatform.com/videos/wR3YW2XZ-GrAHi5fx.mp4"},{"id":22,"name":"Ane Koi Suki Kirai Daisuki 01","url":"https://content.jwplatform.com/videos/lbRguMSB-GrAHi5fx.mp4"},{"id":23,"name":"Ane Koi Suki Kirai Daisuki 02","url":"https://content.jwplatform.com/videos/gOTgcPXH-GrAHi5fx.mp4"},{"id":24,"name":"Ane Kyun!","url":"https://content.jwplatform.com/videos/gJBkl2Qi-GrAHi5fx.mp4"},{"id":25,"name":"Ane To Boin 01","url":"https://content.jwplatform.com/videos/4Oy9DGCE-le7IbEwe.mp4"},{"id":26,"name":"Ane To Boin 02","url":"https://content.jwplatform.com/videos/s6qfK3Zd-le7IbEwe.mp4"},{"id":27,"name":"Angel Blade 01","url":"https://content.jwplatform.com/videos/irHJZbCr-le7IbEwe.mp4"},{"id":28,"name":"Angel Blade 02","url":"https://content.jwplatform.com/videos/YJfUIv4C-le7IbEwe.mp4"},{"id":29,"name":"Angel Blade 03","url":"https://content.jwplatform.com/videos/8RXUbNfi-le7IbEwe.mp4"},{"id":30,"name":"Angel Blade 04","url":"https://content.jwplatform.com/videos/25HsmmL4-le7IbEwe.mp4"},{"id":31,"name":"Aniyome Wa Ijippari 01","url":"https://content.jwplatform.com/videos/gNA3IPa0-GrAHi5fx.mp4"},{"id":32,"name":"Aniyome Wa Ijippari 02","url":"https://content.jwplatform.com/videos/daFXoekr-GrAHi5fx.mp4"},{"id":33,"name":"Babuka 01","url":"https://content.jwplatform.com/videos/adWUS2pX-GrAHi5fx.mp4"},{"id":34,"name":"Babuka 02","url":"https://content.jwplatform.com/videos/McLstbir-GrAHi5fx.mp4"},{"id":35,"name":"Bakuhatsu Sunzen Tenshi No Countdown","url":"https://content.jwplatform.com/videos/D2briUFF-le7IbEwe.mp4"},{"id":36,"name":"Behind Closed Doors 01","url":"https://content.jwplatform.com/videos/xVafDVWD-le7IbEwe.mp4"},{"id":37,"name":"Behind Closed Doors 02","url":"https://content.jwplatform.com/videos/89aWaXc8-le7IbEwe.mp4"},{"id":38,"name":"Behind Closed Doors 03","url":"https://content.jwplatform.com/videos/mIO64KGJ-le7IbEwe.mp4"},{"id":39,"name":"Bible Black 1","url":"https://content.jwplatform.com/videos/qtcrtz5S-3aDotwOX.mp4"},{"id":40,"name":"Bible Black 2","url":"https://content.jwplatform.com/videos/7pXgVNcQ-3aDotwOX.mp4"},{"id":41,"name":"Bible Black 3","url":"https://content.jwplatform.com/videos/tHlECpP9-3aDotwOX.mp4"},{"id":42,"name":"Bible Black 4","url":"https://content.jwplatform.com/videos/Fp7He1hH-3aDotwOX.mp4"},{"id":43,"name":"Bible Black 5","url":"https://content.jwplatform.com/videos/iVJTTFg6-3aDotwOX.mp4"},{"id":44,"name":"Bible Black 6","url":"https://content.jwplatform.com/videos/7uY2UO46-3aDotwOX.mp4"},{"id":45,"name":"Bible Black Gaiden 1","url":"https://content.jwplatform.com/videos/ciMIdDVz-3aDotwOX.mp4"},{"id":46,"name":"Bible Black Gaiden 2","url":"https://content.jwplatform.com/videos/uJpecDo9-3aDotwOX.mp4"},{"id":47,"name":"Bible Black New Testament 1","url":"https://content.jwplatform.com/videos/Y8HgvSn6-le7IbEwe.mp4"},{"id":48,"name":"Bible Black New Testament 2","url":"https://content.jwplatform.com/videos/4GPEVXio-le7IbEwe.mp4"},{"id":49,"name":"Bible Black New Testament 3","url":"https://content.jwplatform.com/videos/Ztfpb64I-le7IbEwe.mp4"},{"id":50,"name":"Bible Black New Testament 4","url":"https://content.jwplatform.com/videos/p701VPKd-le7IbEwe.mp4"},{"id":51,"name":"Bible Black New Testament 5","url":"https://content.jwplatform.com/videos/Iso68kOY-le7IbEwe.mp4"},{"id":52,"name":"Bible Black New Testament 6","url":"https://content.jwplatform.com/videos/RTgqbwOO-le7IbEwe.mp4"},{"id":53,"name":"Bible Black Only Version 1","url":"https://content.jwplatform.com/videos/t9bBwUSF-3aDotwOX.mp4"},{"id":54,"name":"Bible Black Only Version 2","url":"https://content.jwplatform.com/videos/cNbfZmQP-le7IbEwe.mp4"},{"id":55,"name":"Bible Black Only Version 3","url":"https://content.jwplatform.com/videos/KTo7wyqB-le7IbEwe.mp4"},{"id":56,"name":"Blackmail 1","url":"https://content.jwplatform.com/videos/SZHuScHR-le7IbEwe.mp4"},{"id":57,"name":"Blackmail 2","url":"https://content.jwplatform.com/videos/lsFYNGDP-le7IbEwe.mp4"},{"id":58,"name":"Blackmail 3","url":"https://content.jwplatform.com/videos/bKVzNz1e-le7IbEwe.mp4"},{"id":59,"name":"Blackmail 4","url":"https://content.jwplatform.com/videos/ApNPvB8T-le7IbEwe.mp4"},{"id":60,"name":"Blackmail 5","url":"https://content.jwplatform.com/videos/dViyN8pj-le7IbEwe.mp4"},{"id":61,"name":"Blackmail 6","url":"https://content.jwplatform.com/videos/OS1W5Ejb-le7IbEwe.mp4"},{"id":62,"name":"Blood Shadow 1","url":"https://content.jwplatform.com/videos/ZjK7WemY-le7IbEwe.mp4"},{"id":63,"name":"Blood Shadow 2","url":"https://content.jwplatform.com/videos/Nghysw5M-le7IbEwe.mp4"},{"id":64,"name":"Blood Shadow 3","url":"https://content.jwplatform.com/videos/x9EWpO2R-le7IbEwe.mp4"},{"id":65,"name":"Blood Shadow 4","url":"https://content.jwplatform.com/videos/32nDqVq7-le7IbEwe.mp4"},{"id":66,"name":"Bondage Mansion 1","url":"https://content.jwplatform.com/videos/IO6ZgcCj-le7IbEwe.mp4"},{"id":67,"name":"Bondage Mansion 2","url":"https://content.jwplatform.com/videos/8Mk6GzZT-le7IbEwe.mp4"},{"id":68,"name":"Buta Hime-sama","url":"https://content.jwplatform.com/videos/8BkzKUQ5-GrAHi5fx.mp4"},{"id":69,"name":"City Of Sin","url":"https://content.jwplatform.com/videos/E9KkVjQC-le7IbEwe.mp4"},{"id":70,"name":"Court No Naka No Tenshi-tachi 1","url":"https://content.jwplatform.com/videos/67dqVUZK-3aDotwOX.mp4"},{"id":71,"name":"Court No Naka No Tenshi-tachi 2","url":"https://content.jwplatform.com/videos/lJ1LVkph-3aDotwOX.mp4"},{"id":72,"name":"Custom Reido","url":"https://content.jwplatform.com/videos/4buiECEN-GrAHi5fx.mp4"},{"id":73,"name":"DNA Hunter 1","url":"https://content.jwplatform.com/videos/msDG5yxE-le7IbEwe.mp4"},{"id":74,"name":"DNA Hunter 2","url":"https://content.jwplatform.com/videos/hf93nLMG-le7IbEwe.mp4"},{"id":75,"name":"DNA Hunter 3","url":"https://content.jwplatform.com/videos/ZT2eGv4G-le7IbEwe.mp4"},{"id":76,"name":"Dainiji Ura Nyuugakushiken","url":"https://content.jwplatform.com/videos/ZAzzbMzx-GrAHi5fx.mp4"},{"id":77,"name":"Daraku Onna Kyoushi Hakai 1","url":"https://content.jwplatform.com/videos/WBnaK5SP-le7IbEwe.mp4"},{"id":78,"name":"Daraku Onna Kyoushi Hakai 2","url":"https://content.jwplatform.com/videos/wA7H750v-le7IbEwe.mp4"},{"id":79,"name":"Daraku Onna Kyoushi Hakai 3","url":"https://content.jwplatform.com/videos/1kCIUrmE-le7IbEwe.mp4"},{"id":80,"name":"Daraku Reijou","url":"https://content.jwplatform.com/videos/1AGsOrMQ-GrAHi5fx.mp4"},{"id":81,"name":"Dark 1","url":"https://content.jwplatform.com/videos/fFY9h9hd-le7IbEwe.mp4"},{"id":82,"name":"Dark 2","url":"https://content.jwplatform.com/videos/KLLZWW2v-le7IbEwe.mp4"},{"id":83,"name":"Dark Chapel 1","url":"https://content.jwplatform.com/videos/4as1c8Eq-le7IbEwe.mp4"},{"id":84,"name":"Dark Chapel 2","url":"https://content.jwplatform.com/videos/7AbDIf60-le7IbEwe.mp4"},{"id":85,"name":"Dark Shell 1","url":"https://content.jwplatform.com/videos/NtmgQxdO-le7IbEwe.mp4"},{"id":86,"name":"Dark Shell 2","url":"https://content.jwplatform.com/videos/ydXiRgCT-le7IbEwe.mp4"},{"id":87,"name":"Dark Tours","url":"https://content.jwplatform.com/videos/OFi5LHR7-3aDotwOX.mp4"},{"id":88,"name":"Doura 1","url":"https://content.jwplatform.com/videos/VCuqb10h-le7IbEwe.mp4"},{"id":89,"name":"Doura 2","url":"https://content.jwplatform.com/videos/uzhaUSIB-le7IbEwe.mp4"},{"id":90,"name":"Doura 3","url":"https://content.jwplatform.com/videos/sjUx7E0C-le7IbEwe.mp4"},{"id":91,"name":"Doura 4","url":"https://content.jwplatform.com/videos/Hc5LvwWH-le7IbEwe.mp4"},{"id":92,"name":"Ecchi Soudanshitsu","url":"https://content.jwplatform.com/videos/aSWEvg5D-GrAHi5fx.mp4"},{"id":93,"name":"El 01","url":"https://content.jwplatform.com/videos/kzOZhrp0-le7IbEwe.mp4"},{"id":94,"name":"El 02","url":"https://content.jwplatform.com/videos/g34Ixenb-le7IbEwe.mp4"},{"id":95,"name":"Endless Serenade","url":"https://content.jwplatform.com/videos/ntYl8Et1-le7IbEwe.mp4"},{"id":96,"name":"Enyoku","url":"https://content.jwplatform.com/videos/h9k6X6jJ-GrAHi5fx.mp4"},{"id":97,"name":"Esper Bishoujo Manami","url":"https://content.jwplatform.com/videos/nJsUWloR-GrAHi5fx.mp4"},{"id":98,"name":"Etsuraku No Tane","url":"https://content.jwplatform.com/videos/IRVRakf4-GrAHi5fx.mp4"},{"id":99,"name":"F-Force 1","url":"https://content.jwplatform.com/videos/bcpCxBey-le7IbEwe.mp4"},{"id":100,"name":"F-Force 2","url":"https://content.jwplatform.com/videos/bN8R0nrh-le7IbEwe.mp4"},{"id":101,"name":"F-Force 3","url":"https://content.jwplatform.com/videos/rgmYr8xn-le7IbEwe.mp4"},{"id":102,"name":"Fairy Forest Remi Chan","url":"https://content.jwplatform.com/videos/keBmjR3l-le7IbEwe.mp4"},{"id":103,"name":"Fechikano!","url":"https://content.jwplatform.com/videos/gP4NCUWe-GrAHi5fx.mp4"},{"id":104,"name":"Goblin No Suana 1","url":"https://animeflix.blog/Animes/Letra-G/Goblin%20no%20Suana/01.mp4"},{"id":105,"name":"Goblin No Suana 2","url":"https://animeflix.blog/Animes/Letra-G/Goblin%20no%20Suana/02.mp4"},{"id":106,"name":"Goblin No Suana 3","url":"https://animeflix.blog/Animes/Letra-G/Goblin%20no%20Suana/03.mp4"},{"id":107,"name":"Goblin No Suana 4","url":"https://animeflix.blog/Animes/Letra-G/Goblin%20no%20Suana/04.mp4"},{"id":108,"name":"Mahou Shoujo Meruru - 1","url":"https://content.jwplatform.com/videos/Ex5GTnuu-le7IbEwe.mp4"},{"id":109,"name":"Mahou Shoujo Meruru - 2","url":"https://content.jwplatform.com/videos/kutFVITh-le7IbEwe.mp4"},{"id":110,"name":"Five Card 1","url":"https://content.jwplatform.com/videos/lJe0yRDe-ZIYoNiDt.mp4"},{"id":111,"name":"Five Card 2","url":"https://content.jwplatform.com/videos/GxVvc5Sw-ZIYoNiDt.mp4"},{"id":112,"name":"Five Card 3","url":"https://content.jwplatform.com/videos/C2nJExyw-ZIYoNiDt.mp4"},{"id":113,"name":"Five Card 4","url":"https://content.jwplatform.com/videos/lnJT4hSo-ZIYoNiDt.mp4"},{"id":114,"name":"Flashback 1","url":"https://content.jwplatform.com/videos/am8SsEjS-ZIYoNiDt.mp4"},{"id":115,"name":"Flashback 2","url":"https://content.jwplatform.com/videos/TOJAQKUZ-ZIYoNiDt.mp4"},{"id":116,"name":"Flashback 3","url":"https://content.jwplatform.com/videos/GALqvtWw-ZIYoNiDt.mp4"},{"id":117,"name":"Front Innocent","url":"https://content.jwplatform.com/videos/emv3ViIl-ZIYoNiDt.mp4"},{"id":118,"name":"Furueru Kuchibiru 1","url":"https://content.jwplatform.com/videos/06kL8pES-vV6ObWRY.mp4"},{"id":119,"name":"Furueru Kuchibiru 2","url":"https://content.jwplatform.com/videos/krzB2KSa-vV6ObWRY.mp4"},{"id":120,"name":"G-Taste","url":"https://content.jwplatform.com/videos/CEcPbYjh-vV6ObWRY.mp4"},{"id":121,"name":"Gibo No Toiki 1","url":"https://content.jwplatform.com/videos/VuPURVeo-ZIYoNiDt.mp4"},{"id":122,"name":"Gibo No Toiki 2","url":"https://content.jwplatform.com/videos/SeESkxct-ZIYoNiDt.mp4"},{"id":123,"name":"Girl Next Door 1","url":"https://content.jwplatform.com/videos/2XYtEL72-ZIYoNiDt.mp4"},{"id":124,"name":"Girl Next Door 2","url":"https://content.jwplatform.com/videos/UiuusIXz-ZIYoNiDt.mp4"},{"id":125,"name":"Gogo No Kouchou","url":"https://content.jwplatform.com/videos/LToxeMEB-vV6ObWRY.mp4"},{"id":126,"name":"Green Eyes Ane Kyun!","url":"https://content.jwplatform.com/videos/UhcstSoR-vV6ObWRY.mp4"},{"id":127,"name":"Haitoku No Shoujo 1","url":"https://content.jwplatform.com/videos/S5KFupyE-ZIYoNiDt.mp4"},{"id":128,"name":"Haitoku No Shoujo 2","url":"https://content.jwplatform.com/videos/R7qDhfCk-ZIYoNiDt.mp4"},{"id":129,"name":"Hana Dorei 1","url":"https://content.jwplatform.com/videos/yRkDuhj0-ZIYoNiDt.mp4"},{"id":130,"name":"Hana Dorei 2","url":"https://content.jwplatform.com/videos/MGgxOuEB-ZIYoNiDt.mp4"},{"id":131,"name":"Heartwork Symphony Of Destruction 1","url":"https://content.jwplatform.com/videos/W0wPzLjM-ZIYoNiDt.mp4"},{"id":132,"name":"Heartwork Symphony Of Destruction 2","url":"https://content.jwplatform.com/videos/KohBw92T-ZIYoNiDt.mp4"},{"id":133,"name":"Heartwork Symphony Of Destruction 3","url":"https://content.jwplatform.com/videos/3dlQwkDj-ZIYoNiDt.mp4"},{"id":134,"name":"Heisa Byoutou 1","url":"https://content.jwplatform.com/videos/4DkxKKa7-ZIYoNiDt.mp4"},{"id":135,"name":"Heisa Byoutou 2","url":"https://content.jwplatform.com/videos/Nq3ZJjx8-ZIYoNiDt.mp4"},{"id":136,"name":"Heisei Jogakuen Kagai Lesson","url":"https://content.jwplatform.com/videos/0AFSySqP-ZIYoNiDt.mp4"},{"id":137,"name":"Hentai Express","url":"https://content.jwplatform.com/videos/5otnH57o-ZIYoNiDt.mp4"},{"id":138,"name":"Hika Ryoujoku The Lust Of Shame","url":"https://content.jwplatform.com/videos/AvgcM9xg-ZIYoNiDt.mp4"},{"id":139,"name":"Hinadori No Saezuri 1","url":"https://content.jwplatform.com/videos/deGs70Co-ZIYoNiDt.mp4"},{"id":140,"name":"Hinadori No Saezuri 2","url":"https://content.jwplatform.com/videos/vVo5kBK1-ZIYoNiDt.mp4"},{"id":141,"name":"Hontou Ni Atta 1","url":"https://content.jwplatform.com/videos/SzDKkdfY-vV6ObWRY.mp4"},{"id":142,"name":"Hontou Ni Atta 2","url":"https://content.jwplatform.com/videos/Cr1sf04r-vV6ObWRY.mp4"},{"id":143,"name":"Hooligan 1","url":"https://content.jwplatform.com/videos/T3cf0ir3-ZIYoNiDt.mp4"},{"id":144,"name":"Hooligan 2","url":"https://content.jwplatform.com/videos/vELSpXIn-ZIYoNiDt.mp4"},{"id":145,"name":"House Of 100 Tongues","url":"https://content.jwplatform.com/videos/3mm7B0Mb-vV6ObWRY.mp4"},{"id":146,"name":"Ikenai Koto 1","url":"https://content.jwplatform.com/videos/A4eKkcEk-ZIYoNiDt.mp4"},{"id":147,"name":"Ikenai Koto 2","url":"https://content.jwplatform.com/videos/zLWWVzuH-vV6ObWRY.mp4"},{"id":148,"name":"Ikoku Na Retro","url":"https://content.jwplatform.com/videos/D1AHLuzq-ZIYoNiDt.mp4"},{"id":149,"name":"Immoral Sisters 1","url":"https://content.jwplatform.com/videos/hkdegacy-ZIYoNiDt.mp4"},{"id":150,"name":"Immoral Sisters 2","url":"https://content.jwplatform.com/videos/kSjznQiz-ZIYoNiDt.mp4"},{"id":151,"name":"Immoral Sisters 3","url":"https://content.jwplatform.com/videos/DOwJKSNr-08tKjWBO.mp4"},{"id":152,"name":"In No Houteishiki 1","url":"https://content.jwplatform.com/videos/f9DRi1J2-08tKjWBO.mp4"},{"id":153,"name":"In No Houteishiki 2","url":"https://content.jwplatform.com/videos/PSwy4TMA-ZIYoNiDt.mp4"},{"id":154,"name":"Injoku No Heya","url":"https://content.jwplatform.com/videos/RdsL7Xeh-ZIYoNiDt.mp4"},{"id":155,"name":"Injuu Gakuen La Blue Girl Fukkatsu Hen 1","url":"https://content.jwplatform.com/videos/WAQeV5Un-ZIYoNiDt.mp4"},{"id":156,"name":"Injuu Gakuen La Blue Girl Fukkatsu Hen 2","url":"https://content.jwplatform.com/videos/rnxHAqph-ZIYoNiDt.mp4"},{"id":157,"name":"Injuu Gakuen La Blue Girl Fukkatsu Hen 3","url":"https://content.jwplatform.com/videos/cn8rdJdH-ZIYoNiDt.mp4"},{"id":158,"name":"Injuu Gakuen La Blue Girl Fukkatsu Hen 4","url":"https://content.jwplatform.com/videos/nHdOEuk2-ZIYoNiDt.mp4"},{"id":159,"name":"Inmu 2 - 01","url":"https://content.jwplatform.com/videos/JXTTof4D-ZIYoNiDt.mp4"},{"id":160,"name":"Inmu 2 - 02","url":"https://content.jwplatform.com/videos/dM7YjmWv-ZIYoNiDt.mp4"},{"id":161,"name":"Inmu Gakuen","url":"https://content.jwplatform.com/videos/0iDjspIl-ZIYoNiDt.mp4"},{"id":162,"name":"Inmu Ikenie No Utage 1","url":"https://content.jwplatform.com/videos/4iqMPjbT-ZIYoNiDt.mp4"},{"id":163,"name":"Inmu Ikenie No Utage 2","url":"https://content.jwplatform.com/videos/2KiMdYEs-vV6ObWRY.mp4"},{"id":164,"name":"Inyouchuu Shoku","url":"https://content.jwplatform.com/videos/0cxzEJ5g-ZIYoNiDt.mp4"},{"id":165,"name":"Isaku Respect 1","url":"https://content.jwplatform.com/videos/Vv6gbCum-ZIYoNiDt.mp4"},{"id":166,"name":"Isaku Respect 2","url":"https://content.jwplatform.com/videos/x5CkZfsM-ZIYoNiDt.mp4"},{"id":167,"name":"Isaku Respect 3","url":"https://content.jwplatform.com/videos/f0VBCGkm-vV6ObWRY.mp4"},{"id":168,"name":"Itadaki! Seieki","url":"https://content.jwplatform.com/videos/EuYmxW2a-vV6ObWRY.mp4"},{"id":169,"name":"Jewelry","url":"https://content.jwplatform.com/videos/2RAxxF3a-ZIYoNiDt.mp4"},{"id":170,"name":"Jinshin Yuugi 1","url":"https://content.jwplatform.com/videos/9UzgkJ79-ZIYoNiDt.mp4"},{"id":171,"name":"Jinshin Yuugi 2","url":"https://content.jwplatform.com/videos/utHr7tjp-ZIYoNiDt.mp4"},{"id":172,"name":"Jokei Kazoku Inbou 1","url":"https://content.jwplatform.com/videos/t8GrJQDo-ZIYoNiDt.mp4"},{"id":173,"name":"Jokei Kazoku Inbou 2","url":"https://content.jwplatform.com/videos/EqJVZSiD-vV6ObWRY.mp4"},{"id":174,"name":"Joou-sama Wa M Dorei","url":"https://content.jwplatform.com/videos/x8bfKLlZ-vV6ObWRY.mp4"},{"id":175,"name":"Juvenile Pornography","url":"https://content.jwplatform.com/videos/GfSaEtW0-ZIYoNiDt.mp4"},{"id":176,"name":"Kaette Kita Court No Naka No Tenshi-tachi 1","url":"https://content.jwplatform.com/videos/bUZO95ZM-08tKjWBO.mp4"},{"id":177,"name":"Kaette Kita Court No Naka No Tenshi-tachi 2","url":"https://content.jwplatform.com/videos/ipdvZ9hN-vV6ObWRY.mp4"},{"id":178,"name":"Kagaku Na Yatsura","url":"https://content.jwplatform.com/videos/ovwtmj9x-ZIYoNiDt.mp4"},{"id":179,"name":"Kaihouku Chikan Harem","url":"https://content.jwplatform.com/videos/qltQbxBX-vV6ObWRY.mp4"},{"id":180,"name":"Kanojo Ga Nekomimi Ni Kigaetara","url":"https://content.jwplatform.com/videos/7soNqLTj-vV6ObWRY.mp4"},{"id":181,"name":"Kanojo X Kanojo X Kanojo 1","url":"https://content.jwplatform.com/videos/dxnABVac-vV6ObWRY.mp4"},{"id":182,"name":"Kanojo X Kanojo X Kanojo 2","url":"https://content.jwplatform.com/videos/AVCw3YKS-vV6ObWRY.mp4"},{"id":183,"name":"Kanojo X Kanojo X Kanojo 3","url":"https://content.jwplatform.com/videos/FHwXzld3-vV6ObWRY.mp4"},{"id":184,"name":"Kansen Ball Buster","url":"https://content.jwplatform.com/videos/3sPws3Ky-ZIYoNiDt.mp4"},{"id":185,"name":"Karen","url":"https://content.jwplatform.com/videos/vZek04zt-ZIYoNiDt.mp4"},{"id":186,"name":"Kekkai","url":"https://content.jwplatform.com/videos/viwegjpC-vV6ObWRY.mp4"},{"id":187,"name":"Kimihagu 1","url":"https://content.jwplatform.com/videos/awiftzVI-vV6ObWRY.mp4"},{"id":188,"name":"Kimihagu 2","url":"https://content.jwplatform.com/videos/jMibGOfY-vV6ObWRY.mp4"},{"id":189,"name":"Koi Maguwai","url":"https://content.jwplatform.com/videos/Oh7ZPppf-ZIYoNiDt.mp4"},{"id":190,"name":"Koihime 1","url":"https://content.jwplatform.com/videos/gefEpqG8-ZIYoNiDt.mp4"},{"id":191,"name":"Koihime 2","url":"https://content.jwplatform.com/videos/0HItKFUt-ZIYoNiDt.mp4"},{"id":192,"name":"Kokudo Ou 1","url":"https://content.jwplatform.com/videos/SUyNp5I1-ZIYoNiDt.mp4"},{"id":193,"name":"Kokudo Ou 2","url":"https://content.jwplatform.com/videos/Rp0Wqtwe-ZIYoNiDt.mp4"},{"id":194,"name":"Kokudo Ou 3","url":"https://content.jwplatform.com/videos/wNj23k44-ZIYoNiDt.mp4"},{"id":195,"name":"Kokudo Ou 4","url":"https://content.jwplatform.com/videos/jMPYKNRa-ZIYoNiDt.mp4"},{"id":196,"name":"Kokudo Ou 5","url":"https://content.jwplatform.com/videos/W0HQ3Jfe-vV6ObWRY.mp4"},{"id":197,"name":"Korashime 1","url":"https://content.jwplatform.com/videos/IE2rHMj3-vV6ObWRY.mp4"},{"id":198,"name":"Korashime 2","url":"https://content.jwplatform.com/videos/iejOirsM-08tKjWBO.mp4"},{"id":199,"name":"Kowaremono 1","url":"https://content.jwplatform.com/videos/8rSecDv9-08tKjWBO.mp4"},{"id":200,"name":"Kowaremono 2","url":"https://content.jwplatform.com/videos/OVfIKASs-08tKjWBO.mp4"},{"id":201,"name":"Kowaremono 3","url":"https://content.jwplatform.com/videos/ojTi3rX5-ZIYoNiDt.mp4"},{"id":202,"name":"Kowaremono 4","url":"https://content.jwplatform.com/videos/Dp6Ni4v9-ZIYoNiDt.mp4"},{"id":203,"name":"Kowaremono 5","url":"https://content.jwplatform.com/videos/ju8Dwhh6-vV6ObWRY.mp4"},{"id":204,"name":"Kowaremono The Animation","url":"https://content.jwplatform.com/videos/JcDblT4P-ZIYoNiDt.mp4"},{"id":205,"name":"Kunoichi Gakuen Ninpouchou 1","url":"https://content.jwplatform.com/videos/D9q1Qqr7-ZIYoNiDt.mp4"},{"id":206,"name":"Kunoichi Gakuen Ninpouchou 2","url":"https://content.jwplatform.com/videos/2clRVjiJ-ZIYoNiDt.mp4"},{"id":207,"name":"Kunoichi Gakuen Ninpouchou 3","url":"https://content.jwplatform.com/videos/RY6sbVE3-vV6ObWRY.mp4"},{"id":208,"name":"Kunoichi Gakuen Ninpouchou 4","url":"https://content.jwplatform.com/videos/lNpM89AH-ZIYoNiDt.mp4"},{"id":209,"name":"Kunoichi Gakuen Ninpouchou 5","url":"https://content.jwplatform.com/videos/4axo2eqm-ZIYoNiDt.mp4"},{"id":210,"name":"Kunoichi Gakuen Ninpouchou 6","url":"https://content.jwplatform.com/videos/PbUdpRbx-vV6ObWRY.mp4"},{"id":211,"name":"Kyouiku Shidou The Animation","url":"https://content.jwplatform.com/videos/JISGvNd4-dCrD7g5Y.mp4"},{"id":212,"name":"Kowaremono Risa","url":"https://content.jwplatform.com/videos/Jv7CSHMJ-dCrD7g5Y.mp4"},{"id":213,"name":"Kowaremono Risa Plus","url":"https://content.jwplatform.com/videos/6Bdo85Sn-ZPAM15jV.mp4"},{"id":214,"name":"Kowaremono Leatherman 1","url":"https://content.jwplatform.com/videos/odQIespR-ZPAM15jV.mp4"},{"id":215,"name":"Kowaremono Leatherman 2","url":"https://content.jwplatform.com/videos/2cINsEv8-ZPAM15jV.mp4"},{"id":216,"name":"Kowaremono Leatherman 3","url":"https://content.jwplatform.com/videos/4nNP209c-ZPAM15jV.mp4"},{"id":217,"name":"Kowaremono Leatherman 4","url":"https://content.jwplatform.com/videos/3Jj5OghH-ZPAM15jV.mp4"},{"id":218,"name":"Kowaremono Leatherman 5","url":"https://content.jwplatform.com/videos/YAo1ct74-ZPAM15jV.mp4"},{"id":219,"name":"Lingeries Office 1","url":"https://content.jwplatform.com/videos/CFkgKfjM-ZPAM15jV.mp4"},{"id":220,"name":"Lingeries Office 2","url":"https://content.jwplatform.com/videos/KZIQHY3E-ZPAM15jV.mp4"},{"id":221,"name":"Lingeries Office 3","url":"https://content.jwplatform.com/videos/E1kN2Pcn-dCrD7g5Y.mp4"},{"id":222,"name":"Love Bitch Yasashii Onna","url":"https://content.jwplatform.com/videos/llJHMqx9-ZPAM15jV.mp4"},{"id":223,"name":"Love Is The Number Of Keys","url":"https://content.jwplatform.com/videos/btGoowhv-ZPAM15jV.mp4"},{"id":224,"name":"Luv Wave 1","url":"https://content.jwplatform.com/videos/XD42aDZG-dCrD7g5Y.mp4"},{"id":225,"name":"Luv Wave 2","url":"https://content.jwplatform.com/videos/fN6mbBmJ-dCrD7g5Y.mp4"},{"id":226,"name":"Luv Wave 3","url":"https://content.jwplatform.com/videos/IEitHayL-dCrD7g5Y.mp4"},{"id":227,"name":"M Okui Last Order","url":"https://content.jwplatform.com/videos/HNGzNUYm-dCrD7g5Y.mp4"},{"id":228,"name":"Maid Ane 1","url":"https://content.jwplatform.com/videos/yyZkHwiB-dCrD7g5Y.mp4"},{"id":229,"name":"Maid Ane 2","url":"https://content.jwplatform.com/videos/GF4xWT1k-ZPAM15jV.mp4"},{"id":230,"name":"Maid Meshimase","url":"https://content.jwplatform.com/videos/wpoJwGfk-dCrD7g5Y.mp4"},{"id":231,"name":"Mayohiga No Onee-san","url":"https://content.jwplatform.com/videos/FInelPis-dCrD7g5Y.mp4"},{"id":232,"name":"Mesu Saga Persona","url":"https://content.jwplatform.com/videos/XQTXAggd-ZPAM15jV.mp4"},{"id":233,"name":"Mezzo Forte 1","url":"https://content.jwplatform.com/videos/vciHrODi-ZPAM15jV.mp4"},{"id":234,"name":"Mezzo Forte 2","url":"https://content.jwplatform.com/videos/mGIt1WRH-ZPAM15jV.mp4"},{"id":235,"name":"Mini Skirt Jogakuen","url":"https://content.jwplatform.com/videos/gd6kJwdT-dCrD7g5Y.mp4"},{"id":236,"name":"Miyazaki Maya Daizukan 1","url":"https://content.jwplatform.com/videos/vcNkt9jL-dCrD7g5Y.mp4"},{"id":237,"name":"Miyazaki Maya Daizukan 2","url":"https://content.jwplatform.com/videos/x4YRdsgT-ZPAM15jV.mp4"},{"id":238,"name":"Moonlight Lady 1","url":"https://content.jwplatform.com/videos/FQZFZ5Bc-ZPAM15jV.mp4"},{"id":239,"name":"Moonlight Lady 2","url":"https://content.jwplatform.com/videos/uOQZNqyh-ZPAM15jV.mp4"},{"id":240,"name":"Moonlight Lady 3","url":"https://content.jwplatform.com/videos/7UKsmTWu-ZPAM15jV.mp4"},{"id":241,"name":"Moonlight Lady 4","url":"https://content.jwplatform.com/videos/7UKsmTWu-ZPAM15jV.mp4"},{"id":242,"name":"Moonlight Lady 5","url":"https://content.jwplatform.com/videos/y3aMsjLs-dCrD7g5Y.mp4"},{"id":243,"name":"Mou Hasamazu ni wa Irarenai","url":"https://content.jwplatform.com/videos/Oseu8Bb0-ZPAM15jV.mp4"},{"id":244,"name":"Mugen No Kyoukai 1","url":"https://content.jwplatform.com/videos/qIYf0JEG-ZPAM15jV.mp4"},{"id":245,"name":"Mugen No Kyoukai 2","url":"https://content.jwplatform.com/videos/Z6k33Cgq-ZPAM15jV.mp4"},{"id":246,"name":"Mugen No Kyoukai 3","url":"https://content.jwplatform.com/videos/Z6k33Cgq-ZPAM15jV.mp4"},{"id":247,"name":"Mugen No Kyoukai 4","url":"https://content.jwplatform.com/videos/yPrvEc9B-ZPAM15jV.mp4"},{"id":248,"name":"Nami S.O.S.","url":"https://content.jwplatform.com/videos/5OL6HNHV-ZPAM15jV.mp4"},{"id":249,"name":"Natural 2 - Duo 1","url":"https://content.jwplatform.com/videos/njqT9Bvs-ZPAM15jV.mp4"},{"id":250,"name":"Natural 2 - Duo 2","url":"https://content.jwplatform.com/videos/rIrR38tq-ZPAM15jV.mp4"},{"id":251,"name":"Natural 2 - Duo 3","url":"https://content.jwplatform.com/videos/rIrR38tq-ZPAM15jV.mp4"},{"id":252,"name":"Natural 2 - Duo 4","url":"https://content.jwplatform.com/videos/Jra5itMh-ZPAM15jV.mp4"},{"id":253,"name":"Necromancer","url":"https://content.jwplatform.com/videos/bDoxWRgt-dCrD7g5Y.mp4"},{"id":254,"name":"Netorare Zuma","url":"https://content.jwplatform.com/videos/G8x87I5C-ZPAM15jV.mp4"},{"id":255,"name":"Night Shift Nurses 1","url":"https://content.jwplatform.com/videos/NOxqAjE8-dCrD7g5Y.mp4"},{"id":256,"name":"Night Shift Nurses 2","url":"https://content.jwplatform.com/videos/i3mtzXQm-ZPAM15jV.mp4"},{"id":257,"name":"Night Shift Nurses 3","url":"https://content.jwplatform.com/videos/DBbp3ibe-ZPAM15jV.mp4"},{"id":258,"name":"Night Shift Nurses 4","url":"https://content.jwplatform.com/videos/DW2cJVAJ-ZPAM15jV.mp4"},{"id":259,"name":"Night Shift Nurses 5","url":"https://content.jwplatform.com/videos/nwahHoYx-ZPAM15jV.mp4"},{"id":260,"name":"Night Shift Nurses 6","url":"https://content.jwplatform.com/videos/1mHvjVqN-ZPAM15jV.mp4"},{"id":261,"name":"Night Shift Nurses 7","url":"https://content.jwplatform.com/videos/MHjEWu9K-l6zQ6nXp.mp4"},{"id":262,"name":"Night Shift Nurses 8","url":"https://content.jwplatform.com/videos/OMx9igjW-l6zQ6nXp.mp4"},{"id":263,"name":"Night Shift Nurses 9","url":"https://content.jwplatform.com/videos/VqG84qt3-dCrD7g5Y.mp4"},{"id":264,"name":"Night Shift Nurses 10","url":"https://content.jwplatform.com/videos/vCbXBsgO-ZPAM15jV.mp4"},{"id":265,"name":"Kazama Mana","url":"https://content.jwplatform.com/videos/UClFBuGq-dCrD7g5Y.mp4"},{"id":266,"name":"Ren Nanase","url":"https://content.jwplatform.com/videos/uhvOAyQU-dCrD7g5Y.mp4"},{"id":267,"name":"Yagami Yu","url":"https://content.jwplatform.com/videos/uhvOAyQU-dCrD7g5Y.mp4"},{"id":268,"name":"Okusama Wa Joshikousei","url":"https://content.jwplatform.com/videos/GHLcWlsk-ZPAM15jV.mp4"},{"id":269,"name":"Oni Tensei 1","url":"https://content.jwplatform.com/videos/ea4DgTNr-ZPAM15jV.mp4"},{"id":270,"name":"Oni Tensei 2","url":"https://content.jwplatform.com/videos/hCqRJCJw-ZPAM15jV.mp4"},{"id":271,"name":"Oni Tensei 3","url":"https://content.jwplatform.com/videos/QeNQfmML-ZPAM15jV.mp4"},{"id":272,"name":"Oni Tensei 4","url":"https://content.jwplatform.com/videos/kaLuAgp3-ZPAM15jV.mp4"},{"id":273,"name":"Onna Kateikyoushi Bishounen Kari","url":"https://content.jwplatform.com/videos/u0JHcg2k-dCrD7g5Y.mp4"},{"id":274,"name":"Oppai no Ouja 48 - 1","url":"https://content.jwplatform.com/videos/EaLNx2dL-dCrD7g5Y.mp4"},{"id":275,"name":"Oppai no Ouja 48 - 2","url":"https://content.jwplatform.com/videos/TMNohE3p-ZPAM15jV.mp4"},{"id":276,"name":"Oshioki 1","url":"https://content.jwplatform.com/videos/eVUcIR1f-dCrD7g5Y.mp4"},{"id":277,"name":"Oshioki 2","url":"https://content.jwplatform.com/videos/dYXHwzSF-dCrD7g5Y.mp4"},{"id":278,"name":"Oshioki 3","url":"https://content.jwplatform.com/videos/MmRCmGs8-dCrD7g5Y.mp4"},{"id":279,"name":"Otome Hime","url":"https://content.jwplatform.com/videos/CspNEmlp-ZPAM15jV.mp4"},{"id":280,"name":"Perverted Thomas","url":"https://content.jwplatform.com/videos/97Y9ylZE-dCrD7g5Y.mp4"},{"id":281,"name":"Pink Sweet","url":"https://content.jwplatform.com/videos/kKETJMAe-ZPAM15jV.mp4"},{"id":282,"name":"Prima Donna Mai","url":"https://content.jwplatform.com/videos/hAkaPN9a-ZPAM15jV.mp4"},{"id":283,"name":"Princess Memory 01","url":"https://content.jwplatform.com/videos/vO3sNOA5-ZPAM15jV.mp4"},{"id":284,"name":"Princess Memory 02","url":"https://content.jwplatform.com/videos/id4Zx9bs-ZPAM15jV.mp4"},{"id":285,"name":"Private Sessions 01","url":"https://content.jwplatform.com/videos/IqZHTo5U-ZPAM15jV.mp4"},{"id":286,"name":"Private Sessions 02","url":"https://content.jwplatform.com/videos/XTwt0uJp-ZPAM15jV.mp4"},{"id":287,"name":"Professor Shino’s Classes In Seduction","url":"https://content.jwplatform.com/videos/L2U86K4g-ZPAM15jV.mp4"},{"id":288,"name":"Pure Mail 01","url":"https://content.jwplatform.com/videos/UkbcnUJp-ZPAM15jV.mp4"},{"id":289,"name":"Pure Mail 02","url":"https://content.jwplatform.com/videos/UpMiyHbB-dCrD7g5Y.mp4"},{"id":290,"name":"Rankou Choukyou","url":"https://content.jwplatform.com/videos/yCNj7LLc-ZPAM15jV.mp4"},{"id":291,"name":"Reinou Tantei Miko - 1","url":"https://content.jwplatform.com/videos/zlSEauTU-ZPAM15jV.mp4"},{"id":292,"name":"Reinou Tantei Miko - 2","url":"https://content.jwplatform.com/videos/WWYsJoA5-ZPAM15jV.mp4"},{"id":293,"name":"Renzu Futari No Kyori","url":"https://content.jwplatform.com/videos/SMeY5HU8-ZPAM15jV.mp4"},{"id":294,"name":"Romance Wa Tsurugi No Kagayaki II - 01","url":"https://content.jwplatform.com/videos/bRQB8LgK-ZPAM15jV.mp4"},{"id":295,"name":"Romance Wa Tsurugi No Kagayaki II - 02","url":"https://content.jwplatform.com/videos/UgbNSECp-ZPAM15jV.mp4"},{"id":296,"name":"Romance Wa Tsurugi No Kagayaki II - 03","url":"https://content.jwplatform.com/videos/m0q4BW6o-ZPAM15jV.mp4"},{"id":297,"name":"Romance Wa Tsurugi No Kagayaki II - 04","url":"https://content.jwplatform.com/videos/Ia6Xby1J-ZPAM15jV.mp4"},{"id":298,"name":"Romance Wa Tsurugi No Kagayaki II - 05","url":"https://content.jwplatform.com/videos/Ia6Xby1J-ZPAM15jV.mp4"},{"id":299,"name":"Romance Wa Tsurugi No Kagayaki II - 06","url":"https://content.jwplatform.com/videos/IZKpUrOe-ZPAM15jV.mp4"},{"id":300,"name":"Ryouki No Ori Dai 2 Shou 01","url":"https://content.jwplatform.com/videos/SHLdKicI-ZPAM15jV.mp4"},{"id":301,"name":"Ryouki No Ori Dai 2 Shou 02","url":"https://content.jwplatform.com/videos/CCrMvrnR-ZPAM15jV.mp4"},{"id":302,"name":"Ryouki No Ori Dai 2 Shou 03","url":"https://content.jwplatform.com/videos/S98aOoLA-ZPAM15jV.mp4"},{"id":303,"name":"Ryuusei Tenshi Primaveil","url":"https://content.jwplatform.com/videos/QCeovoM7-ZPAM15jV.mp4"},{"id":304,"name":"Sagurare Otome","url":"https://content.jwplatform.com/videos/52yvqQpO-dCrD7g5Y.mp4"},{"id":305,"name":"Saimin Jutsu The Animation 2nd 01","url":"https://content.jwplatform.com/videos/rpiQ3Gwg-dCrD7g5Y.mp4"},{"id":306,"name":"Saimin Jutsu The Animation 2nd 02","url":"https://content.jwplatform.com/videos/wzgQhDa8-dCrD7g5Y.mp4"},{"id":307,"name":"Saimin Jutsu Zero 01","url":"https://content.jwplatform.com/videos/2cSowuwb-dCrD7g5Y.mp4"},{"id":308,"name":"Saimin Jutsu Zero 02","url":"https://content.jwplatform.com/videos/6UCn18Ly-dCrD7g5Y.mp4"},{"id":309,"name":"Saimin Jutsu Zero 03","url":"https://content.jwplatform.com/videos/w1PE1nmA-dCrD7g5Y.mp4"},{"id":310,"name":"Sakura Card Captor","url":"https://content.jwplatform.com/videos/mtceUz15-ZPAM15jV.mp4"},{"id":311,"name":"Samurai Hormone","url":"https://content.jwplatform.com/videos/iQfjP6S4-dCrD7g5Y.mp4"},{"id":312,"name":"Angel Core 1","url":"https://animeflix.blog/Animes/Letra-A/Angel%20Core%20The%20Animation/01.mp4"},{"id":313,"name":"Angel Core 2","url":"https://animeflix.blog/Animes/Letra-A/Angel%20Core%20The%20Animation/02.mp4"},{"id":314,"name":"Resort Boin 1","url":"https://animeflix.blog/Animes/Letra-R/Resort%20Boin/01.mp4"},{"id":315,"name":"Resort Boin 2","url":"https://animeflix.blog/Animes/Letra-R/Resort%20Boin/02.mp4"},{"id":316,"name":"Resort Boin 3","url":"https://animeflix.blog/Animes/Letra-R/Resort%20Boin/03.mp4"},{"id":317,"name":"Resort Boin 4","url":"https://animeflix.blog/Animes/Letra-R/Resort%20Boin/04.mp4"},{"id":318,"name":"Boku No Piko 1","url":"https://animeflix.blog/Animes/Letra-B/Boku%20no%20Pico/01.mp4"},{"id":319,"name":"Boku No Piko 2","url":"https://animeflix.blog/Animes/Letra-B/Boku%20no%20Pico/02.mp4"},{"id":320,"name":"Boku No Piko 3","url":"https://animeflix.blog/Animes/Letra-B/Boku%20no%20Pico/03.mp4"},{"id":321,"name":"Aki-Sora 1","url":"https://animeflix.blog/Animes/Letra-A/Aki-Sora%20Yume%20no%20Naka/01.mp4"},{"id":322,"name":"Aki-Sora 2","url":"https://animeflix.blog/Animes/Letra-A/Aki-Sora%20Yume%20no%20Naka/02.mp4"},{"id":323,"name":"Aki-Sora 3","url":"https://animeflix.blog/Animes/Letra-A/Aki-Sora/01.mp4"},{"id":324,"name":"Shoukoujo 1","url":"https://animeflix.blog/Animes/Letra-S/Shoukoujo%20The%20Animation/01.mp4"},{"id":325,"name":"Shoukoujo 2","url":"https://animeflix.blog/Animes/Letra-S/Shoukoujo%20The%20Animation/02.mp4"},{"id":326,"name":"Euphoria 1","url":"https://animeflix.blog/Animes/Letra-E/Euphoria%20The%20Animation/01.mp4"},{"id":327,"name":"Euphoria 2","url":"https://animeflix.blog/Animes/Letra-E/Euphoria%20The%20Animation/02.mp4"},{"id":328,"name":"Euphoria 3","url":"https://animeflix.blog/Animes/Letra-E/Euphoria%20The%20Animation/03.mp4"},{"id":329,"name":"Euphoria 4","url":"https://animeflix.blog/Animes/Letra-E/Euphoria%20The%20Animation/04.mp4"},{"id":330,"name":"Euphoria 5","url":"https://animeflix.blog/Animes/Letra-E/Euphoria%20The%20Animation/05.mp4"},{"id":331,"name":"Euphoria 6","url":"https://animeflix.blog/Animes/Letra-E/Euphoria%20The%20Animation/06.mp4"},{"id":332,"name":"Furueru Kuchibiru 1","url":"https://animeflix.blog/Animes/Letra-F/Furueru%20Kuchibiru/01.mp4"},{"id":333,"name":"Furueru Kuchibiru 2","url":"https://animeflix.blog/Animes/Letra-F/Furueru%20Kuchibiru/02.mp4"},{"id":334,"name":"Maro no Kanja wa Gatenkei 1","url":"https://animeflix.blog/Animes/Letra-M/Maro%20no%20Kanja%20wa%20Gatenkei/01.mp4"},{"id":335,"name":"Maro no Kanja wa Gatenkei 2","url":"https://animeflix.blog/Animes/Letra-M/Maro%20no%20Kanja%20wa%20Gatenkei/02.mp4"},{"id":336,"name":"Shinsei Futanari Idol 1","url":"https://animeflix.blog/Animes/Letra-S/Shinsei%20Futanari%20Idol:%20Dekatama%20Kei!%20Shasei%20no%20Utage%20wa%20Chouzetsu%20Max/01.mp4"},{"id":337,"name":"Shinsei Futanari Idol 2","url":"https://animeflix.blog/Animes/Letra-S/Shinsei%20Futanari%20Idol:%20Dekatama%20Kei!%20Shasei%20no%20Utage%20wa%20Chouzetsu%20Max/02.mp4"},{"id":338,"name":"Implicity 1","url":"https://animeflix.blog/Animes/Letra-I/Implicity%20The%20Animation/01.mp4"},{"id":339,"name":"Implicity 2","url":"https://animeflix.blog/Animes/Letra-I/Implicity%20The%20Animation/02.mp4"},{"id":340,"name":"Papa datte, Shitai 1","url":"https://animeflix.blog/Animes/Letra-P/Papa%20Datte%20Shitai/01.mp4"},{"id":341,"name":"Papa datte, Shitai 2","url":"https://animeflix.blog/Animes/Letra-P/Papa%20Datte%20Shitai/02.mp4"},{"id":342,"name":"Papa datte, Shitai 3","url":"https://animeflix.blog/Animes/Letra-P/Papa%20Datte%20Shitai/03.mp4"},{"id":343,"name":"Papa datte, Shitai 4","url":"https://animeflix.blog/Animes/Letra-P/Papa%20Datte%20Shitai/04.mp4"},{"id":344,"name":"Papa datte, Shitai 5","url":"https://animeflix.blog/Animes/Letra-P/Papa%20Datte%20Shitai/05.mp4"},{"id":345,"name":"Papa datte, Shitai 6","url":"https://animeflix.blog/Animes/Letra-P/Papa%20Datte%20Shitai/06.mp4"},{"id":346,"name":"Papa datte, Shitai 7","url":"https://animeflix.blog/Animes/Letra-P/Papa%20Datte%20Shitai/07.mp4"},{"id":347,"name":"Papa datte, Shitai 8","url":"https://animeflix.blog/Animes/Letra-P/Papa%20Datte%20Shitai/08.mp4"},{"id":348,"name":"Master Piece 1","url":"https://animeflix.blog/Animes/Letra-M/Master%20Piece%20The%20Animation/01.mp4"},{"id":349,"name":"Master Piece 2","url":"https://animeflix.blog/Animes/Letra-M/Master%20Piece%20The%20Animation/02.mp4"},{"id":350,"name":"Aisei Tenshi Love Mary 1","url":"https://animeflix.blog/Animes/Letra-A/Aisei%20Tenshi%20Love%20Mary%20Akusei%20Jutai%20The%20Animation/01.mp4"},{"id":351,"name":"Aisei Tenshi Love Mary 2","url":"https://animeflix.blog/Animes/Letra-A/Aisei%20Tenshi%20Love%20Mary%20Akusei%20Jutai%20The%20Animation/02.mp4"},{"id":352,"name":"Fleur","url":"https://animeflix.blog/Animes/Letra-F/Fleur%20The%20Animation/01.mp4"},{"id":353,"name":"Modaete yo, Adam-kun 1","url":"https://animeflix.blog/Animes/Letra-M/Modaete%20yo,%20Adam-kun/01.mp4"},{"id":354,"name":"Modaete yo, Adam-kun 2","url":"https://animeflix.blog/Animes/Letra-M/Modaete%20yo,%20Adam-kun/02.mp4"},{"id":355,"name":"Modaete yo, Adam-kun 3","url":"https://animeflix.blog/Animes/Letra-M/Modaete%20yo,%20Adam-kun/03.mp4"},{"id":356,"name":"Modaete yo, Adam-kun 4","url":"https://animeflix.blog/Animes/Letra-M/Modaete%20yo,%20Adam-kun/04.mp4"},{"id":357,"name":"Modaete yo, Adam-kun 5","url":"https://animeflix.blog/Animes/Letra-M/Modaete%20yo,%20Adam-kun/05.mp4"},{"id":358,"name":"Modaete yo, Adam-kun 6","url":"https://animeflix.blog/Animes/Letra-M/Modaete%20yo,%20Adam-kun/06.mp4"},{"id":359,"name":"Modaete yo, Adam-kun 7","url":"https://animeflix.blog/Animes/Letra-M/Modaete%20yo,%20Adam-kun/07.mp4"},{"id":360,"name":"Modaete yo, Adam-kun 8","url":"https://animeflix.blog/Animes/Letra-M/Modaete%20yo,%20Adam-kun/08.mp4"},{"id":361,"name":"O Príncipe Encantado se Apaixonou por Mim 1","url":"https://animeflix.blog/Animes/Letra-A/Ateuma%20Chara%20No%20Kuse%20Shite%20Supadari%20Ouji%20Ni%20Choai%20Sareteimasu/01.mp4"},{"id":362,"name":"O Príncipe Encantado se Apaixonou por Mim 2","url":"https://animeflix.blog/Animes/Letra-A/Ateuma%20Chara%20No%20Kuse%20Shite%20Supadari%20Ouji%20Ni%20Choai%20Sareteimasu/02.mp4"},{"id":363,"name":"O Príncipe Encantado se Apaixonou por Mim 3","url":"https://animeflix.blog/Animes/Letra-A/Ateuma%20Chara%20No%20Kuse%20Shite%20Supadari%20Ouji%20Ni%20Choai%20Sareteimasu/03.mp4"},{"id":364,"name":"O Príncipe Encantado se Apaixonou por Mim 4","url":"https://animeflix.blog/Animes/Letra-A/Ateuma%20Chara%20No%20Kuse%20Shite%20Supadari%20Ouji%20Ni%20Choai%20Sareteimasu/04.mp4"},{"id":365,"name":"O Príncipe Encantado se Apaixonou por Mim 5","url":"https://animeflix.blog/Animes/Letra-A/Ateuma%20Chara%20No%20Kuse%20Shite%20Supadari%20Ouji%20Ni%20Choai%20Sareteimasu/05.mp4"},{"id":366,"name":"O Príncipe Encantado se Apaixonou por Mim 6","url":"https://animeflix.blog/Animes/Letra-A/Ateuma%20Chara%20No%20Kuse%20Shite%20Supadari%20Ouji%20Ni%20Choai%20Sareteimasu/06.mp4"},{"id":367,"name":"O Príncipe Encantado se Apaixonou por Mim 7","url":"https://animeflix.blog/Animes/Letra-A/Ateuma%20Chara%20No%20Kuse%20Shite%20Supadari%20Ouji%20Ni%20Choai%20Sareteimasu/07.mp4"},{"id":368,"name":"O Príncipe Encantado se Apaixonou por Mim 8","url":"https://animeflix.blog/Animes/Letra-A/Ateuma%20Chara%20No%20Kuse%20Shite%20Supadari%20Ouji%20Ni%20Choai%20Sareteimasu/08.mp4"},{"id":369,"name":"Yoasobi Gurashi! 1","url":"https://animeflix.blog/Animes/Letra-Y/Yoasobi%20Gurashi!/01.mp4"},{"id":370,"name":"Yoasobi Gurashi! 2","url":"https://animeflix.blog/Animes/Letra-Y/Yoasobi%20Gurashi!/02.mp4"},{"id":371,"name":"Yoasobi Gurashi! 3","url":"https://animeflix.blog/Animes/Letra-Y/Yoasobi%20Gurashi!/03.mp4"},{"id":372,"name":"Yoasobi Gurashi! 4","url":"https://animeflix.blog/Animes/Letra-Y/Yoasobi%20Gurashi!/04.mp4"},{"id":373,"name":"Yoasobi Gurashi! 5","url":"https://animeflix.blog/Animes/Letra-Y/Yoasobi%20Gurashi!/05.mp4"},{"id":374,"name":"Yoasobi Gurashi! 6","url":"https://animeflix.blog/Animes/Letra-Y/Yoasobi%20Gurashi!/06.mp4"},{"id":375,"name":"Yoasobi Gurashi! 7","url":"https://animeflix.blog/Animes/Letra-Y/Yoasobi%20Gurashi!/07.mp4"},{"id":376,"name":"Yoasobi Gurashi! 8","url":"https://animeflix.blog/Animes/Letra-Y/Yoasobi%20Gurashi!/08.mp4"},{"id":377,"name":"Taishou Itsuwari Bridal 1","url":"https://animeflix.blog/Animes/Letra-T/Taishou%20Itsuwari%20Bridal/01.mp4"},{"id":378,"name":"Taishou Itsuwari Bridal 2","url":"https://animeflix.blog/Animes/Letra-T/Taishou%20Itsuwari%20Bridal/02.mp4"},{"id":379,"name":"Taishou Itsuwari Bridal 3","url":"https://animeflix.blog/Animes/Letra-T/Taishou%20Itsuwari%20Bridal/03.mp4"},{"id":380,"name":"Taishou Itsuwari Bridal 4","url":"https://animeflix.blog/Animes/Letra-T/Taishou%20Itsuwari%20Bridal/04.mp4"},{"id":381,"name":"Taishou Itsuwari Bridal 5","url":"https://animeflix.blog/Animes/Letra-T/Taishou%20Itsuwari%20Bridal/05.mp4"},{"id":382,"name":"Taishou Itsuwari Bridal 6","url":"https://animeflix.blog/Animes/Letra-T/Taishou%20Itsuwari%20Bridal/06.mp4"},{"id":383,"name":"Taishou Itsuwari Bridal 7","url":"https://animeflix.blog/Animes/Letra-T/Taishou%20Itsuwari%20Bridal/07.mp4"},{"id":384,"name":"Taishou Itsuwari Bridal 8","url":"https://animeflix.blog/Animes/Letra-T/Taishou%20Itsuwari%20Bridal/08.mp4"},{"id":385,"name":"Ikumonogakari 1","url":"https://animeflix.blog/Animes/Letra-I/Ikumonogakari%20The%20Animation/01.mp4"},{"id":386,"name":"Ikumonogakari 2","url":"https://animeflix.blog/Animes/Letra-I/Ikumonogakari%20The%20Animation/02.mp4"},{"id":387,"name":"Yarichin Bitch Club 1","url":"https://animeflix.blog/Animes/Letra-Y/Yarichin%20Bitch-bu/01.mp4"},{"id":388,"name":"Yarichin Bitch Club 2","url":"https://animeflix.blog/Animes/Letra-Y/Yarichin%20Bitch-bu/02.mp4"},{"id":389,"name":"Overflow 1","url":"https://animeflix.blog/Animes/Letra-O/Overflow/Dub/01.mp4"},{"id":390,"name":"Overflow 2","url":"https://animeflix.blog/Animes/Letra-O/Overflow/Dub/02.mp4"},{"id":391,"name":"Overflow 3","url":"https://animeflix.blog/Animes/Letra-O/Overflow/Dub/03.mp4"},{"id":392,"name":"Overflow 4","url":"https://animeflix.blog/Animes/Letra-O/Overflow/Dub/04.mp4"},{"id":393,"name":"Overflow 5","url":"https://animeflix.blog/Animes/Letra-O/Overflow/Dub/05.mp4"},{"id":394,"name":"Overflow 6","url":"https://animeflix.blog/Animes/Letra-O/Overflow/Dub/06.mp4"},{"id":395,"name":"Overflow 7","url":"https://animeflix.blog/Animes/Letra-O/Overflow/Dub/07.mp4"},{"id":396,"name":"Overflow 8","url":"https://animeflix.blog/Animes/Letra-O/Overflow/Dub/08.mp4"},{"id":397,"name":"Shounen ga Otona ni Natta Natsu 1","url":"https://animeflix.blog/Animes/Letra-S/Shounen%20ga%20Otona%20ni%20Natta%20Natsu/03.mp4"},{"id":398,"name":"Shounen ga Otona ni Natta Natsu 2","url":"https://animeflix.blog/Animes/Letra-S/Shounen%20ga%20Otona%20ni%20Natta%20Natsu/02.mp4"},{"id":399,"name":"Shounen ga Otona ni Natta Natsu 3","url":"https://animeflix.blog/Animes/Letra-S/Shounen%20ga%20Otona%20ni%20Natta%20Natsu/01.mp4"},{"id":400,"name":"Sem Waifu, Sem vida! 1","url":"https://animeflix.blog/Animes/Letra-N/No%20Waifu%20No%20Life!/01.mp4"},{"id":401,"name":"Sem Waifu, Sem vida! 2","url":"https://animeflix.blog/Animes/Letra-N/No%20Waifu%20No%20Life!/02.mp4"},{"id":402,"name":"Ito wo Yoru 1","url":"https://animeflix.blog/Animes/Letra-I/Ito%20wo%20Yoru/01.mp4"},{"id":403,"name":"Ito wo Yoru 2","url":"https://animeflix.blog/Animes/Letra-I/Ito%20wo%20Yoru/02.mp4"},{"id":404,"name":"Yatara Yarashii Fukami-kun 1","url":"https://animeflix.blog/Animes/Letra-Y/Yatara%20Yarashii%20Fukami-kun/01.mp4"},{"id":405,"name":"Yatara Yarashii Fukami-kun 2","url":"https://animeflix.blog/Animes/Letra-Y/Yatara%20Yarashii%20Fukami-kun/02.mp4"},{"id":406,"name":"Yatara Yarashii Fukami-kun 3","url":"https://animeflix.blog/Animes/Letra-Y/Yatara%20Yarashii%20Fukami-kun/03.mp4"},{"id":407,"name":"Yatara Yarashii Fukami-kun 4","url":"https://animeflix.blog/Animes/Letra-Y/Yatara%20Yarashii%20Fukami-kun/04.mp4"},{"id":408,"name":"Yatara Yarashii Fukami-kun 5","url":"https://animeflix.blog/Animes/Letra-Y/Yatara%20Yarashii%20Fukami-kun/05.mp4"},{"id":409,"name":"Yatara Yarashii Fukami-kun 6","url":"https://animeflix.blog/Animes/Letra-Y/Yatara%20Yarashii%20Fukami-kun/06.mp4"},{"id":410,"name":"Yatara Yarashii Fukami-kun 7","url":"https://animeflix.blog/Animes/Letra-Y/Yatara%20Yarashii%20Fukami-kun/07.mp4"},{"id":411,"name":"Yatara Yarashii Fukami-kun 8","url":"https://animeflix.blog/Animes/Letra-Y/Yatara%20Yarashii%20Fukami-kun/08.mp4"},{"id":412,"name":"Kuro Gal a La Carte 1","url":"https://animeflix.blog/Animes/Letra-K/Kuro%20Gal%20a%20La%20Carte/01.mp4"},{"id":413,"name":"Kuro Gal a La Carte 2","url":"https://animeflix.blog/Animes/Letra-K/Kuro%20Gal%20a%20La%20Carte/02.mp4"},{"id":414,"name":"Mujin Eki","url":"https://animeflix.blog/Animes/Letra-M/Mujin%20Eki%20The%20Animation/01.mp4"}];
+        const TV_PLAYLIST = [{"id":0,"name":"A Forbidden Time 01"},{"id":1,"name":"A Forbidden Time 02"},{"id":2,"name":"A Forbidden Time 03"},{"id":3,"name":"A Forbidden Time 04"},{"id":4,"name":"A Forbidden Time 05"},{"id":5,"name":"A Forbidden Time 06"},{"id":6,"name":"A Forbidden Time 07"},{"id":7,"name":"After The Animation 01"},{"id":8,"name":"After The Animation 02"},{"id":9,"name":"Ai Doll 01"},{"id":10,"name":"Ai Doll 02"},{"id":11,"name":"Ai Doll 03"},{"id":12,"name":"Ai Doll 04"},{"id":13,"name":"Akebi No Hana Maho"},{"id":14,"name":"Alice Doll 01"},{"id":15,"name":"Alice Doll 02"},{"id":16,"name":"Amanee!"},{"id":17,"name":"Anata Dake Konbanwa 01"},{"id":18,"name":"Anata Dake Konbanwa 02"},{"id":19,"name":"Anata Dake Konbanwa 03"},{"id":20,"name":"Anata Dake Konbanwa 04"},{"id":21,"name":"Anata Dake Konbanwa 05"},{"id":22,"name":"Ane Koi Suki Kirai Daisuki 01"},{"id":23,"name":"Ane Koi Suki Kirai Daisuki 02"},{"id":24,"name":"Ane Kyun!"},{"id":25,"name":"Ane To Boin 01"},{"id":26,"name":"Ane To Boin 02"},{"id":27,"name":"Angel Blade 01"},{"id":28,"name":"Angel Blade 02"},{"id":29,"name":"Angel Blade 03"},{"id":30,"name":"Angel Blade 04"},{"id":31,"name":"Aniyome Wa Ijippari 01"},{"id":32,"name":"Aniyome Wa Ijippari 02"},{"id":33,"name":"Babuka 01"},{"id":34,"name":"Babuka 02"},{"id":35,"name":"Bakuhatsu Sunzen Tenshi No Countdown"},{"id":36,"name":"Behind Closed Doors 01"},{"id":37,"name":"Behind Closed Doors 02"},{"id":38,"name":"Behind Closed Doors 03"},{"id":39,"name":"Bible Black 1"},{"id":40,"name":"Bible Black 2"},{"id":41,"name":"Bible Black 3"},{"id":42,"name":"Bible Black 4"},{"id":43,"name":"Bible Black 5"},{"id":44,"name":"Bible Black 6"},{"id":45,"name":"Bible Black Gaiden 1"},{"id":46,"name":"Bible Black Gaiden 2"},{"id":47,"name":"Bible Black New Testament 1"},{"id":48,"name":"Bible Black New Testament 2"},{"id":49,"name":"Bible Black New Testament 3"},{"id":50,"name":"Bible Black New Testament 4"},{"id":51,"name":"Bible Black New Testament 5"},{"id":52,"name":"Bible Black New Testament 6"},{"id":53,"name":"Bible Black Only Version 1"},{"id":54,"name":"Bible Black Only Version 2"},{"id":55,"name":"Bible Black Only Version 3"},{"id":56,"name":"Blackmail 1"},{"id":57,"name":"Blackmail 2"},{"id":58,"name":"Blackmail 3"},{"id":59,"name":"Blackmail 4"},{"id":60,"name":"Blackmail 5"},{"id":61,"name":"Blackmail 6"},{"id":62,"name":"Blood Shadow 1"},{"id":63,"name":"Blood Shadow 2"},{"id":64,"name":"Blood Shadow 3"},{"id":65,"name":"Blood Shadow 4"},{"id":66,"name":"Bondage Mansion 1"},{"id":67,"name":"Bondage Mansion 2"},{"id":68,"name":"Buta Hime-sama"},{"id":69,"name":"City Of Sin"},{"id":70,"name":"Court No Naka No Tenshi-tachi 1"},{"id":71,"name":"Court No Naka No Tenshi-tachi 2"},{"id":72,"name":"Custom Reido"},{"id":73,"name":"DNA Hunter 1"},{"id":74,"name":"DNA Hunter 2"},{"id":75,"name":"DNA Hunter 3"},{"id":76,"name":"Dainiji Ura Nyuugakushiken"},{"id":77,"name":"Daraku Onna Kyoushi Hakai 1"},{"id":78,"name":"Daraku Onna Kyoushi Hakai 2"},{"id":79,"name":"Daraku Onna Kyoushi Hakai 3"},{"id":80,"name":"Daraku Reijou"},{"id":81,"name":"Dark 1"},{"id":82,"name":"Dark 2"},{"id":83,"name":"Dark Chapel 1"},{"id":84,"name":"Dark Chapel 2"},{"id":85,"name":"Dark Shell 1"},{"id":86,"name":"Dark Shell 2"},{"id":87,"name":"Dark Tours"},{"id":88,"name":"Doura 1"},{"id":89,"name":"Doura 2"},{"id":90,"name":"Doura 3"},{"id":91,"name":"Doura 4"},{"id":92,"name":"Ecchi Soudanshitsu"},{"id":93,"name":"El 01"},{"id":94,"name":"El 02"},{"id":95,"name":"Endless Serenade"},{"id":96,"name":"Enyoku"},{"id":97,"name":"Esper Bishoujo Manami"},{"id":98,"name":"Etsuraku No Tane"},{"id":99,"name":"F-Force 1"},{"id":100,"name":"F-Force 2"},{"id":101,"name":"F-Force 3"},{"id":102,"name":"Fairy Forest Remi Chan"},{"id":103,"name":"Fechikano!"},{"id":104,"name":"Goblin No Suana 1"},{"id":105,"name":"Goblin No Suana 2"},{"id":106,"name":"Goblin No Suana 3"},{"id":107,"name":"Goblin No Suana 4"},{"id":108,"name":"Mahou Shoujo Meruru - 1"},{"id":109,"name":"Mahou Shoujo Meruru - 2"},{"id":110,"name":"Five Card 1"},{"id":111,"name":"Five Card 2"},{"id":112,"name":"Five Card 3"},{"id":113,"name":"Five Card 4"},{"id":114,"name":"Flashback 1"},{"id":115,"name":"Flashback 2"},{"id":116,"name":"Flashback 3"},{"id":117,"name":"Front Innocent"},{"id":118,"name":"Furueru Kuchibiru 1"},{"id":119,"name":"Furueru Kuchibiru 2"},{"id":120,"name":"G-Taste"},{"id":121,"name":"Gibo No Toiki 1"},{"id":122,"name":"Gibo No Toiki 2"},{"id":123,"name":"Girl Next Door 1"},{"id":124,"name":"Girl Next Door 2"},{"id":125,"name":"Gogo No Kouchou"},{"id":126,"name":"Green Eyes Ane Kyun!"},{"id":127,"name":"Haitoku No Shoujo 1"},{"id":128,"name":"Haitoku No Shoujo 2"},{"id":129,"name":"Hana Dorei 1"},{"id":130,"name":"Hana Dorei 2"},{"id":131,"name":"Heartwork Symphony Of Destruction 1"},{"id":132,"name":"Heartwork Symphony Of Destruction 2"},{"id":133,"name":"Heartwork Symphony Of Destruction 3"},{"id":134,"name":"Heisa Byoutou 1"},{"id":135,"name":"Heisa Byoutou 2"},{"id":136,"name":"Heisei Jogakuen Kagai Lesson"},{"id":137,"name":"Hentai Express"},{"id":138,"name":"Hika Ryoujoku The Lust Of Shame"},{"id":139,"name":"Hinadori No Saezuri 1"},{"id":140,"name":"Hinadori No Saezuri 2"},{"id":141,"name":"Hontou Ni Atta 1"},{"id":142,"name":"Hontou Ni Atta 2"},{"id":143,"name":"Hooligan 1"},{"id":144,"name":"Hooligan 2"},{"id":145,"name":"House Of 100 Tongues"},{"id":146,"name":"Ikenai Koto 1"},{"id":147,"name":"Ikenai Koto 2"},{"id":148,"name":"Ikoku Na Retro"},{"id":149,"name":"Immoral Sisters 1"},{"id":150,"name":"Immoral Sisters 2"},{"id":151,"name":"Immoral Sisters 3"},{"id":152,"name":"In No Houteishiki 1"},{"id":153,"name":"In No Houteishiki 2"},{"id":154,"name":"Injoku No Heya"},{"id":155,"name":"Injuu Gakuen La Blue Girl Fukkatsu Hen 1"},{"id":156,"name":"Injuu Gakuen La Blue Girl Fukkatsu Hen 2"},{"id":157,"name":"Injuu Gakuen La Blue Girl Fukkatsu Hen 3"},{"id":158,"name":"Injuu Gakuen La Blue Girl Fukkatsu Hen 4"},{"id":159,"name":"Inmu 2 - 01"},{"id":160,"name":"Inmu 2 - 02"},{"id":161,"name":"Inmu Gakuen"},{"id":162,"name":"Inmu Ikenie No Utage 1"},{"id":163,"name":"Inmu Ikenie No Utage 2"},{"id":164,"name":"Inyouchuu Shoku"},{"id":165,"name":"Isaku Respect 1"},{"id":166,"name":"Isaku Respect 2"},{"id":167,"name":"Isaku Respect 3"},{"id":168,"name":"Itadaki! Seieki"},{"id":169,"name":"Jewelry"},{"id":170,"name":"Jinshin Yuugi 1"},{"id":171,"name":"Jinshin Yuugi 2"},{"id":172,"name":"Jokei Kazoku Inbou 1"},{"id":173,"name":"Jokei Kazoku Inbou 2"},{"id":174,"name":"Joou-sama Wa M Dorei"},{"id":175,"name":"Juvenile Pornography"},{"id":176,"name":"Kaette Kita Court No Naka No Tenshi-tachi 1"},{"id":177,"name":"Kaette Kita Court No Naka No Tenshi-tachi 2"},{"id":178,"name":"Kagaku Na Yatsura"},{"id":179,"name":"Kaihouku Chikan Harem"},{"id":180,"name":"Kanojo Ga Nekomimi Ni Kigaetara"},{"id":181,"name":"Kanojo X Kanojo X Kanojo 1"},{"id":182,"name":"Kanojo X Kanojo X Kanojo 2"},{"id":183,"name":"Kanojo X Kanojo X Kanojo 3"},{"id":184,"name":"Kansen Ball Buster"},{"id":185,"name":"Karen"},{"id":186,"name":"Kekkai"},{"id":187,"name":"Kimihagu 1"},{"id":188,"name":"Kimihagu 2"},{"id":189,"name":"Koi Maguwai"},{"id":190,"name":"Koihime 1"},{"id":191,"name":"Koihime 2"},{"id":192,"name":"Kokudo Ou 1"},{"id":193,"name":"Kokudo Ou 2"},{"id":194,"name":"Kokudo Ou 3"},{"id":195,"name":"Kokudo Ou 4"},{"id":196,"name":"Kokudo Ou 5"},{"id":197,"name":"Korashime 1"},{"id":198,"name":"Korashime 2"},{"id":199,"name":"Kowaremono 1"},{"id":200,"name":"Kowaremono 2"},{"id":201,"name":"Kowaremono 3"},{"id":202,"name":"Kowaremono 4"},{"id":203,"name":"Kowaremono 5"},{"id":204,"name":"Kowaremono The Animation"},{"id":205,"name":"Kunoichi Gakuen Ninpouchou 1"},{"id":206,"name":"Kunoichi Gakuen Ninpouchou 2"},{"id":207,"name":"Kunoichi Gakuen Ninpouchou 3"},{"id":208,"name":"Kunoichi Gakuen Ninpouchou 4"},{"id":209,"name":"Kunoichi Gakuen Ninpouchou 5"},{"id":210,"name":"Kunoichi Gakuen Ninpouchou 6"},{"id":211,"name":"Kyouiku Shidou The Animation"},{"id":212,"name":"Kowaremono Risa"},{"id":213,"name":"Kowaremono Risa Plus"},{"id":214,"name":"Kowaremono Leatherman 1"},{"id":215,"name":"Kowaremono Leatherman 2"},{"id":216,"name":"Kowaremono Leatherman 3"},{"id":217,"name":"Kowaremono Leatherman 4"},{"id":218,"name":"Kowaremono Leatherman 5"},{"id":219,"name":"Lingeries Office 1"},{"id":220,"name":"Lingeries Office 2"},{"id":221,"name":"Lingeries Office 3"},{"id":222,"name":"Love Bitch Yasashii Onna"},{"id":223,"name":"Love Is The Number Of Keys"},{"id":224,"name":"Luv Wave 1"},{"id":225,"name":"Luv Wave 2"},{"id":226,"name":"Luv Wave 3"},{"id":227,"name":"M Okui Last Order"},{"id":228,"name":"Maid Ane 1"},{"id":229,"name":"Maid Ane 2"},{"id":230,"name":"Maid Meshimase"},{"id":231,"name":"Mayohiga No Onee-san"},{"id":232,"name":"Mesu Saga Persona"},{"id":233,"name":"Mezzo Forte 1"},{"id":234,"name":"Mezzo Forte 2"},{"id":235,"name":"Mini Skirt Jogakuen"},{"id":236,"name":"Miyazaki Maya Daizukan 1"},{"id":237,"name":"Miyazaki Maya Daizukan 2"},{"id":238,"name":"Moonlight Lady 1"},{"id":239,"name":"Moonlight Lady 2"},{"id":240,"name":"Moonlight Lady 3"},{"id":241,"name":"Moonlight Lady 4"},{"id":242,"name":"Moonlight Lady 5"},{"id":243,"name":"Mou Hasamazu ni wa Irarenai"},{"id":244,"name":"Mugen No Kyoukai 1"},{"id":245,"name":"Mugen No Kyoukai 2"},{"id":246,"name":"Mugen No Kyoukai 3"},{"id":247,"name":"Mugen No Kyoukai 4"},{"id":248,"name":"Nami S.O.S."},{"id":249,"name":"Natural 2 - Duo 1"},{"id":250,"name":"Natural 2 - Duo 2"},{"id":251,"name":"Natural 2 - Duo 3"},{"id":252,"name":"Natural 2 - Duo 4"},{"id":253,"name":"Necromancer"},{"id":254,"name":"Netorare Zuma"},{"id":255,"name":"Night Shift Nurses 1"},{"id":256,"name":"Night Shift Nurses 2"},{"id":257,"name":"Night Shift Nurses 3"},{"id":258,"name":"Night Shift Nurses 4"},{"id":259,"name":"Night Shift Nurses 5"},{"id":260,"name":"Night Shift Nurses 6"},{"id":261,"name":"Night Shift Nurses 7"},{"id":262,"name":"Night Shift Nurses 8"},{"id":263,"name":"Night Shift Nurses 9"},{"id":264,"name":"Night Shift Nurses 10"},{"id":265,"name":"Kazama Mana"},{"id":266,"name":"Ren Nanase"},{"id":267,"name":"Yagami Yu"},{"id":268,"name":"Okusama Wa Joshikousei"},{"id":269,"name":"Oni Tensei 1"},{"id":270,"name":"Oni Tensei 2"},{"id":271,"name":"Oni Tensei 3"},{"id":272,"name":"Oni Tensei 4"},{"id":273,"name":"Onna Kateikyoushi Bishounen Kari"},{"id":274,"name":"Oppai no Ouja 48 - 1"},{"id":275,"name":"Oppai no Ouja 48 - 2"},{"id":276,"name":"Oshioki 1"},{"id":277,"name":"Oshioki 2"},{"id":278,"name":"Oshioki 3"},{"id":279,"name":"Otome Hime"},{"id":280,"name":"Perverted Thomas"},{"id":281,"name":"Pink Sweet"},{"id":282,"name":"Prima Donna Mai"},{"id":283,"name":"Princess Memory 01"},{"id":284,"name":"Princess Memory 02"},{"id":285,"name":"Private Sessions 01"},{"id":286,"name":"Private Sessions 02"},{"id":287,"name":"Professor Shino’s Classes In Seduction"},{"id":288,"name":"Pure Mail 01"},{"id":289,"name":"Pure Mail 02"},{"id":290,"name":"Rankou Choukyou"},{"id":291,"name":"Reinou Tantei Miko - 1"},{"id":292,"name":"Reinou Tantei Miko - 2"},{"id":293,"name":"Renzu Futari No Kyori"},{"id":294,"name":"Romance Wa Tsurugi No Kagayaki II - 01"},{"id":295,"name":"Romance Wa Tsurugi No Kagayaki II - 02"},{"id":296,"name":"Romance Wa Tsurugi No Kagayaki II - 03"},{"id":297,"name":"Romance Wa Tsurugi No Kagayaki II - 04"},{"id":298,"name":"Romance Wa Tsurugi No Kagayaki II - 05"},{"id":299,"name":"Romance Wa Tsurugi No Kagayaki II - 06"},{"id":300,"name":"Ryouki No Ori Dai 2 Shou 01"},{"id":301,"name":"Ryouki No Ori Dai 2 Shou 02"},{"id":302,"name":"Ryouki No Ori Dai 2 Shou 03"},{"id":303,"name":"Ryuusei Tenshi Primaveil"},{"id":304,"name":"Sagurare Otome"},{"id":305,"name":"Saimin Jutsu The Animation 2nd 01"},{"id":306,"name":"Saimin Jutsu The Animation 2nd 02"},{"id":307,"name":"Saimin Jutsu Zero 01"},{"id":308,"name":"Saimin Jutsu Zero 02"},{"id":309,"name":"Saimin Jutsu Zero 03"},{"id":310,"name":"Sakura Card Captor"},{"id":311,"name":"Samurai Hormone"},{"id":312,"name":"Angel Core 1"},{"id":313,"name":"Angel Core 2"},{"id":314,"name":"Resort Boin 1"},{"id":315,"name":"Resort Boin 2"},{"id":316,"name":"Resort Boin 3"},{"id":317,"name":"Resort Boin 4"},{"id":318,"name":"Boku No Piko 1"},{"id":319,"name":"Boku No Piko 2"},{"id":320,"name":"Boku No Piko 3"},{"id":321,"name":"Aki-Sora 1"},{"id":322,"name":"Aki-Sora 2"},{"id":323,"name":"Aki-Sora 3"},{"id":324,"name":"Shoukoujo 1"},{"id":325,"name":"Shoukoujo 2"},{"id":326,"name":"Euphoria 1"},{"id":327,"name":"Euphoria 2"},{"id":328,"name":"Euphoria 3"},{"id":329,"name":"Euphoria 4"},{"id":330,"name":"Euphoria 5"},{"id":331,"name":"Euphoria 6"},{"id":332,"name":"Furueru Kuchibiru 1"},{"id":333,"name":"Furueru Kuchibiru 2"},{"id":334,"name":"Maro no Kanja wa Gatenkei 1"},{"id":335,"name":"Maro no Kanja wa Gatenkei 2"},{"id":336,"name":"Shinsei Futanari Idol 1"},{"id":337,"name":"Shinsei Futanari Idol 2"},{"id":338,"name":"Implicity 1"},{"id":339,"name":"Implicity 2"},{"id":340,"name":"Papa datte, Shitai 1"},{"id":341,"name":"Papa datte, Shitai 2"},{"id":342,"name":"Papa datte, Shitai 3"},{"id":343,"name":"Papa datte, Shitai 4"},{"id":344,"name":"Papa datte, Shitai 5"},{"id":345,"name":"Papa datte, Shitai 6"},{"id":346,"name":"Papa datte, Shitai 7"},{"id":347,"name":"Papa datte, Shitai 8"},{"id":348,"name":"Master Piece 1"},{"id":349,"name":"Master Piece 2"},{"id":350,"name":"Aisei Tenshi Love Mary 1"},{"id":351,"name":"Aisei Tenshi Love Mary 2"},{"id":352,"name":"Fleur"},{"id":353,"name":"Modaete yo, Adam-kun 1"},{"id":354,"name":"Modaete yo, Adam-kun 2"},{"id":355,"name":"Modaete yo, Adam-kun 3"},{"id":356,"name":"Modaete yo, Adam-kun 4"},{"id":357,"name":"Modaete yo, Adam-kun 5"},{"id":358,"name":"Modaete yo, Adam-kun 6"},{"id":359,"name":"Modaete yo, Adam-kun 7"},{"id":360,"name":"Modaete yo, Adam-kun 8"},{"id":361,"name":"O Príncipe Encantado se Apaixonou por Mim 1"},{"id":362,"name":"O Príncipe Encantado se Apaixonou por Mim 2"},{"id":363,"name":"O Príncipe Encantado se Apaixonou por Mim 3"},{"id":364,"name":"O Príncipe Encantado se Apaixonou por Mim 4"},{"id":365,"name":"O Príncipe Encantado se Apaixonou por Mim 5"},{"id":366,"name":"O Príncipe Encantado se Apaixonou por Mim 6"},{"id":367,"name":"O Príncipe Encantado se Apaixonou por Mim 7"},{"id":368,"name":"O Príncipe Encantado se Apaixonou por Mim 8"},{"id":369,"name":"Yoasobi Gurashi! 1"},{"id":370,"name":"Yoasobi Gurashi! 2"},{"id":371,"name":"Yoasobi Gurashi! 3"},{"id":372,"name":"Yoasobi Gurashi! 4"},{"id":373,"name":"Yoasobi Gurashi! 5"},{"id":374,"name":"Yoasobi Gurashi! 6"},{"id":375,"name":"Yoasobi Gurashi! 7"},{"id":376,"name":"Yoasobi Gurashi! 8"},{"id":377,"name":"Taishou Itsuwari Bridal 1"},{"id":378,"name":"Taishou Itsuwari Bridal 2"},{"id":379,"name":"Taishou Itsuwari Bridal 3"},{"id":380,"name":"Taishou Itsuwari Bridal 4"},{"id":381,"name":"Taishou Itsuwari Bridal 5"},{"id":382,"name":"Taishou Itsuwari Bridal 6"},{"id":383,"name":"Taishou Itsuwari Bridal 7"},{"id":384,"name":"Taishou Itsuwari Bridal 8"},{"id":385,"name":"Ikumonogakari 1"},{"id":386,"name":"Ikumonogakari 2"},{"id":387,"name":"Yarichin Bitch Club 1"},{"id":388,"name":"Yarichin Bitch Club 2"},{"id":389,"name":"Overflow 1"},{"id":390,"name":"Overflow 2"},{"id":391,"name":"Overflow 3"},{"id":392,"name":"Overflow 4"},{"id":393,"name":"Overflow 5"},{"id":394,"name":"Overflow 6"},{"id":395,"name":"Overflow 7"},{"id":396,"name":"Overflow 8"},{"id":397,"name":"Shounen ga Otona ni Natta Natsu 1"},{"id":398,"name":"Shounen ga Otona ni Natta Natsu 2"},{"id":399,"name":"Shounen ga Otona ni Natta Natsu 3"},{"id":400,"name":"Sem Waifu, Sem vida! 1"},{"id":401,"name":"Sem Waifu, Sem vida! 2"},{"id":402,"name":"Ito wo Yoru 1"},{"id":403,"name":"Ito wo Yoru 2"},{"id":404,"name":"Yatara Yarashii Fukami-kun 1"},{"id":405,"name":"Yatara Yarashii Fukami-kun 2"},{"id":406,"name":"Yatara Yarashii Fukami-kun 3"},{"id":407,"name":"Yatara Yarashii Fukami-kun 4"},{"id":408,"name":"Yatara Yarashii Fukami-kun 5"},{"id":409,"name":"Yatara Yarashii Fukami-kun 6"},{"id":410,"name":"Yatara Yarashii Fukami-kun 7"},{"id":411,"name":"Yatara Yarashii Fukami-kun 8"},{"id":412,"name":"Kuro Gal a La Carte 1"},{"id":413,"name":"Kuro Gal a La Carte 2"},{"id":414,"name":"Mujin Eki"}];
+        const PROGRAMMING_MODE = "playlist";const TOTAL_PROGRAMS = 0;
+        const TOTAL_PLAYLIST_VIDEOS = 415;
+        const PROGRAM_VIDEO_COUNTS = [];
         const TV_COMMERCIALS = [];
         const ENABLE_COMMERCIALS = false;
         const COMMERCIALS_PER_BREAK = 2;
@@ -2117,7 +2225,7 @@ if (slotIndex === currentPlayingSlot) {
         
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.3";
+        const CHANNEL_VERSION = "1.0.0.4";
         const CHANNEL_ID = "7MIAoM3ke7IUQg9SV574";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2736,147 +2844,163 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-
-              function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-        // Evitar múltiplos carregamentos simultâneos
-        if (isLoadingVideo) {
-            console.log('Já está carregando um vídeo, ignorando chamada duplicada');
-            return;
-        }
-        isLoadingVideo = true;
-        
-        
-        // Esconder player do YouTube se estiver visível
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
-        }
-        isYoutubeVideo = false;
-        
-        // Limpar container do YouTube se existir
-        if (youtubeContainer) {
-            youtubeContainer.style.display = 'none';
-            youtubeContainer.innerHTML = '';
-        }
-        
-        // Verificar se temos elemento de vídeo
-        if (!videoElement) {
-            console.error('Elemento de vídeo não encontrado');
-            isLoadingVideo = false; // Resetar flag
-            return;
-        }
-        
-        // Parar qualquer vídeo atual ANTES de carregar novo
-        if (videoElement.src) {
-            videoElement.pause();
-            videoElement.src = '';
-        }
-        
-        // Configurações básicas
-videoElement.preload = 'auto';
-videoElement.playsInline = true;
-        
-        
-
-        // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-        
-        // Remover event listeners antigos para evitar duplicação
-        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        videoElement.removeEventListener('canplay', handleCanPlay);
-        
-        // Configurar nova URL
-        videoElement.style.display = 'block';
-        videoElement.src = url;
-        
-        // ... continue com o resto do código existente ...
-            // Resetar mensagem de loading apenas se não for comercial
-        if (loadingMessage && currentState !== 'commercial') {
-            loadingMessage.style.display = 'block';
-        }
-
-
-            // MOSTRAR MENSAGEM DE CARREGANDO APENAS PARA PROGRAMAS, NÃO PARA COMERCIAIS
-            if (loadingMessage && currentState !== 'commercial') {
-                loadingMessage.style.display = 'block';
-            }
+function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // Remover event listeners antigos para evitar duplicação
-    videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-    videoElement.removeEventListener('canplay', handleCanPlay);
+    // Resetar flag IMEDIATAMENTE
+    isLoadingVideo = false;
     
-    // Configurar nova URL
+    // 1. Esconder YouTube
+    if (youtubeContainer) {
+        youtubeContainer.style.display = 'none';
+    }
+    isYoutubeVideo = false;
+    
+    // 2. Verificar se elemento de vídeo existe
+    if (!videoElement) {
+        console.error('❌ videoElement não existe no DOM');
+        return;
+    }
+    
+    // 3. PARAR e LIMPAR completamente
+    try {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
+    } catch (e) {
+        console.log('Não foi possível limpar vídeo anterior:', e);
+    }
+    
+    // 4. Configurar atributos ESSENCIAIS
+    videoElement.playsInline = true;
+    videoElement.preload = 'auto';
+    videoElement.crossOrigin = 'anonymous';
+    videoElement.setAttribute('playsinline', '');
+    videoElement.setAttribute('webkit-playsinline', '');
+    videoElement.setAttribute('crossorigin', 'anonymous');
+    
+    // 5. MOSTRAR elemento
     videoElement.style.display = 'block';
+    
+    // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
+    console.log('📥 Definindo src no elemento de vídeo');
     videoElement.src = url;
     
-    // Função para quando os metadados são carregados
-    function handleMetadataLoaded() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+    // 7. Configurar eventos
+    function handleLoadedMetadata() {
+        console.log('✅ loadedmetadata - Duração:', videoElement.duration);
+        
+        // Calcular tempo inicial
+        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1 && videoElement.duration) {
+            const startTime = videoElement.duration * iniciarNoPercentual;
+            videoElement.currentTime = Math.min(startTime, videoElement.duration - 1);
         }
         
-        // Calcular tempo inicial baseado no percentual do slot
-        let startTime = 0;
-        if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-            const videoDuration = videoElement.duration || 0;
-            if (videoDuration > 0) {
-                startTime = videoDuration * iniciarNoPercentual;
-                startTime = Math.min(startTime, videoDuration - 1);
-            }
-        }
-        
-        // Definir tempo inicial
-        videoElement.currentTime = startTime;
-        
-        // Reproduzir se autoplay estiver habilitado e usuário já iniciou
+        // Reproduzir se necessário
         if (autoplay && userStartedPlayback) {
-            videoElement.muted = false;
+            console.log('▶️ Tentando reproduzir...');
             
-            const playPromise = videoElement.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log('Autoplay bloqueado:', error);
+            // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
+            videoElement.muted = false;
+            videoElement.volume = 1.0;
+            
+            videoElement.play()
+                .then(() => {
+                    console.log('✅ Vídeo reproduzindo (áudio ativo imediatamente)');
+                })
+                .catch(error => {
+                    console.error('❌ play() falhou:', error.name, error.message);
+                    
+                    // Se falhar por políticas de autoplay, tentar com mute e pedir interação
+                    if (error.name === 'NotAllowedError') {
+                        console.log('⚠️ Autoplay bloqueado. Tentando com mute...');
+                        videoElement.muted = true;
+                        videoElement.play()
+                            .then(() => {
+                                console.log('✅ Vídeo reproduzindo (muted por política)');
+                                // Mostrar botão para ativar áudio
+                                if (autoplayOverlay) {
+                                    // 🔥 CORREÇÃO: Use strings normais, não template literals aninhados
+                                    autoplayOverlay.classList.remove('hidden');
+                                    autoplayOverlay.innerHTML = 
+                                        '<h3>Clique para ativar o áudio</h3>' +
+                                        '<button class="autoplay-button" id="activateAudioBtn">' +
+                                        'Ativar Áudio' +
+                                        '</button>';
+                                    
+                                    // Adicionar evento separadamente
+                                    document.getElementById('activateAudioBtn').addEventListener('click', function() {
+                                        videoElement.muted = false;
+                                        autoplayOverlay.classList.add('hidden');
+                                    });
+                                }
+                            });
+                    }
                 });
+        }
+    }
+    
+    function handleError(e) {
+        console.error('❌ ERRO no elemento de vídeo:');
+        console.error('Código:', videoElement.error?.code);
+        console.error('Mensagem:', videoElement.error?.message);
+        console.error('URL tentada:', url);
+        
+        // Mostrar erro específico
+        if (videoElement.error) {
+            switch(videoElement.error.code) {
+                case 1: console.error('🚫 Erro: MEDIA_ERR_ABORTED'); break;
+                case 2: console.error('🚫 Erro: MEDIA_ERR_NETWORK'); break;
+                case 3: console.error('🚫 Erro: MEDIA_ERR_DECODE'); break;
+                case 4: console.error('🚫 Erro: MEDIA_ERR_SRC_NOT_SUPPORTED'); break;
             }
-        } else {
-            videoElement.pause();
         }
     }
     
-    // Função para quando o vídeo pode começar a tocar
     function handleCanPlay() {
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
+        console.log('✅ canplay - Pronto para reprodução');
+    }
+    
+    function handlePlaying() {
+        console.log('▶️ playing - Vídeo começou a tocar');
+        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
+        if (videoElement.muted) {
+            videoElement.muted = false;
         }
     }
     
-    // Adicionar novos event listeners
-    videoElement.addEventListener('loadedmetadata', handleMetadataLoaded, { once: true });
+    // Remover listeners antigos
+    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.removeEventListener('error', handleError);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    videoElement.removeEventListener('playing', handlePlaying);
+    
+    // Adicionar novos listeners (APENAS UMA VEZ)
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    videoElement.addEventListener('playing', handlePlaying, { once: true });
     
-    // Resetar flag de carregamento quando o vídeo estiver pronto
-    const resetLoadingFlag = function() {
-        isLoadingVideo = false;
-    };
-    
-    videoElement.addEventListener('loadedmetadata', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('canplay', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('error', resetLoadingFlag, { once: true });
-    videoElement.addEventListener('abort', resetLoadingFlag, { once: true });
-    
-    // Iniciar carregamento
+    // 8. INICIAR carregamento
+    console.log('🔄 Chamando videoElement.load()');
     videoElement.load();
     
-    // Timeout de segurança para vídeos que não carregam
+    // 9. Timeout para debug
     setTimeout(() => {
-        if (videoElement.readyState < 1) { // 0 = HAVE_NOTHING
-            console.warn('Vídeo demorando para carregar:', url);
+        console.log('⏱️ Estado após 3s:', {
+            readyState: videoElement.readyState,
+            error: videoElement.error,
+            muted: videoElement.muted,
+            volume: videoElement.volume,
+            src: videoElement.src?.substring(0, 100)
+        });
+        
+        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
+        if (videoElement.muted && userStartedPlayback) {
+            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
+            videoElement.muted = false;
         }
-    }, 10000);
+    }, 3000);
 }
 
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
@@ -3016,14 +3140,51 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const videoUrl = videoInfo.videoUrl || (videoInfo.programa ? videoInfo.programa.videos[currentVideoIndex] : '');
+            const cloudFunctionUrl = videoInfo.videoUrl;
+
+if (!cloudFunctionUrl) {
+    console.error('URL da Cloud Function não disponível');
+    return;
+}
+
+console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
+
+// FAZER A REQUISIÇÃO PARA OBTER A URL REAL DO VÍDEO
+fetch(cloudFunctionUrl)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('📦 Resposta da Cloud Function:', data);
+        
+        if (data.success && data.url && data.url.trim() !== '') {
+            console.log('✅ URL real do vídeo:', data.url.substring(0, 80) + '...');
             
-            if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-                carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
+                carregarVideoYouTube(data.url, iniciarNoPercentual, true);
             } else {
-                carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+                carregarVideoHTML5(data.url, iniciarNoPercentual, true);
             }
-            
+        } else {
+            console.error('❌ Cloud Function não retornou URL válida:', data);
+            // Tentar próximo slot após 3 segundos
+            setTimeout(() => {
+                const proximoSlot = getNextSlot();
+                reproduzirPrograma(proximoSlot, 0);
+            }, 3000);
+        }
+    })
+    .catch(error => {
+        console.error('❌ Erro ao buscar URL da Cloud Function:', error);
+        // Tentar próximo slot após 3 segundos
+        setTimeout(() => {
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }, 3000);
+    });
             currentState = 'program';
         }
         
@@ -4123,6 +4284,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     </script>
     
+
 
 </body>
 </html>
