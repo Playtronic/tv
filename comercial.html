@@ -120,9 +120,7 @@
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
         }
         
-        input[type="url"],
-        input[type="text"],
-        input[type="email"] {
+        input[type="url"] {
             width: 100%;
             padding: 12px;
             border: none;
@@ -216,6 +214,20 @@
         }
         
         .info-value {
+            font-weight: bold;
+        }
+        
+        .duration-warning {
+            background: rgba(231, 76, 60, 0.2);
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #e74c3c;
+            display: none;
+        }
+        
+        .duration-warning span {
+            color: #e74c3c;
             font-weight: bold;
         }
         
@@ -411,7 +423,7 @@
         
         <!-- Informações do Canal -->
         <div id="channelInfo" class="channel-info" style="display: none;">
-            <img id="channelLogo" class="channel-logo" src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png" alt="Logo do Canal">
+            <img id="channelLogo" class="channel-logo" src="" alt="Logo do Canal">
             <div class="channel-details">
                 <div id="channelName" class="channel-name">Carregando...</div>
                 <div id="channelSlogan" class="channel-slogan"></div>
@@ -424,9 +436,10 @@
             <h3>Como funciona:</h3>
             <ul>
                 <li>Insira uma URL do YouTube para o seu comercial</li>
-                <li>O sistema calculará automaticamente o valor baseado na duração do vídeo</li>
+                <li>O vídeo será carregado automaticamente após inserir a URL</li>
+                <li>O sistema calculará o valor baseado na duração do vídeo</li>
                 <li>Após o pagamento via PIX, seu comercial será exibido no canal por 24 horas</li>
-                <li>Valores por segundo são definidos pelo dono do canal</li>
+                <li><strong>Duração máxima:</strong> <span id="maxDurationText">90 segundos</span></li>
             </ul>
         </div>
         
@@ -436,16 +449,15 @@
                 <label for="videoUrl">URL do YouTube:</label>
                 <input type="url" id="videoUrl" placeholder="https://www.youtube.com/watch?v=SEU_VIDEO_ID" required>
                 <small style="color: rgba(255,255,255,0.7); display: block; margin-top: 5px;">
-                    Apenas vídeos do YouTube são aceitos
+                    Apenas vídeos do YouTube são aceitos. O vídeo será carregado automaticamente.
                 </small>
             </div>
-            
-            <div class="form-group">
-                <label for="payerEmail">Seu e-mail (para notificações):</label>
-                <input type="email" id="payerEmail" placeholder="seu@email.com" required>
-            </div>
-            
-            <button id="previewButton" onclick="previewVideo()">🔍 Visualizar Comercial</button>
+        </div>
+        
+        <!-- Aviso de duração máxima -->
+        <div id="durationWarning" class="duration-warning">
+            ⚠️ Este vídeo excede o tempo máximo permitido de <span id="maxDurationWarning">90</span> segundos.
+            Por favor, escolha um vídeo mais curto.
         </div>
         
         <!-- Mensagens de erro -->
@@ -476,8 +488,8 @@
                     <span id="pricePerSecond" class="info-value">-</span>
                 </div>
                 <div class="info-item">
-                    <span class="info-label">Duração máxima permitida:</span>
-                    <span id="maxDuration" class="info-value">-</span>
+                    <span class="info-label">Duração máxima:</span>
+                    <span id="maxDurationDisplay" class="info-value">-</span>
                 </div>
             </div>
             
@@ -568,6 +580,7 @@
         let paymentCheckInterval = null;
         let currentPaymentId = null;
         let currentChannelId = null;
+        let urlCheckTimeout = null;
         
         // ==================== FUNÇÕES DE INICIALIZAÇÃO ====================
         
@@ -584,6 +597,23 @@
             }
             
             console.log('Channel ID da URL:', currentChannelId);
+            
+            // Configurar evento de input para URL do YouTube
+            const videoUrlInput = document.getElementById('videoUrl');
+            videoUrlInput.addEventListener('input', function() {
+                // Limpar timeout anterior
+                if (urlCheckTimeout) {
+                    clearTimeout(urlCheckTimeout);
+                }
+                
+                // Aguardar 1 segundo após o usuário parar de digitar
+                urlCheckTimeout = setTimeout(() => {
+                    const url = this.value.trim();
+                    if (url && extractYouTubeId(url)) {
+                        previewVideo();
+                    }
+                }, 1000);
+            });
             
             // Verificar se usuário está autenticado
             auth.onAuthStateChanged(async (user) => {
@@ -611,13 +641,21 @@
                 let channelRef = db.collection('channels').doc(currentChannelId);
                 let channelDoc = await channelRef.get();
                 
-                if (!channelDoc.exists) {
-                    // Se não encontrou em 'channels', tentar buscar em 'users'
-                    console.log('Canal não encontrado na coleção channels, buscando em users...');
+                let foundInNewStructure = false;
+                
+                if (channelDoc.exists) {
+                    channelData = channelDoc.data();
+                    channelData.id = currentChannelId;
+                    foundInNewStructure = true;
+                    console.log('Canal encontrado na nova estrutura (channels)');
+                }
+                
+                // Se não encontrou na nova estrutura, buscar na antiga
+                if (!foundInNewStructure) {
+                    console.log('Canal não encontrado na nova estrutura, buscando na antiga...');
                     
-                    // Precisamos buscar todos os usuários e verificar seus canais
+                    // Buscar em todos os usuários
                     const usersSnapshot = await db.collection('users').get();
-                    let foundChannel = null;
                     
                     for (const userDoc of usersSnapshot.docs) {
                         const userChannelsRef = db.collection('users').doc(userDoc.id)
@@ -625,23 +663,19 @@
                         const userChannelDoc = await userChannelsRef.get();
                         
                         if (userChannelDoc.exists) {
-                            foundChannel = userChannelDoc.data();
-                            foundChannel.id = currentChannelId;
-                            foundChannel.userId = userDoc.id;
+                            channelData = userChannelDoc.data();
+                            channelData.id = currentChannelId;
+                            channelData.userId = userDoc.id;
+                            console.log('Canal encontrado na estrutura antiga (users)');
                             break;
                         }
                     }
-                    
-                    if (!foundChannel) {
-                        hideLoading();
-                        showError('Canal não encontrado. Verifique o ID do canal.');
-                        return;
-                    }
-                    
-                    channelData = foundChannel;
-                } else {
-                    channelData = channelDoc.data();
-                    channelData.id = currentChannelId;
+                }
+                
+                if (!channelData) {
+                    hideLoading();
+                    showError('Canal não encontrado. Verifique o ID do canal.');
+                    return;
                 }
                 
                 console.log('Dados do canal carregados:', channelData);
@@ -649,15 +683,21 @@
                 // Buscar configurações de monetização
                 let monetizationData = null;
                 
-                // Tentar buscar na nova estrutura (coleção 'channels')
-                const channelMonetizationRef = db.collection('channels').doc(currentChannelId)
-                    .collection('monetization').doc('settings');
-                const channelMonetizationDoc = await channelMonetizationRef.get();
+                if (foundInNewStructure) {
+                    // Buscar na nova estrutura
+                    const channelMonetizationRef = db.collection('channels').doc(currentChannelId)
+                        .collection('monetization').doc('settings');
+                    const channelMonetizationDoc = await channelMonetizationRef.get();
+                    
+                    if (channelMonetizationDoc.exists) {
+                        monetizationData = channelMonetizationDoc.data();
+                        console.log('Monetização encontrada na nova estrutura');
+                    }
+                }
                 
-                if (channelMonetizationDoc.exists) {
-                    monetizationData = channelMonetizationDoc.data();
-                } else if (channelData.userId) {
-                    // Tentar na estrutura antiga (coleção 'users')
+                // Se não encontrou monetização ou está na estrutura antiga
+                if (!monetizationData && channelData.userId) {
+                    // Buscar na estrutura antiga
                     const userMonetizationRef = db.collection('users').doc(channelData.userId)
                         .collection('channels').doc(currentChannelId)
                         .collection('monetization').doc('settings');
@@ -665,6 +705,7 @@
                     
                     if (userMonetizationDoc.exists) {
                         monetizationData = userMonetizationDoc.data();
+                        console.log('Monetização encontrada na estrutura antiga');
                     }
                 }
                 
@@ -695,14 +736,29 @@
             document.getElementById('channelName').textContent = channelData.name || 'Canal sem nome';
             document.getElementById('channelSlogan').textContent = channelData.slogan || '';
             
-            if (channelData.logo && channelData.logo !== 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png') {
-                document.getElementById('channelLogo').src = channelData.logo;
-            }
+            // CORREÇÃO: Buscar a logo corretamente
+            const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
+            const logoUrl = channelData.logo || DEFAULT_LOGO;
+            const logoElement = document.getElementById('channelLogo');
             
+            logoElement.src = logoUrl;
+            logoElement.onerror = function() {
+                // Se a logo não carregar, usar a padrão
+                this.src = DEFAULT_LOGO;
+            };
+            
+            // Atualizar preços e duração máxima
             const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
+            const maxDuration = channelData.paidCommercials.maxDuration || 90;
+            
             document.getElementById('channelPrice').textContent = `Preço por segundo: R$ ${pricePerSecond.toFixed(2)}`;
             document.getElementById('pricePerSecond').textContent = `R$ ${pricePerSecond.toFixed(2)}/s`;
-            document.getElementById('maxDuration').textContent = `${channelData.paidCommercials.maxDuration || 90} segundos`;
+            document.getElementById('maxDurationDisplay').textContent = `${maxDuration} segundos`;
+            document.getElementById('maxDurationText').textContent = `${maxDuration} segundos`;
+            document.getElementById('maxDurationWarning').textContent = maxDuration;
+            
+            // Atualizar instruções com duração máxima
+            document.getElementById('maxDurationText').textContent = `${maxDuration} segundos`;
         }
         
         // ==================== FUNÇÕES DO YOUTUBE ====================
@@ -744,18 +800,25 @@
             const duration = youtubePlayer.getDuration();
             const title = youtubePlayer.getVideoData().title;
             
+            // Verificar duração máxima
+            const maxDuration = channelData.paidCommercials.maxDuration || 90;
+            
+            if (duration > maxDuration) {
+                // Mostrar aviso de duração máxima
+                document.getElementById('durationWarning').style.display = 'block';
+                document.getElementById('proceedButton').disabled = true;
+                document.getElementById('videoInfo').style.display = 'none';
+                document.getElementById('totalPrice').style.display = 'none';
+                return;
+            } else {
+                // Esconder aviso se estiver visível
+                document.getElementById('durationWarning').style.display = 'none';
+            }
+            
             // Atualizar interface
             document.getElementById('videoDuration').textContent = formatDuration(duration);
             document.getElementById('videoTitle').textContent = title;
             document.getElementById('videoInfo').style.display = 'block';
-            
-            // Verificar se o vídeo está dentro do limite
-            const maxDuration = channelData.paidCommercials.maxDuration || 90;
-            if (duration > maxDuration) {
-                showError(`O vídeo excede o tempo máximo permitido de ${maxDuration} segundos.`);
-                document.getElementById('proceedButton').disabled = true;
-                return;
-            }
             
             // Calcular preço
             const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
@@ -786,19 +849,14 @@
         
         // ==================== FUNÇÕES DA INTERFACE ====================
         
-        // Visualizar vídeo
+        // Visualizar vídeo (agora automático)
         function previewVideo() {
             const videoUrl = document.getElementById('videoUrl').value.trim();
-            const payerEmail = document.getElementById('payerEmail').value.trim();
             
             // Validações
             if (!videoUrl) {
-                showError('Por favor, insira uma URL do YouTube.');
-                return;
-            }
-            
-            if (!payerEmail || !isValidEmail(payerEmail)) {
-                showError('Por favor, insira um e-mail válido.');
+                hideError();
+                document.getElementById('videoPreview').style.display = 'none';
                 return;
             }
             
@@ -812,6 +870,7 @@
             
             if (!videoId) {
                 showError('URL do YouTube inválida. Certifique-se de que é um link do YouTube.');
+                document.getElementById('videoPreview').style.display = 'none';
                 return;
             }
             
@@ -859,7 +918,8 @@
             document.getElementById('backToStart').style.display = 'none';
             document.getElementById('videoForm').style.display = 'block';
             document.getElementById('videoUrl').value = '';
-            document.getElementById('payerEmail').value = '';
+            document.getElementById('videoPreview').style.display = 'none';
+            document.getElementById('durationWarning').style.display = 'none';
             
             if (youtubePlayer) {
                 youtubePlayer.destroy();
@@ -874,15 +934,13 @@
             showLoading('Gerando pagamento PIX...');
             
             try {
-                const payerEmail = document.getElementById('payerEmail').value.trim();
-                
                 // Dados para a API do Mercado Pago
                 const paymentData = {
                     channelId: channelData.id,
                     channelName: channelData.name || 'Canal sem nome',
                     amount: videoData.totalPrice,
                     videoData: videoData,
-                    payerEmail: payerEmail,
+                    payerEmail: currentUser.email, // Usar email do usuário logado
                     payerId: currentUser.uid,
                     payerName: currentUser.displayName || currentUser.email,
                     paymentType: 'commercial'
@@ -1048,7 +1106,7 @@
                     videoDuration: videoData.duration,
                     thumbnail: videoData.thumbnail,
                     pricePaid: videoData.totalPrice,
-                    payerEmail: document.getElementById('payerEmail').value.trim(),
+                    payerEmail: currentUser.email,
                     payerId: currentUser.uid,
                     payerName: currentUser.displayName || currentUser.email,
                     channelId: channelData.id,
@@ -1190,12 +1248,6 @@
             const minutes = Math.floor(seconds / 60);
             const remainingSeconds = Math.floor(seconds % 60);
             return `${minutes}:${remainingSeconds.toString().padStart(2, '0')} (${seconds} segundos)`;
-        }
-        
-        // Validar e-mail
-        function isValidEmail(email) {
-            const re = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-            return re.test(String(email).toLowerCase());
         }
         
         // Mostrar/ocultar loading
