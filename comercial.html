@@ -679,19 +679,15 @@
             try {
                 showLoading('Carregando informações do canal...');
                 
-                // Primeiro, tente buscar na nova estrutura (coleção 'channels')
-                const channelRef = db.collection('channels').doc(currentChannelId);
-                const channelDoc = await channelRef.get();
+                // Buscar canal na coleção 'channels'
+                let channelRef = db.collection('channels').doc(currentChannelId);
+                let channelDoc = await channelRef.get();
                 
-                if (channelDoc.exists) {
-                    // Encontrou na nova estrutura
-                    channelData = channelDoc.data();
-                    channelData.id = currentChannelId;
-                    console.log('Canal encontrado na coleção channels:', channelData);
-                } else {
-                    // Se não encontrou, tente na estrutura antiga (coleção 'users')
+                if (!channelDoc.exists) {
+                    // Se não encontrou em 'channels', tentar buscar em 'users'
                     console.log('Canal não encontrado na coleção channels, buscando em users...');
                     
+                    // Precisamos buscar todos os usuários e verificar seus canais
                     const usersSnapshot = await db.collection('users').get();
                     let foundChannel = null;
                     
@@ -715,40 +711,44 @@
                     }
                     
                     channelData = foundChannel;
-                    console.log('Canal encontrado na coleção users:', channelData);
+                } else {
+                    channelData = channelDoc.data();
+                    channelData.id = currentChannelId;
                 }
                 
-                // BUSCA DA LOGOMARCA DO CANAL - VERSÃO SIMPLIFICADA E CORRIGIDA
-                console.log('Buscando logo do canal...');
-                console.log('Dados completos do canal:', channelData);
+                console.log('Dados do canal carregados:', channelData);
                 
-                // Verificar se há campo 'logo' nos dados do canal
-                let logoUrl = null;
+                // BUSCA DA LOGOMARCA DO CANAL - CORREÇÃO AQUI
+                const channelLogo = document.getElementById('channelLogo');
+                console.log('URL da logo no channelData:', channelData.logo);
                 
-                // Verificar campo 'logo' primeiro
-                if (channelData.logo) {
-                    logoUrl = channelData.logo;
-                    console.log('Logo encontrada no campo "logo":', logoUrl);
-                } 
-                // Se não tiver logo, verificar outros campos possíveis
-                else if (channelData.logoUrl) {
-                    logoUrl = channelData.logoUrl;
-                    console.log('Logo encontrada no campo "logoUrl":', logoUrl);
-                }
-                else if (channelData.image) {
-                    logoUrl = channelData.image;
-                    console.log('Logo encontrada no campo "image":', logoUrl);
-                }
-                else if (channelData.avatar) {
-                    logoUrl = channelData.avatar;
-                    console.log('Logo encontrada no campo "avatar":', logoUrl);
-                }
-                else if (channelData.profileImage) {
-                    logoUrl = channelData.profileImage;
-                    console.log('Logo encontrada no campo "profileImage":', logoUrl);
-                }
-                else {
-                    console.log('Nenhum campo de logo encontrado nos dados do canal');
+                // Primeiro, definir a logo padrão como fallback inicial
+                channelLogo.src = DEFAULT_LOGO;
+                
+                // Se existir uma URL de logo no canalData, tentar carregá-la
+                if (channelData.logo && channelData.logo.trim() !== '' && channelData.logo !== DEFAULT_LOGO) {
+                    console.log('Tentando carregar logo personalizada:', channelData.logo);
+                    
+                    // Criar uma nova imagem para testar se carrega
+                    const testImage = new Image();
+                    testImage.onload = function() {
+                        console.log('Logo personalizada carregada com sucesso, aplicando...');
+                        channelLogo.src = channelData.logo;
+                    };
+                    testImage.onerror = function() {
+                        console.log('Logo personalizada falhou ao carregar, mantendo padrão');
+                        channelLogo.src = DEFAULT_LOGO;
+                    };
+                    testImage.src = channelData.logo;
+                    
+                    // Também configurar o onerror na imagem principal
+                    channelLogo.onerror = function() {
+                        console.log('Erro ao carregar logo na imagem principal, usando padrão');
+                        this.src = DEFAULT_LOGO;
+                    };
+                } else {
+                    console.log('Usando logo padrão (não há logo personalizada ou está vazia)');
+                    channelLogo.src = DEFAULT_LOGO;
                 }
                 
                 // Buscar configurações de monetização
@@ -761,7 +761,6 @@
                 
                 if (channelMonetizationDoc.exists) {
                     monetizationData = channelMonetizationDoc.data();
-                    console.log('Configurações de monetização encontradas na coleção channels');
                 } else if (channelData.userId) {
                     // Tentar na estrutura antiga (coleção 'users')
                     const userMonetizationRef = db.collection('users').doc(channelData.userId)
@@ -771,7 +770,6 @@
                     
                     if (userMonetizationDoc.exists) {
                         monetizationData = userMonetizationDoc.data();
-                        console.log('Configurações de monetização encontradas na coleção users');
                     }
                 }
                 
@@ -784,8 +782,8 @@
                 // Armazenar dados de comercial pago
                 channelData.paidCommercials = monetizationData.paidCommercials;
                 
-                // Atualizar interface com informações do canal (INCLUINDO LOGO)
-                updateChannelUI(logoUrl);
+                // Atualizar interface com informações do canal
+                updateChannelUI();
                 
                 hideLoading();
                 
@@ -796,31 +794,11 @@
             }
         }
         
-        // Atualizar interface com informações do canal (AGORA COM LOGO)
-        function updateChannelUI(logoUrl = null) {
+        // Atualizar interface com informações do canal
+        function updateChannelUI() {
             document.getElementById('channelInfo').style.display = 'flex';
             document.getElementById('channelName').textContent = channelData.name || 'Canal sem nome';
             document.getElementById('channelSlogan').textContent = channelData.slogan || '';
-            
-            // CONFIGURAR A LOGO DO CANAL
-            const channelLogo = document.getElementById('channelLogo');
-            
-            if (logoUrl && logoUrl.trim() !== '') {
-                console.log('Configurando logo personalizada:', logoUrl);
-                
-                // Primeiro configurar o onerror para fallback
-                channelLogo.onerror = function() {
-                    console.log('Erro ao carregar logo personalizada, usando padrão');
-                    this.src = DEFAULT_LOGO;
-                    this.onerror = null; // Prevenir loop infinito
-                };
-                
-                // Depois tentar carregar a logo personalizada
-                channelLogo.src = logoUrl;
-            } else {
-                console.log('Usando logo padrão');
-                channelLogo.src = DEFAULT_LOGO;
-            }
             
             const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
             const maxDuration = channelData.paidCommercials.maxDuration || 90;
