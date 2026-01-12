@@ -63,6 +63,52 @@
             color: #fdbb2d;
         }
         
+        .channel-info {
+            background: rgba(253, 187, 45, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 4px solid #fdbb2d;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .channel-logo {
+            width: 80px;
+            height: 80px;
+            border-radius: 10px;
+            object-fit: cover;
+            border: 2px solid #fdbb2d;
+        }
+        
+        .channel-details {
+            flex: 1;
+        }
+        
+        .channel-name {
+            font-size: 1.8rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #fdbb2d;
+        }
+        
+        .channel-slogan {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .channel-price {
+            background: rgba(46, 204, 113, 0.2);
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+            color: #2ecc71;
+            display: inline-block;
+            border: 1px solid #2ecc71;
+        }
+        
         .form-group {
             margin-bottom: 20px;
         }
@@ -313,6 +359,16 @@
             margin-bottom: 8px;
         }
         
+        .back-button {
+            background: #9b59b6;
+            color: white;
+            margin-top: 20px;
+        }
+        
+        .back-button:hover {
+            background: #8e44ad;
+        }
+        
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
@@ -324,6 +380,17 @@
             
             h1 {
                 font-size: 2rem;
+            }
+            
+            .channel-info {
+                flex-direction: column;
+                text-align: center;
+                gap: 15px;
+            }
+            
+            .channel-logo {
+                width: 100px;
+                height: 100px;
             }
         }
         
@@ -341,6 +408,16 @@
 <body>
     <div class="container">
         <h1>📺 Inserir Comercial</h1>
+        
+        <!-- Informações do Canal -->
+        <div id="channelInfo" class="channel-info" style="display: none;">
+            <img id="channelLogo" class="channel-logo" src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png" alt="Logo do Canal">
+            <div class="channel-details">
+                <div id="channelName" class="channel-name">Carregando...</div>
+                <div id="channelSlogan" class="channel-slogan"></div>
+                <div id="channelPrice" class="channel-price">Preço por segundo: R$ 0.05</div>
+            </div>
+        </div>
         
         <!-- Instruções -->
         <div class="instructions">
@@ -410,6 +487,7 @@
             </div>
             
             <button id="proceedButton" onclick="proceedToPayment()" disabled>💳 Prosseguir para Pagamento</button>
+            <button class="back-button" onclick="goBack()">← Voltar</button>
         </div>
         
         <!-- Área de pagamento PIX -->
@@ -438,6 +516,8 @@
                     <li>Seu comercial será ativado em até 2 minutos</li>
                 </ol>
             </div>
+            
+            <button class="back-button" onclick="goBackToPreview()">← Voltar para Preview</button>
         </div>
         
         <!-- Loading -->
@@ -448,8 +528,13 @@
         
         <!-- Mensagem de sucesso -->
         <div id="successMessage" class="success-message" style="display: none;">
-            ✅ Comercial inserido com sucesso! Ele será exibido no canal por 24 horas.
+            <h3>✅ Comercial inserido com sucesso!</h3>
+            <p>Seu comercial será exibido no canal <span id="successChannelName"></span> por 24 horas.</p>
+            <p>Redirecionando para o canal em <span id="countdown">5</span> segundos...</p>
         </div>
+        
+        <!-- Botão para voltar ao início -->
+        <button id="backToStart" class="back-button" style="display: none;" onclick="resetForm()">← Inserir novo comercial</button>
     </div>
 
     <!-- QR Code Library -->
@@ -482,11 +567,23 @@
         let currentVideoId = null;
         let paymentCheckInterval = null;
         let currentPaymentId = null;
+        let currentChannelId = null;
         
         // ==================== FUNÇÕES DE INICIALIZAÇÃO ====================
         
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Página comercial.html carregada');
+            
+            // Obter channelId da URL
+            const urlParams = new URLSearchParams(window.location.search);
+            currentChannelId = urlParams.get('channelId');
+            
+            if (!currentChannelId) {
+                showError('ID do canal não especificado na URL. Use: comercial.html?channelId=SEU_CHANNEL_ID');
+                return;
+            }
+            
+            console.log('Channel ID da URL:', currentChannelId);
             
             // Verificar se usuário está autenticado
             auth.onAuthStateChanged(async (user) => {
@@ -500,73 +597,112 @@
                     return;
                 }
                 
-                // Obter dados do canal da URL
-                await loadChannelFromUrl();
+                // Carregar dados do canal
+                await loadChannelData();
             });
         });
         
-        // Carregar dados do canal da URL
-        async function loadChannelFromUrl() {
+        // Carregar dados do canal do Firestore
+        async function loadChannelData() {
             try {
-                const urlParams = new URLSearchParams(window.location.search);
-                const channelId = urlParams.get('channelId');
+                showLoading('Carregando informações do canal...');
                 
-                if (!channelId) {
-                    showError('ID do canal não encontrado na URL.');
-                    return;
-                }
-                
-                showLoading('Carregando dados do canal...');
-                
-                // Buscar dados do canal
-                const channelRef = db.collection('channels').doc(channelId);
-                const channelDoc = await channelRef.get();
+                // Primeiro, tentar buscar na coleção 'channels'
+                let channelRef = db.collection('channels').doc(currentChannelId);
+                let channelDoc = await channelRef.get();
                 
                 if (!channelDoc.exists) {
-                    hideLoading();
-                    showError('Canal não encontrado.');
-                    return;
+                    // Se não encontrou em 'channels', tentar buscar em 'users'
+                    console.log('Canal não encontrado na coleção channels, buscando em users...');
+                    
+                    // Precisamos buscar todos os usuários e verificar seus canais
+                    const usersSnapshot = await db.collection('users').get();
+                    let foundChannel = null;
+                    
+                    for (const userDoc of usersSnapshot.docs) {
+                        const userChannelsRef = db.collection('users').doc(userDoc.id)
+                            .collection('channels').doc(currentChannelId);
+                        const userChannelDoc = await userChannelsRef.get();
+                        
+                        if (userChannelDoc.exists) {
+                            foundChannel = userChannelDoc.data();
+                            foundChannel.id = currentChannelId;
+                            foundChannel.userId = userDoc.id;
+                            break;
+                        }
+                    }
+                    
+                    if (!foundChannel) {
+                        hideLoading();
+                        showError('Canal não encontrado. Verifique o ID do canal.');
+                        return;
+                    }
+                    
+                    channelData = foundChannel;
+                } else {
+                    channelData = channelDoc.data();
+                    channelData.id = currentChannelId;
                 }
                 
-                channelData = channelDoc.data();
-                channelData.id = channelId;
+                console.log('Dados do canal carregados:', channelData);
                 
                 // Buscar configurações de monetização
-                const monetizationRef = channelRef.collection('monetization').doc('settings');
-                const monetizationDoc = await monetizationRef.get();
+                let monetizationData = null;
                 
-                if (!monetizationDoc.exists) {
-                    hideLoading();
-                    showError('Este canal não aceita comerciais pagos.');
-                    return;
+                // Tentar buscar na nova estrutura (coleção 'channels')
+                const channelMonetizationRef = db.collection('channels').doc(currentChannelId)
+                    .collection('monetization').doc('settings');
+                const channelMonetizationDoc = await channelMonetizationRef.get();
+                
+                if (channelMonetizationDoc.exists) {
+                    monetizationData = channelMonetizationDoc.data();
+                } else if (channelData.userId) {
+                    // Tentar na estrutura antiga (coleção 'users')
+                    const userMonetizationRef = db.collection('users').doc(channelData.userId)
+                        .collection('channels').doc(currentChannelId)
+                        .collection('monetization').doc('settings');
+                    const userMonetizationDoc = await userMonetizationRef.get();
+                    
+                    if (userMonetizationDoc.exists) {
+                        monetizationData = userMonetizationDoc.data();
+                    }
                 }
                 
-                const monetizationData = monetizationDoc.data();
-                
-                if (!monetizationData.paidCommercials || !monetizationData.paidCommercials.enabled) {
+                if (!monetizationData || !monetizationData.paidCommercials || !monetizationData.paidCommercials.enabled) {
                     hideLoading();
-                    showError('Este canal não aceita comerciais pagos.');
+                    showError('Este canal não aceita comerciais pagos ou a monetização não está configurada.');
                     return;
                 }
                 
                 // Armazenar dados de comercial pago
                 channelData.paidCommercials = monetizationData.paidCommercials;
                 
-                console.log('Dados do canal carregados:', channelData);
+                // Atualizar interface com informações do canal
+                updateChannelUI();
                 
                 hideLoading();
                 
-                // Atualizar interface com preços
-                document.getElementById('pricePerSecond').textContent = 
-                    `R$ ${channelData.paidCommercials.pricePerSecond.toFixed(2)}/s`;
-                document.getElementById('maxDuration').textContent = 
-                    `${channelData.paidCommercials.maxDuration} segundos`;
-                    
             } catch (error) {
                 console.error('Erro ao carregar canal:', error);
                 hideLoading();
-                showError('Erro ao carregar dados do canal.');
+                showError('Erro ao carregar dados do canal: ' + error.message);
             }
+        }
+        
+        // Atualizar interface com informações do canal
+        function updateChannelUI() {
+            document.getElementById('channelInfo').style.display = 'flex';
+            document.getElementById('channelName').textContent = channelData.name || 'Canal sem nome';
+            document.getElementById('channelSlogan').textContent = channelData.slogan || '';
+            
+            if (channelData.logo && channelData.logo !== 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png') {
+                document.getElementById('channelLogo').src = channelData.logo;
+            }
+            
+            const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
+            document.getElementById('channelPrice').textContent = `Preço por segundo: R$ ${pricePerSecond.toFixed(2)}`;
+            document.getElementById('pricePerSecond').textContent = `R$ ${pricePerSecond.toFixed(2)}/s`;
+            document.getElementById('maxDuration').textContent = `${channelData.paidCommercials.maxDuration || 90} segundos`;
         }
         
         // ==================== FUNÇÕES DO YOUTUBE ====================
@@ -614,14 +750,15 @@
             document.getElementById('videoInfo').style.display = 'block';
             
             // Verificar se o vídeo está dentro do limite
-            if (duration > channelData.paidCommercials.maxDuration) {
-                showError(`O vídeo excede o tempo máximo permitido de ${channelData.paidCommercials.maxDuration} segundos.`);
+            const maxDuration = channelData.paidCommercials.maxDuration || 90;
+            if (duration > maxDuration) {
+                showError(`O vídeo excede o tempo máximo permitido de ${maxDuration} segundos.`);
                 document.getElementById('proceedButton').disabled = true;
                 return;
             }
             
             // Calcular preço
-            const pricePerSecond = channelData.paidCommercials.pricePerSecond;
+            const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
             const totalPrice = duration * pricePerSecond;
             
             document.getElementById('calculatedPrice').textContent = `R$ ${totalPrice.toFixed(2)}`;
@@ -704,6 +841,32 @@
             generatePixPayment();
         }
         
+        // Voltar para preview
+        function goBackToPreview() {
+            document.getElementById('pixArea').style.display = 'none';
+            document.getElementById('videoPreview').style.display = 'block';
+        }
+        
+        // Voltar para formulário
+        function goBack() {
+            document.getElementById('videoPreview').style.display = 'none';
+            document.getElementById('videoForm').style.display = 'block';
+        }
+        
+        // Resetar formulário
+        function resetForm() {
+            document.getElementById('successMessage').style.display = 'none';
+            document.getElementById('backToStart').style.display = 'none';
+            document.getElementById('videoForm').style.display = 'block';
+            document.getElementById('videoUrl').value = '';
+            document.getElementById('payerEmail').value = '';
+            
+            if (youtubePlayer) {
+                youtubePlayer.destroy();
+                youtubePlayer = null;
+            }
+        }
+        
         // ==================== FUNÇÕES DE PAGAMENTO PIX ====================
         
         // Gerar pagamento PIX
@@ -753,6 +916,9 @@
                 // Exibir QR Code
                 if (result.qrCodeBase64) {
                     displayQRCode(result.qrCodeBase64);
+                } else if (result.qrCode) {
+                    // Se a API retornar URL do QR Code
+                    document.getElementById('qrcode').innerHTML = `<img src="${result.qrCode}" alt="QR Code PIX" style="width: 100%; height: auto;">`;
                 }
                 
                 // Exibir código PIX
@@ -908,6 +1074,18 @@
                     commercialId: commercialRef.id
                 });
                 
+                // Se o canal estiver na estrutura antiga (users), também salvar lá
+                if (channelData.userId) {
+                    const userChannelCommercialsRef = db.collection('users').doc(channelData.userId)
+                        .collection('channels').doc(channelData.id)
+                        .collection('commercials').doc(commercialRef.id);
+                    
+                    await userChannelCommercialsRef.set({
+                        ...commercialData,
+                        commercialId: commercialRef.id
+                    });
+                }
+                
                 console.log('Comercial salvo com ID:', commercialRef.id);
                 
                 // Programar exclusão automática após 24 horas
@@ -917,17 +1095,45 @@
                 hideLoading();
                 document.getElementById('pixArea').style.display = 'none';
                 document.getElementById('successMessage').style.display = 'block';
+                document.getElementById('successChannelName').textContent = channelData.name;
+                document.getElementById('backToStart').style.display = 'block';
                 
-                // Redirecionar após alguns segundos
-                setTimeout(() => {
-                    window.location.href = `https://canaisdetv.online/canais/${channelData.id.toLowerCase().replace(/[^a-z0-9]/g, '-')}.html`;
-                }, 5000);
+                // Iniciar contagem regressiva para redirecionamento
+                startCountdown();
                 
             } catch (error) {
                 console.error('Erro ao salvar comercial:', error);
                 hideLoading();
                 showError('Erro ao salvar comercial. Contate o suporte.');
             }
+        }
+        
+        // Iniciar contagem regressiva
+        function startCountdown() {
+            let countdown = 5;
+            const countdownElement = document.getElementById('countdown');
+            countdownElement.textContent = countdown;
+            
+            const countdownInterval = setInterval(() => {
+                countdown--;
+                countdownElement.textContent = countdown;
+                
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    redirectToChannel();
+                }
+            }, 1000);
+        }
+        
+        // Redirecionar para o canal
+        function redirectToChannel() {
+            // Gerar URL do canal baseado no nome
+            const channelNameSlug = channelData.name.toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-');
+            
+            const channelUrl = `https://canaisdetv.online/canais/${channelNameSlug}.html`;
+            window.location.href = channelUrl;
         }
         
         // Programar exclusão automática
@@ -943,6 +1149,13 @@
                         // Excluir da coleção do canal
                         await db.collection('channels').doc(channelData.id)
                             .collection('commercials').doc(commercialId).delete();
+                        
+                        // Se existir na estrutura antiga, excluir também
+                        if (channelData.userId) {
+                            await db.collection('users').doc(channelData.userId)
+                                .collection('channels').doc(channelData.id)
+                                .collection('commercials').doc(commercialId).delete();
+                        }
                             
                         console.log(`Comercial ${commercialId} excluído automaticamente após 24 horas.`);
                     } catch (error) {
@@ -1000,6 +1213,11 @@
             const errorDiv = document.getElementById('errorMessage');
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
+            
+            // Auto-ocultar após 5 segundos
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
         }
         
         function hideError() {
