@@ -15,7 +15,6 @@
     <script src="https://www.youtube.com/iframe_api"></script>
     
     <style>
-        /* ESTILOS MANTIDOS IGUAIS - não alterar CSS */
         * {
             margin: 0;
             padding: 0;
@@ -600,7 +599,6 @@
         let youtubePlayer = null;
         let videoData = null;
         let channelData = null;
-        let monetizationData = null; // AGORA TEMOS VARIÁVEL PARA MONETIZAÇÃO
         let currentVideoId = null;
         let paymentCheckInterval = null;
         let currentPaymentId = null;
@@ -636,8 +634,8 @@
                     return;
                 }
                 
-                // Carregar dados do canal E DA MONETIZAÇÃO
-                await loadChannelAndMonetizationData();
+                // Carregar dados do canal
+                await loadChannelData();
                 
                 // Configurar listener para input da URL
                 setupUrlInputListener();
@@ -676,103 +674,199 @@
             });
         }
         
-        // Carregar dados do canal E DA MONETIZAÇÃO - FUNÇÃO ATUALIZADA
-        async function loadChannelAndMonetizationData() {
+        // Carregar dados do canal do Firestore - CORREÇÃO: BUSCAR LOGO NO LUGAR CORRETO
+        async function loadChannelData() {
             try {
                 showLoading('Carregando informações do canal...');
                 
-                // 1. Buscar dados do canal
-                const channelRef = db.collection('channels').doc(currentChannelId);
-                const channelDoc = await channelRef.get();
+                // Vamos primeiro buscar na estrutura correta: users/{userId}/channels/{channelId}
+                console.log('Buscando canal na estrutura users/{userId}/channels/{channelId}...');
                 
-                if (!channelDoc.exists) {
-                    hideLoading();
-                    showError('Canal não encontrado. Verifique o ID do canal.');
-                    return;
+                // Precisamos buscar todos os usuários para encontrar o canal
+                const usersSnapshot = await db.collection('users').get();
+                let foundChannel = null;
+                let foundUserId = null;
+                
+                for (const userDoc of usersSnapshot.docs) {
+                    const userChannelsRef = db.collection('users').doc(userDoc.id)
+                        .collection('channels').doc(currentChannelId);
+                    const userChannelDoc = await userChannelsRef.get();
+                    
+                    if (userChannelDoc.exists) {
+                        foundChannel = userChannelDoc.data();
+                        foundChannel.id = currentChannelId;
+                        foundChannel.userId = userDoc.id;
+                        foundUserId = userDoc.id;
+                        console.log('Canal encontrado na estrutura users:', foundChannel);
+                        break;
+                    }
                 }
                 
-                channelData = channelDoc.data();
-                channelData.id = currentChannelId;
-                
-                console.log('📦 Dados do canal carregados:', channelData);
-                
-                // 2. BUSCAR CONFIGURAÇÃO DE MONETIZAÇÃO - PARTE CRÍTICA!
-                console.log('🔍 Buscando configuração de monetização...');
-                
-                // Primeiro, tentar na estrutura principal do canal
-                const monetizationRef = channelRef.collection('monetization').doc('settings');
-                const monetizationDoc = await monetizationRef.get();
-                
-                if (monetizationDoc.exists) {
-                    monetizationData = monetizationDoc.data();
-                    console.log('✅ Monetização encontrada na estrutura principal:', monetizationData);
-                } else {
-                    // Se não encontrou, tentar buscar em users/{userId}/channels/{channelId}/monetization/settings
-                    console.log('🔄 Monetização não encontrada na estrutura principal, buscando em users...');
+                // Se não encontrou na estrutura users, tentar na coleção channels
+                if (!foundChannel) {
+                    console.log('Canal não encontrado na estrutura users, buscando na coleção channels...');
+                    let channelRef = db.collection('channels').doc(currentChannelId);
+                    let channelDoc = await channelRef.get();
                     
-                    const usersSnapshot = await db.collection('users').limit(10).get();
-                    let foundMonetization = false;
-                    
-                    for (const userDoc of usersSnapshot.docs) {
-                        const userChannelMonetizationRef = db.collection('users').doc(userDoc.id)
-                            .collection('channels').doc(currentChannelId)
-                            .collection('monetization').doc('settings');
-                        
-                        const userMonetizationDoc = await userChannelMonetizationRef.get();
-                        
-                        if (userMonetizationDoc.exists) {
-                            monetizationData = userMonetizationDoc.data();
-                            console.log('✅ Monetização encontrada na estrutura do usuário:', monetizationData);
-                            foundMonetization = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!foundMonetization) {
+                    if (!channelDoc.exists) {
                         hideLoading();
-                        showError('Este canal não está configurado para aceitar comerciais pagos.');
+                        showError('Canal não encontrado. Verifique o ID do canal.');
                         return;
                     }
+                    
+                    foundChannel = channelDoc.data();
+                    foundChannel.id = currentChannelId;
+                    console.log('Canal encontrado na coleção channels:', foundChannel);
                 }
                 
-                // 3. VERIFICAR SE A MONETIZAÇÃO ESTÁ HABILITADA
-                if (!monetizationData.paidCommercials || !monetizationData.paidCommercials.enabled) {
+                channelData = foundChannel;
+                
+                console.log('Dados do canal carregados:', channelData);
+                
+                // BUSCA DA LOGOMARCA DO CANAL - BUSCAR NO LUGAR CORRETO
+                const channelLogo = document.getElementById('channelLogo');
+                
+                // Verificar se a logo existe diretamente nos dados do canal
+                if (channelData.logo && channelData.logo.trim() !== '') {
+                    console.log('Logo encontrada em channelData.logo:', channelData.logo);
+                    applyChannelLogo(channelData.logo);
+                } else {
+                    // Se não encontrou, tentar buscar em outros lugares
+                    await searchForChannelLogo(foundUserId);
+                }
+                
+                // Buscar configurações de monetização
+                let monetizationData = null;
+                
+                // Tentar buscar na estrutura users primeiro (mais provável)
+                if (foundUserId) {
+                    const userMonetizationRef = db.collection('users').doc(foundUserId)
+                        .collection('channels').doc(currentChannelId)
+                        .collection('monetization').doc('settings');
+                    const userMonetizationDoc = await userMonetizationRef.get();
+                    
+                    if (userMonetizationDoc.exists) {
+                        monetizationData = userMonetizationDoc.data();
+                        console.log('Configurações de monetização encontradas na estrutura users:', monetizationData);
+                    }
+                }
+                
+                // Se não encontrou, tentar na estrutura channels
+                if (!monetizationData) {
+                    const channelMonetizationRef = db.collection('channels').doc(currentChannelId)
+                        .collection('monetization').doc('settings');
+                    const channelMonetizationDoc = await channelMonetizationRef.get();
+                    
+                    if (channelMonetizationDoc.exists) {
+                        monetizationData = channelMonetizationDoc.data();
+                        console.log('Configurações de monetização encontradas na coleção channels:', monetizationData);
+                    }
+                }
+                
+                if (!monetizationData || !monetizationData.paidCommercials || !monetizationData.paidCommercials.enabled) {
                     hideLoading();
-                    showError('Este canal não aceita comerciais pagos ou a monetização está desativada.');
+                    showError('Este canal não aceita comerciais pagos ou a monetização não está configurada.');
                     return;
                 }
                 
-                console.log('🎯 Monetização habilitada:', monetizationData.paidCommercials);
+                // Armazenar dados de comercial pago
+                channelData.paidCommercials = monetizationData.paidCommercials;
                 
-                // 4. Configurar logo do canal
-                const channelLogo = document.getElementById('channelLogo');
-                if (channelData.logo && channelData.logo.trim() !== '') {
-                    channelLogo.src = channelData.logo;
-                } else {
-                    channelLogo.src = DEFAULT_LOGO;
-                }
-                
-                // 5. Atualizar interface com informações do canal
+                // Atualizar interface com informações do canal
                 updateChannelUI();
                 
                 hideLoading();
                 
             } catch (error) {
-                console.error('❌ Erro ao carregar canal:', error);
+                console.error('Erro ao carregar canal:', error);
                 hideLoading();
                 showError('Erro ao carregar dados do canal: ' + error.message);
             }
         }
         
-        // Atualizar interface com informações do canal - FUNÇÃO ATUALIZADA
+        // Função para buscar a logo em outros lugares
+        async function searchForChannelLogo(userId) {
+            const channelLogo = document.getElementById('channelLogo');
+            
+            try {
+                // Se temos userId, tentar buscar na coleção de configurações do canal
+                if (userId) {
+                    // Tentar buscar em users/{userId}/channels/{channelId}/settings
+                    const channelSettingsRef = db.collection('users').doc(userId)
+                        .collection('channels').doc(currentChannelId)
+                        .collection('settings').doc('general');
+                    const settingsDoc = await channelSettingsRef.get();
+                    
+                    if (settingsDoc.exists) {
+                        const settingsData = settingsDoc.data();
+                        if (settingsData.logo && settingsData.logo.trim() !== '') {
+                            console.log('Logo encontrada nas configurações do canal:', settingsData.logo);
+                            applyChannelLogo(settingsData.logo);
+                            return;
+                        }
+                    }
+                    
+                    // Tentar buscar em users/{userId}/settings
+                    const userSettingsRef = db.collection('users').doc(userId)
+                        .collection('settings').doc('channel');
+                    const userSettingsDoc = await userSettingsRef.get();
+                    
+                    if (userSettingsDoc.exists) {
+                        const userSettingsData = userSettingsDoc.data();
+                        if (userSettingsData.logo && userSettingsData.logo.trim() !== '') {
+                            console.log('Logo encontrada nas configurações do usuário:', userSettingsData.logo);
+                            applyChannelLogo(userSettingsData.logo);
+                            return;
+                        }
+                    }
+                }
+                
+                // Se não encontrou em nenhum lugar, usar logo padrão
+                console.log('Nenhuma logo encontrada, usando logo padrão');
+                channelLogo.src = DEFAULT_LOGO;
+                
+            } catch (error) {
+                console.error('Erro ao buscar logo:', error);
+                channelLogo.src = DEFAULT_LOGO;
+            }
+        }
+        
+        // Função para aplicar a logo com tratamento de erro
+        function applyChannelLogo(logoUrl) {
+            const channelLogo = document.getElementById('channelLogo');
+            
+            console.log('Aplicando logo:', logoUrl);
+            
+            // Primeiro definir a logo padrão como fallback
+            channelLogo.src = DEFAULT_LOGO;
+            
+            // Testar se a logo personalizada carrega
+            const testImage = new Image();
+            testImage.onload = function() {
+                console.log('Logo personalizada carregada com sucesso');
+                channelLogo.src = logoUrl;
+            };
+            testImage.onerror = function() {
+                console.log('Logo personalizada falhou ao carregar, usando padrão');
+                channelLogo.src = DEFAULT_LOGO;
+            };
+            testImage.src = logoUrl;
+            
+            // Também configurar tratamento de erro na imagem principal
+            channelLogo.onerror = function() {
+                console.log('Erro ao carregar logo na imagem principal');
+                this.src = DEFAULT_LOGO;
+            };
+        }
+        
+        // Atualizar interface com informações do canal
         function updateChannelUI() {
             document.getElementById('channelInfo').style.display = 'flex';
             document.getElementById('channelName').textContent = channelData.name || 'Canal sem nome';
             document.getElementById('channelSlogan').textContent = channelData.slogan || '';
             
-            // Usar dados da monetização
-            const pricePerSecond = monetizationData.paidCommercials.pricePerSecond || 0.05;
-            const maxDuration = monetizationData.paidCommercials.maxDuration || 90;
+            const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
+            const maxDuration = channelData.paidCommercials.maxDuration || 90;
             
             document.getElementById('pricePerSecondTag').textContent = `Preço: R$ ${pricePerSecond.toFixed(2)}/s`;
             document.getElementById('maxDurationTag').textContent = `Máx: ${maxDuration} segundos`;
@@ -788,7 +882,7 @@
             console.log('YouTube API pronta');
         }
         
-        // Criar player do YouTube - FUNÇÃO ATUALIZADA
+        // Criar player do YouTube
         function createYouTubePlayer(videoId) {
             if (youtubePlayer) {
                 youtubePlayer.destroy();
@@ -841,8 +935,8 @@
                 return;
             }
             
-            // VERIFICAÇÃO 3: Verificar se o vídeo está dentro do limite máximo DA MONETIZAÇÃO
-            const maxDuration = monetizationData.paidCommercials.maxDuration || 90;
+            // VERIFICAÇÃO 3: Verificar se o vídeo está dentro do limite máximo
+            const maxDuration = channelData.paidCommercials.maxDuration || 90;
             if (duration > maxDuration) {
                 // DESTRUIR o player imediatamente
                 youtubePlayer.destroy();
@@ -854,7 +948,7 @@
                 document.getElementById('totalPrice').style.display = 'none';
                 document.getElementById('proceedButton').disabled = true;
                 
-                // Mostrar mensagem de erro
+                // Mostrar mensagem de erro PERMANENTE (branco com texto vermelho)
                 showError(`VÍDEO NÃO PERMITIDO: O vídeo tem ${Math.floor(duration)} segundos, mas o tempo máximo permitido é de ${maxDuration} segundos. Por favor, insira um vídeo mais curto.`);
                 
                 // Limpar a URL atual
@@ -865,10 +959,10 @@
             }
             
             // Se chegou aqui, o vídeo está dentro do limite
-            hideError();
+            hideError(); // Esconder qualquer erro anterior
             
-            // Calcular preço usando dados DA MONETIZAÇÃO
-            const pricePerSecond = monetizationData.paidCommercials.pricePerSecond || 0.05;
+            // Calcular preço
+            const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
             const totalPrice = duration * pricePerSecond;
             
             document.getElementById('calculatedPrice').textContent = `R$ ${totalPrice.toFixed(2)}`;
@@ -890,7 +984,7 @@
             // Marcar esta URL como válida
             lastValidUrl = document.getElementById('videoUrl').value;
             
-            console.log('✅ Dados do vídeo:', videoData);
+            console.log('Dados do vídeo:', videoData);
         }
         
         // Função auxiliar para destruir player e esconder preview
@@ -925,7 +1019,7 @@
         
         // Visualizar vídeo
         function previewVideo(videoUrl) {
-            if (!channelData || !monetizationData) {
+            if (!channelData) {
                 showError('Dados do canal não carregados. Aguarde...');
                 return;
             }
@@ -967,15 +1061,15 @@
             }
         }
         
-        // Prosseguir para pagamento - FUNÇÃO ATUALIZADA
+        // Prosseguir para pagamento
         function proceedToPayment() {
-            if (!videoData || !currentUser || !monetizationData) {
+            if (!videoData || !currentUser) {
                 showError('Dados incompletos. Tente novamente.');
                 return;
             }
             
             // Verificação FINAL da duração (tripla verificação)
-            const maxDuration = monetizationData.paidCommercials.maxDuration || 90;
+            const maxDuration = channelData.paidCommercials.maxDuration || 90;
             
             // Verificar se a duração é válida
             if (isNaN(videoData.duration) || videoData.duration === undefined) {
@@ -991,7 +1085,7 @@
             
             // Verificar se excede o limite máximo
             if (videoData.duration > maxDuration) {
-                showError(`ERRO: O vídeo excede o tempo máximo permitido de ${maxDuration} segundos.`);
+                showError(`ERRO CRÍTICO: O vídeo excede o tempo máximo permitido de ${maxDuration} segundos.`);
                 return;
             }
             
@@ -1030,14 +1124,14 @@
         
         // ==================== FUNÇÕES DE PAGAMENTO PIX ====================
         
-        // Gerar pagamento PIX - FUNÇÃO COMPLETAMENTE REFEITA
+        // Gerar pagamento PIX
         async function generatePixPayment() {
             showLoading('Gerando pagamento PIX...');
             
             try {
                 // Dados para a API do Mercado Pago
                 const paymentData = {
-                    channelId: currentChannelId,
+                    channelId: channelData.id,
                     channelName: channelData.name || 'Canal sem nome',
                     amount: videoData.totalPrice,
                     videoData: videoData,
@@ -1047,47 +1141,28 @@
                     paymentType: 'commercial'
                 };
                 
-                console.log('📤 Enviando dados para criar PIX:', paymentData);
+                console.log('Enviando dados para API:', paymentData);
                 
                 // Chamar Cloud Function para criar pagamento PIX
                 const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/createPixPayment', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(paymentData)
                 });
                 
-                console.log('📥 Resposta recebida:', response.status, response.statusText);
-                
-                // Tentar ler a resposta como JSON
-                let result;
-                try {
-                    const responseText = await response.text();
-                    console.log('📄 Conteúdo da resposta:', responseText.substring(0, 500));
-                    
-                    result = JSON.parse(responseText);
-                } catch (parseError) {
-                    console.error('❌ Erro ao parsear JSON:', parseError);
-                    throw new Error('Resposta inválida do servidor');
-                }
-                
                 if (!response.ok) {
-                    console.error('❌ Erro HTTP:', result);
-                    throw new Error(result.error || `Erro ${response.status}: ${response.statusText}`);
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
                 }
+                
+                const result = await response.json();
                 
                 if (!result.success) {
-                    console.error('❌ Erro na resposta:', result);
                     throw new Error(result.error || 'Erro ao gerar pagamento');
                 }
                 
-                console.log('✅ Pagamento gerado com sucesso:', {
-                    paymentId: result.paymentId,
-                    hasQRCode: !!result.qrCodeBase64,
-                    hasPixCode: !!result.pixCode
-                });
+                console.log('Pagamento gerado:', result);
                 
                 currentPaymentId = result.paymentId;
                 
@@ -1096,8 +1171,6 @@
                     displayQRCode(result.qrCodeBase64);
                 } else if (result.qrCode) {
                     document.getElementById('qrcode').innerHTML = `<img src="${result.qrCode}" alt="QR Code PIX" style="width: 100%; height: auto;">`;
-                } else {
-                    console.warn('⚠️ Nenhum QR Code retornado');
                 }
                 
                 // Exibir código PIX
@@ -1111,17 +1184,9 @@
                 hideLoading();
                 
             } catch (error) {
-                console.error('❌ Erro ao gerar pagamento:', error);
+                console.error('Erro ao gerar pagamento:', error);
                 hideLoading();
                 showError(`Erro ao gerar pagamento: ${error.message}`);
-                
-                // Mostrar botão para tentar novamente
-                const pixArea = document.getElementById('pixArea');
-                pixArea.innerHTML += `
-                    <button onclick="generatePixPayment()" style="margin-top: 15px; background: #e74c3c;">
-                        🔄 Tentar Novamente
-                    </button>
-                `;
             }
         }
         
@@ -1149,30 +1214,21 @@
             }, 2000);
         }
         
-        // Verificar status do pagamento - FUNÇÃO ATUALIZADA
+        // Verificar status do pagamento
         async function checkPaymentStatus() {
             if (!currentPaymentId) return null;
             
             try {
-                console.log('🔍 Verificando status do pagamento:', currentPaymentId);
-                
                 const response = await fetch(`https://us-central1-playtronic-tv.cloudfunctions.net/checkPaymentStatus?paymentId=${currentPaymentId}`);
                 
-                if (!response.ok) {
-                    console.warn('⚠️ Erro ao verificar status:', response.status);
-                    return null;
-                }
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    console.log('📊 Status do pagamento:', result.status);
-                    return result;
+                if (response.ok) {
+                    const result = await response.json();
+                    return result.success ? result : null;
                 }
                 
                 return null;
             } catch (error) {
-                console.error('❌ Erro ao verificar status:', error);
+                console.error('Erro ao verificar status:', error);
                 return null;
             }
         }
@@ -1191,19 +1247,19 @@
                 if (paymentData) {
                     updatePaymentStatusUI(paymentData.status);
                     
-                    if (paymentData.status === 'approved' || paymentData.status === 'received') {
+                    if (paymentData.status === 'approved') {
                         // Pagamento aprovado, salvar comercial
                         clearInterval(paymentCheckInterval);
                         saveCommercialToFirestore();
-                    } else if (paymentData.status === 'rejected' || paymentData.status === 'cancelled') {
+                    } else if (paymentData.status === 'rejected') {
                         // Pagamento rejeitado
                         clearInterval(paymentCheckInterval);
                         setTimeout(() => {
-                            showError('Pagamento rejeitado ou cancelado. Tente novamente.');
+                            showError('Pagamento rejeitado. Tente novamente.');
                         }, 2000);
                     }
                 }
-            }, 5000); // Verificar a cada 5 segundos
+            }, 5000);
         }
         
         // Atualizar UI do status
@@ -1217,11 +1273,9 @@
                     paymentStatus.innerHTML = '<strong>⏳ Aguardando pagamento...</strong><br><small>Escaneie o QR Code ou copie o código PIX.</small>';
                     break;
                 case 'approved':
-                case 'received':
                     paymentStatus.innerHTML = '<strong>✅ Pagamento confirmado!</strong><br><small>Salvando seu comercial...</small>';
                     break;
                 case 'rejected':
-                case 'cancelled':
                     paymentStatus.innerHTML = '<strong>❌ Pagamento não realizado</strong><br><small>O pagamento não foi concluído.</small>';
                     break;
                 default:
@@ -1231,95 +1285,63 @@
         
         // ==================== FUNÇÕES DO FIRESTORE ====================
         
-        // Salvar comercial no Firestore - FUNÇÃO ATUALIZADA
+        // Salvar comercial no Firestore
         async function saveCommercialToFirestore() {
             showLoading('Salvando comercial...');
             
             try {
                 const now = new Date();
-                const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000)); // 24 horas
+                const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000));
                 
                 const commercialData = {
-                    // Dados do vídeo
                     videoUrl: videoData.url,
                     videoId: videoData.videoId,
                     videoTitle: videoData.title,
                     videoDuration: videoData.duration,
                     thumbnail: videoData.thumbnail,
-                    
-                    // Dados do pagamento
                     pricePaid: videoData.totalPrice,
-                    paymentId: currentPaymentId,
-                    
-                    // Dados do pagador
                     payerEmail: currentUser.email,
                     payerId: currentUser.uid,
                     payerName: currentUser.displayName || currentUser.email,
-                    
-                    // Dados do canal
-                    channelId: currentChannelId,
+                    channelId: channelData.id,
                     channelName: channelData.name,
-                    
-                    // Status e datas
+                    paymentId: currentPaymentId,
                     status: 'active',
-                    isActive: true,
-                    wasPaid: true,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     expiresAt: expiresAt,
-                    willExpireAt: firebase.firestore.Timestamp.fromDate(expiresAt),
-                    
-                    // Metadados
-                    type: 'paid_commercial',
-                    source: 'commercial_page'
+                    willExpireAt: firebase.firestore.Timestamp.fromDate(expiresAt)
                 };
                 
-                console.log('💾 Salvando comercial:', commercialData);
+                console.log('Salvando comercial:', commercialData);
                 
-                // 1. Salvar na coleção global de comerciais pagos
+                // Salvar na coleção de comerciais pagos
                 const commercialRef = await db.collection('paid_commercials').add(commercialData);
-                const commercialId = commercialRef.id;
                 
-                console.log('✅ Comercial salvo globalmente com ID:', commercialId);
-                
-                // 2. Salvar na subcoleção do canal
-                const channelCommercialsRef = db.collection('channels').doc(currentChannelId)
-                    .collection('commercials').doc(commercialId);
+                // Também adicionar à lista de comerciais do canal
+                const channelCommercialsRef = db.collection('channels').doc(channelData.id)
+                    .collection('commercials').doc(commercialRef.id);
                 
                 await channelCommercialsRef.set({
                     ...commercialData,
-                    commercialId: commercialId,
-                    channelId: currentChannelId
+                    commercialId: commercialRef.id
                 });
                 
-                console.log('✅ Comercial salvo na subcoleção do canal');
-                
-                // 3. Se o canal estiver na estrutura de usuários, salvar lá também
-                try {
-                    const usersSnapshot = await db.collection('users').limit(5).get();
+                // Se o canal estiver na estrutura antiga (users), também salvar lá
+                if (channelData.userId) {
+                    const userChannelCommercialsRef = db.collection('users').doc(channelData.userId)
+                        .collection('channels').doc(channelData.id)
+                        .collection('commercials').doc(commercialRef.id);
                     
-                    for (const userDoc of usersSnapshot.docs) {
-                        const userChannelRef = db.collection('users').doc(userDoc.id)
-                            .collection('channels').doc(currentChannelId);
-                        
-                        const userChannelDoc = await userChannelRef.get();
-                        
-                        if (userChannelDoc.exists) {
-                            const userCommercialsRef = userChannelRef.collection('commercials').doc(commercialId);
-                            await userCommercialsRef.set({
-                                ...commercialData,
-                                commercialId: commercialId,
-                                userId: userDoc.id
-                            });
-                            console.log('✅ Comercial salvo na estrutura do usuário:', userDoc.id);
-                            break;
-                        }
-                    }
-                } catch (userError) {
-                    console.log('⚠️ Não foi possível salvar na estrutura de usuários:', userError.message);
+                    await userChannelCommercialsRef.set({
+                        ...commercialData,
+                        commercialId: commercialRef.id
+                    });
                 }
                 
+                console.log('Comercial salvo com ID:', commercialRef.id);
+                
                 // Programar exclusão automática após 24 horas
-                scheduleCommercialDeletion(commercialId, expiresAt);
+                scheduleCommercialDeletion(commercialRef.id, expiresAt);
                 
                 // Mostrar mensagem de sucesso
                 hideLoading();
@@ -1335,9 +1357,9 @@
                 startCountdown();
                 
             } catch (error) {
-                console.error('❌ Erro ao salvar comercial:', error);
+                console.error('Erro ao salvar comercial:', error);
                 hideLoading();
-                showError('Erro ao salvar comercial. Contate o suporte: ' + error.message);
+                showError('Erro ao salvar comercial. Contate o suporte.');
             }
         }
         
@@ -1375,23 +1397,20 @@
             if (timeUntilDeletion > 0) {
                 setTimeout(async () => {
                     try {
-                        // Marcar como expirado em vez de deletar
-                        await db.collection('paid_commercials').doc(commercialId).update({
-                            status: 'expired',
-                            isActive: false,
-                            expiredAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
+                        await db.collection('paid_commercials').doc(commercialId).delete();
                         
-                        await db.collection('channels').doc(currentChannelId)
-                            .collection('commercials').doc(commercialId).update({
-                                status: 'expired',
-                                isActive: false,
-                                expiredAt: firebase.firestore.FieldValue.serverTimestamp()
-                            });
+                        await db.collection('channels').doc(channelData.id)
+                            .collection('commercials').doc(commercialId).delete();
+                        
+                        if (channelData.userId) {
+                            await db.collection('users').doc(channelData.userId)
+                                .collection('channels').doc(channelData.id)
+                                .collection('commercials').doc(commercialId).delete();
+                        }
                             
-                        console.log(`✅ Comercial ${commercialId} marcado como expirado após 24 horas.`);
+                        console.log(`Comercial ${commercialId} excluído automaticamente após 24 horas.`);
                     } catch (error) {
-                        console.error('❌ Erro ao marcar comercial como expirado:', error);
+                        console.error('Erro ao excluir comercial automaticamente:', error);
                     }
                 }, timeUntilDeletion);
             }
