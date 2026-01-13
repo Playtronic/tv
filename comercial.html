@@ -674,92 +674,102 @@
             });
         }
         
-        // Carregar dados do canal do Firestore - CORREÇÃO: BUSCAR LOGO NO LUGAR CORRETO
+        // Carregar dados do canal do Firestore
         async function loadChannelData() {
             try {
                 showLoading('Carregando informações do canal...');
                 
-                // Vamos primeiro buscar na estrutura correta: users/{userId}/channels/{channelId}
-                console.log('Buscando canal na estrutura users/{userId}/channels/{channelId}...');
+                // Buscar canal na coleção 'channels'
+                let channelRef = db.collection('channels').doc(currentChannelId);
+                let channelDoc = await channelRef.get();
                 
-                // Precisamos buscar todos os usuários para encontrar o canal
-                const usersSnapshot = await db.collection('users').get();
-                let foundChannel = null;
-                let foundUserId = null;
-                
-                for (const userDoc of usersSnapshot.docs) {
-                    const userChannelsRef = db.collection('users').doc(userDoc.id)
-                        .collection('channels').doc(currentChannelId);
-                    const userChannelDoc = await userChannelsRef.get();
+                if (!channelDoc.exists) {
+                    // Se não encontrou em 'channels', tentar buscar em 'users'
+                    console.log('Canal não encontrado na coleção channels, buscando em users...');
                     
-                    if (userChannelDoc.exists) {
-                        foundChannel = userChannelDoc.data();
-                        foundChannel.id = currentChannelId;
-                        foundChannel.userId = userDoc.id;
-                        foundUserId = userDoc.id;
-                        console.log('Canal encontrado na estrutura users:', foundChannel);
-                        break;
+                    // Precisamos buscar todos os usuários e verificar seus canais
+                    const usersSnapshot = await db.collection('users').get();
+                    let foundChannel = null;
+                    
+                    for (const userDoc of usersSnapshot.docs) {
+                        const userChannelsRef = db.collection('users').doc(userDoc.id)
+                            .collection('channels').doc(currentChannelId);
+                        const userChannelDoc = await userChannelsRef.get();
+                        
+                        if (userChannelDoc.exists) {
+                            foundChannel = userChannelDoc.data();
+                            foundChannel.id = currentChannelId;
+                            foundChannel.userId = userDoc.id;
+                            break;
+                        }
                     }
-                }
-                
-                // Se não encontrou na estrutura users, tentar na coleção channels
-                if (!foundChannel) {
-                    console.log('Canal não encontrado na estrutura users, buscando na coleção channels...');
-                    let channelRef = db.collection('channels').doc(currentChannelId);
-                    let channelDoc = await channelRef.get();
                     
-                    if (!channelDoc.exists) {
+                    if (!foundChannel) {
                         hideLoading();
                         showError('Canal não encontrado. Verifique o ID do canal.');
                         return;
                     }
                     
-                    foundChannel = channelDoc.data();
-                    foundChannel.id = currentChannelId;
-                    console.log('Canal encontrado na coleção channels:', foundChannel);
+                    channelData = foundChannel;
+                } else {
+                    channelData = channelDoc.data();
+                    channelData.id = currentChannelId;
                 }
-                
-                channelData = foundChannel;
                 
                 console.log('Dados do canal carregados:', channelData);
                 
-                // BUSCA DA LOGOMARCA DO CANAL - BUSCAR NO LUGAR CORRETO
+                // BUSCA DA LOGOMARCA DO CANAL - CORREÇÃO AQUI
                 const channelLogo = document.getElementById('channelLogo');
+                console.log('URL da logo no channelData:', channelData.logo);
                 
-                // Verificar se a logo existe diretamente nos dados do canal
-                if (channelData.logo && channelData.logo.trim() !== '') {
-                    console.log('Logo encontrada em channelData.logo:', channelData.logo);
-                    applyChannelLogo(channelData.logo);
+                // Primeiro, definir a logo padrão como fallback inicial
+                channelLogo.src = DEFAULT_LOGO;
+                
+                // Se existir uma URL de logo no canalData, tentar carregá-la
+                if (channelData.logo && channelData.logo.trim() !== '' && channelData.logo !== DEFAULT_LOGO) {
+                    console.log('Tentando carregar logo personalizada:', channelData.logo);
+                    
+                    // Criar uma nova imagem para testar se carrega
+                    const testImage = new Image();
+                    testImage.onload = function() {
+                        console.log('Logo personalizada carregada com sucesso, aplicando...');
+                        channelLogo.src = channelData.logo;
+                    };
+                    testImage.onerror = function() {
+                        console.log('Logo personalizada falhou ao carregar, mantendo padrão');
+                        channelLogo.src = DEFAULT_LOGO;
+                    };
+                    testImage.src = channelData.logo;
+                    
+                    // Também configurar o onerror na imagem principal
+                    channelLogo.onerror = function() {
+                        console.log('Erro ao carregar logo na imagem principal, usando padrão');
+                        this.src = DEFAULT_LOGO;
+                    };
                 } else {
-                    // Se não encontrou, tentar buscar em outros lugares
-                    await searchForChannelLogo(foundUserId);
+                    console.log('Usando logo padrão (não há logo personalizada ou está vazia)');
+                    channelLogo.src = DEFAULT_LOGO;
                 }
                 
                 // Buscar configurações de monetização
                 let monetizationData = null;
                 
-                // Tentar buscar na estrutura users primeiro (mais provável)
-                if (foundUserId) {
-                    const userMonetizationRef = db.collection('users').doc(foundUserId)
+                // Tentar buscar na nova estrutura (coleção 'channels')
+                const channelMonetizationRef = db.collection('channels').doc(currentChannelId)
+                    .collection('monetization').doc('settings');
+                const channelMonetizationDoc = await channelMonetizationRef.get();
+                
+                if (channelMonetizationDoc.exists) {
+                    monetizationData = channelMonetizationDoc.data();
+                } else if (channelData.userId) {
+                    // Tentar na estrutura antiga (coleção 'users')
+                    const userMonetizationRef = db.collection('users').doc(channelData.userId)
                         .collection('channels').doc(currentChannelId)
                         .collection('monetization').doc('settings');
                     const userMonetizationDoc = await userMonetizationRef.get();
                     
                     if (userMonetizationDoc.exists) {
                         monetizationData = userMonetizationDoc.data();
-                        console.log('Configurações de monetização encontradas na estrutura users:', monetizationData);
-                    }
-                }
-                
-                // Se não encontrou, tentar na estrutura channels
-                if (!monetizationData) {
-                    const channelMonetizationRef = db.collection('channels').doc(currentChannelId)
-                        .collection('monetization').doc('settings');
-                    const channelMonetizationDoc = await channelMonetizationRef.get();
-                    
-                    if (channelMonetizationDoc.exists) {
-                        monetizationData = channelMonetizationDoc.data();
-                        console.log('Configurações de monetização encontradas na coleção channels:', monetizationData);
                     }
                 }
                 
@@ -782,81 +792,6 @@
                 hideLoading();
                 showError('Erro ao carregar dados do canal: ' + error.message);
             }
-        }
-        
-        // Função para buscar a logo em outros lugares
-        async function searchForChannelLogo(userId) {
-            const channelLogo = document.getElementById('channelLogo');
-            
-            try {
-                // Se temos userId, tentar buscar na coleção de configurações do canal
-                if (userId) {
-                    // Tentar buscar em users/{userId}/channels/{channelId}/settings
-                    const channelSettingsRef = db.collection('users').doc(userId)
-                        .collection('channels').doc(currentChannelId)
-                        .collection('settings').doc('general');
-                    const settingsDoc = await channelSettingsRef.get();
-                    
-                    if (settingsDoc.exists) {
-                        const settingsData = settingsDoc.data();
-                        if (settingsData.logo && settingsData.logo.trim() !== '') {
-                            console.log('Logo encontrada nas configurações do canal:', settingsData.logo);
-                            applyChannelLogo(settingsData.logo);
-                            return;
-                        }
-                    }
-                    
-                    // Tentar buscar em users/{userId}/settings
-                    const userSettingsRef = db.collection('users').doc(userId)
-                        .collection('settings').doc('channel');
-                    const userSettingsDoc = await userSettingsRef.get();
-                    
-                    if (userSettingsDoc.exists) {
-                        const userSettingsData = userSettingsDoc.data();
-                        if (userSettingsData.logo && userSettingsData.logo.trim() !== '') {
-                            console.log('Logo encontrada nas configurações do usuário:', userSettingsData.logo);
-                            applyChannelLogo(userSettingsData.logo);
-                            return;
-                        }
-                    }
-                }
-                
-                // Se não encontrou em nenhum lugar, usar logo padrão
-                console.log('Nenhuma logo encontrada, usando logo padrão');
-                channelLogo.src = DEFAULT_LOGO;
-                
-            } catch (error) {
-                console.error('Erro ao buscar logo:', error);
-                channelLogo.src = DEFAULT_LOGO;
-            }
-        }
-        
-        // Função para aplicar a logo com tratamento de erro
-        function applyChannelLogo(logoUrl) {
-            const channelLogo = document.getElementById('channelLogo');
-            
-            console.log('Aplicando logo:', logoUrl);
-            
-            // Primeiro definir a logo padrão como fallback
-            channelLogo.src = DEFAULT_LOGO;
-            
-            // Testar se a logo personalizada carrega
-            const testImage = new Image();
-            testImage.onload = function() {
-                console.log('Logo personalizada carregada com sucesso');
-                channelLogo.src = logoUrl;
-            };
-            testImage.onerror = function() {
-                console.log('Logo personalizada falhou ao carregar, usando padrão');
-                channelLogo.src = DEFAULT_LOGO;
-            };
-            testImage.src = logoUrl;
-            
-            // Também configurar tratamento de erro na imagem principal
-            channelLogo.onerror = function() {
-                console.log('Erro ao carregar logo na imagem principal');
-                this.src = DEFAULT_LOGO;
-            };
         }
         
         // Atualizar interface com informações do canal
