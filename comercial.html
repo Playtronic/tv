@@ -163,7 +163,7 @@
             transition: background 0.3s;
             font-size: 16px;
             text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.2);
-            width: 100%;
+            display: inline-block;
             margin-top: 10px;
         }
         
@@ -245,13 +245,14 @@
         }
         
         .error-message {
-            color: #ff6b6b;
-            background: rgba(255, 107, 107, 0.1);
-            padding: 10px;
+            color: #ff0000;
+            background: #ffffff;
+            padding: 15px;
             border-radius: 8px;
             margin: 10px 0;
             text-align: center;
-            border-left: 4px solid #ff6b6b;
+            border: 2px solid #ff0000;
+            font-weight: bold;
             display: none;
         }
         
@@ -377,20 +378,21 @@
             background: #9b59b6;
             color: white;
             margin-top: 20px;
+            padding: 10px 20px;
         }
         
         .back-button:hover {
             background: #8e44ad;
         }
         
-        .auto-load-notice {
-            background: rgba(52, 152, 219, 0.1);
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            border-left: 4px solid #3498db;
-            font-size: 0.9rem;
+        .button-container {
             text-align: center;
+            margin-top: 20px;
+        }
+        
+        .bottom-back-button {
+            margin-top: 30px;
+            text-align: left;
         }
         
         @media (max-width: 768px) {
@@ -420,6 +422,10 @@
             .price-info {
                 justify-content: center;
             }
+            
+            .bottom-back-button {
+                text-align: center;
+            }
         }
         
         @media (max-width: 480px) {
@@ -439,7 +445,7 @@
         
         <!-- Informações do Canal -->
         <div id="channelInfo" class="channel-info" style="display: none;">
-            <img id="channelLogo" class="channel-logo" src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png" alt="Logo do Canal">
+            <img id="channelLogo" class="channel-logo" src="" alt="Logo do Canal">
             <div class="channel-details">
                 <div id="channelName" class="channel-name">Carregando...</div>
                 <div id="channelSlogan" class="channel-slogan"></div>
@@ -461,18 +467,13 @@
             </ul>
         </div>
         
-        <!-- Aviso de carregamento automático -->
-        <div class="auto-load-notice">
-            ⚡ O vídeo será carregado automaticamente ao inserir a URL
-        </div>
-        
         <!-- Formulário de entrada -->
         <div id="videoForm">
             <div class="form-group">
                 <label for="videoUrl">URL do YouTube:</label>
                 <input type="url" id="videoUrl" placeholder="https://www.youtube.com/watch?v=SEU_VIDEO_ID" required>
                 <small style="color: rgba(255,255,255,0.7); display: block; margin-top: 5px;">
-                    Apenas vídeos do YouTube são aceitos
+                    Apenas vídeos do YouTube são aceitos (shorts também funcionam)
                 </small>
             </div>
         </div>
@@ -515,8 +516,9 @@
                 Valor total: <span id="calculatedPrice">-</span>
             </div>
             
-            <button id="proceedButton" onclick="proceedToPayment()" disabled>💳 Prosseguir para Pagamento</button>
-            <button class="back-button" onclick="goBack()">← Voltar</button>
+            <div class="button-container">
+                <button id="proceedButton" onclick="proceedToPayment()" disabled>💳 Prosseguir para Pagamento</button>
+            </div>
         </div>
         
         <!-- Área de pagamento PIX -->
@@ -545,8 +547,6 @@
                     <li>Seu comercial será ativado em até 2 minutos</li>
                 </ol>
             </div>
-            
-            <button class="back-button" onclick="goBackToPreview()">← Voltar para Preview</button>
         </div>
         
         <!-- Loading -->
@@ -564,6 +564,11 @@
         
         <!-- Botão para voltar ao início -->
         <button id="backToStart" class="back-button" style="display: none;" onclick="resetForm()">← Inserir novo comercial</button>
+        
+        <!-- Botão voltar para o canal (sempre no final) -->
+        <div class="bottom-back-button">
+            <button id="globalBackButton" class="back-button" onclick="goBackToChannel()">← Voltar para o Canal</button>
+        </div>
     </div>
 
     <!-- QR Code Library -->
@@ -589,6 +594,7 @@
         const db = firebase.firestore();
 
         // ==================== VARIÁVEIS GLOBAIS ====================
+        const DEFAULT_LOGO = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png";
         let currentUser = null;
         let youtubePlayer = null;
         let videoData = null;
@@ -598,6 +604,7 @@
         let currentPaymentId = null;
         let currentChannelId = null;
         let urlCheckTimer = null;
+        let lastValidUrl = null;
         
         // ==================== FUNÇÕES DE INICIALIZAÇÃO ====================
         
@@ -645,6 +652,13 @@
                 const url = this.value.trim();
                 if (!url) {
                     hideVideoPreview();
+                    hideError();
+                    lastValidUrl = null;
+                    return;
+                }
+                
+                // Se a URL for igual à última URL válida, não faça nada
+                if (url === lastValidUrl) {
                     return;
                 }
                 
@@ -652,74 +666,100 @@
                     const videoId = extractYouTubeId(url);
                     if (videoId) {
                         previewVideo(url);
+                    } else if (url) {
+                        showError('URL do YouTube inválida. Certifique-se de que é um link válido do YouTube.');
+                        hideVideoPreview();
                     }
-                }, 1000); // Aguarda 1 segundo após parar de digitar
+                }, 1000);
             });
         }
         
-        // Carregar dados do canal do Firestore
+        // Carregar dados do canal do Firestore - CORREÇÃO: BUSCAR LOGO NO LUGAR CORRETO
         async function loadChannelData() {
             try {
                 showLoading('Carregando informações do canal...');
                 
-                // Buscar canal na coleção 'channels'
-                let channelRef = db.collection('channels').doc(currentChannelId);
-                let channelDoc = await channelRef.get();
+                // Vamos primeiro buscar na estrutura correta: users/{userId}/channels/{channelId}
+                console.log('Buscando canal na estrutura users/{userId}/channels/{channelId}...');
                 
-                if (!channelDoc.exists) {
-                    // Se não encontrou em 'channels', tentar buscar em 'users'
-                    console.log('Canal não encontrado na coleção channels, buscando em users...');
+                // Precisamos buscar todos os usuários para encontrar o canal
+                const usersSnapshot = await db.collection('users').get();
+                let foundChannel = null;
+                let foundUserId = null;
+                
+                for (const userDoc of usersSnapshot.docs) {
+                    const userChannelsRef = db.collection('users').doc(userDoc.id)
+                        .collection('channels').doc(currentChannelId);
+                    const userChannelDoc = await userChannelsRef.get();
                     
-                    // Precisamos buscar todos os usuários e verificar seus canais
-                    const usersSnapshot = await db.collection('users').get();
-                    let foundChannel = null;
-                    
-                    for (const userDoc of usersSnapshot.docs) {
-                        const userChannelsRef = db.collection('users').doc(userDoc.id)
-                            .collection('channels').doc(currentChannelId);
-                        const userChannelDoc = await userChannelsRef.get();
-                        
-                        if (userChannelDoc.exists) {
-                            foundChannel = userChannelDoc.data();
-                            foundChannel.id = currentChannelId;
-                            foundChannel.userId = userDoc.id;
-                            break;
-                        }
+                    if (userChannelDoc.exists) {
+                        foundChannel = userChannelDoc.data();
+                        foundChannel.id = currentChannelId;
+                        foundChannel.userId = userDoc.id;
+                        foundUserId = userDoc.id;
+                        console.log('Canal encontrado na estrutura users:', foundChannel);
+                        break;
                     }
+                }
+                
+                // Se não encontrou na estrutura users, tentar na coleção channels
+                if (!foundChannel) {
+                    console.log('Canal não encontrado na estrutura users, buscando na coleção channels...');
+                    let channelRef = db.collection('channels').doc(currentChannelId);
+                    let channelDoc = await channelRef.get();
                     
-                    if (!foundChannel) {
+                    if (!channelDoc.exists) {
                         hideLoading();
                         showError('Canal não encontrado. Verifique o ID do canal.');
                         return;
                     }
                     
-                    channelData = foundChannel;
-                } else {
-                    channelData = channelDoc.data();
-                    channelData.id = currentChannelId;
+                    foundChannel = channelDoc.data();
+                    foundChannel.id = currentChannelId;
+                    console.log('Canal encontrado na coleção channels:', foundChannel);
                 }
                 
+                channelData = foundChannel;
+                
                 console.log('Dados do canal carregados:', channelData);
+                
+                // BUSCA DA LOGOMARCA DO CANAL - BUSCAR NO LUGAR CORRETO
+                const channelLogo = document.getElementById('channelLogo');
+                
+                // Verificar se a logo existe diretamente nos dados do canal
+                if (channelData.logo && channelData.logo.trim() !== '') {
+                    console.log('Logo encontrada em channelData.logo:', channelData.logo);
+                    applyChannelLogo(channelData.logo);
+                } else {
+                    // Se não encontrou, tentar buscar em outros lugares
+                    await searchForChannelLogo(foundUserId);
+                }
                 
                 // Buscar configurações de monetização
                 let monetizationData = null;
                 
-                // Tentar buscar na nova estrutura (coleção 'channels')
-                const channelMonetizationRef = db.collection('channels').doc(currentChannelId)
-                    .collection('monetization').doc('settings');
-                const channelMonetizationDoc = await channelMonetizationRef.get();
-                
-                if (channelMonetizationDoc.exists) {
-                    monetizationData = channelMonetizationDoc.data();
-                } else if (channelData.userId) {
-                    // Tentar na estrutura antiga (coleção 'users')
-                    const userMonetizationRef = db.collection('users').doc(channelData.userId)
+                // Tentar buscar na estrutura users primeiro (mais provável)
+                if (foundUserId) {
+                    const userMonetizationRef = db.collection('users').doc(foundUserId)
                         .collection('channels').doc(currentChannelId)
                         .collection('monetization').doc('settings');
                     const userMonetizationDoc = await userMonetizationRef.get();
                     
                     if (userMonetizationDoc.exists) {
                         monetizationData = userMonetizationDoc.data();
+                        console.log('Configurações de monetização encontradas na estrutura users:', monetizationData);
+                    }
+                }
+                
+                // Se não encontrou, tentar na estrutura channels
+                if (!monetizationData) {
+                    const channelMonetizationRef = db.collection('channels').doc(currentChannelId)
+                        .collection('monetization').doc('settings');
+                    const channelMonetizationDoc = await channelMonetizationRef.get();
+                    
+                    if (channelMonetizationDoc.exists) {
+                        monetizationData = channelMonetizationDoc.data();
+                        console.log('Configurações de monetização encontradas na coleção channels:', monetizationData);
                     }
                 }
                 
@@ -744,19 +784,86 @@
             }
         }
         
+        // Função para buscar a logo em outros lugares
+        async function searchForChannelLogo(userId) {
+            const channelLogo = document.getElementById('channelLogo');
+            
+            try {
+                // Se temos userId, tentar buscar na coleção de configurações do canal
+                if (userId) {
+                    // Tentar buscar em users/{userId}/channels/{channelId}/settings
+                    const channelSettingsRef = db.collection('users').doc(userId)
+                        .collection('channels').doc(currentChannelId)
+                        .collection('settings').doc('general');
+                    const settingsDoc = await channelSettingsRef.get();
+                    
+                    if (settingsDoc.exists) {
+                        const settingsData = settingsDoc.data();
+                        if (settingsData.logo && settingsData.logo.trim() !== '') {
+                            console.log('Logo encontrada nas configurações do canal:', settingsData.logo);
+                            applyChannelLogo(settingsData.logo);
+                            return;
+                        }
+                    }
+                    
+                    // Tentar buscar em users/{userId}/settings
+                    const userSettingsRef = db.collection('users').doc(userId)
+                        .collection('settings').doc('channel');
+                    const userSettingsDoc = await userSettingsRef.get();
+                    
+                    if (userSettingsDoc.exists) {
+                        const userSettingsData = userSettingsDoc.data();
+                        if (userSettingsData.logo && userSettingsData.logo.trim() !== '') {
+                            console.log('Logo encontrada nas configurações do usuário:', userSettingsData.logo);
+                            applyChannelLogo(userSettingsData.logo);
+                            return;
+                        }
+                    }
+                }
+                
+                // Se não encontrou em nenhum lugar, usar logo padrão
+                console.log('Nenhuma logo encontrada, usando logo padrão');
+                channelLogo.src = DEFAULT_LOGO;
+                
+            } catch (error) {
+                console.error('Erro ao buscar logo:', error);
+                channelLogo.src = DEFAULT_LOGO;
+            }
+        }
+        
+        // Função para aplicar a logo com tratamento de erro
+        function applyChannelLogo(logoUrl) {
+            const channelLogo = document.getElementById('channelLogo');
+            
+            console.log('Aplicando logo:', logoUrl);
+            
+            // Primeiro definir a logo padrão como fallback
+            channelLogo.src = DEFAULT_LOGO;
+            
+            // Testar se a logo personalizada carrega
+            const testImage = new Image();
+            testImage.onload = function() {
+                console.log('Logo personalizada carregada com sucesso');
+                channelLogo.src = logoUrl;
+            };
+            testImage.onerror = function() {
+                console.log('Logo personalizada falhou ao carregar, usando padrão');
+                channelLogo.src = DEFAULT_LOGO;
+            };
+            testImage.src = logoUrl;
+            
+            // Também configurar tratamento de erro na imagem principal
+            channelLogo.onerror = function() {
+                console.log('Erro ao carregar logo na imagem principal');
+                this.src = DEFAULT_LOGO;
+            };
+        }
+        
         // Atualizar interface com informações do canal
         function updateChannelUI() {
             document.getElementById('channelInfo').style.display = 'flex';
             document.getElementById('channelName').textContent = channelData.name || 'Canal sem nome';
             document.getElementById('channelSlogan').textContent = channelData.slogan || '';
-            
-            // CORREÇÃO: Buscar logo corretamente do campo 'logo' do canal
-            if (channelData.logo) {
-                document.getElementById('channelLogo').src = channelData.logo;
-            } else {
-                // Usar logo padrão se não houver logo personalizada
-                document.getElementById('channelLogo').src = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/logotv.png';
-            }
             
             const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
             const maxDuration = channelData.paidCommercials.maxDuration || 90;
@@ -779,6 +886,7 @@
         function createYouTubePlayer(videoId) {
             if (youtubePlayer) {
                 youtubePlayer.destroy();
+                youtubePlayer = null;
             }
             
             youtubePlayer = new YT.Player('youtubePlayer', {
@@ -813,13 +921,45 @@
             document.getElementById('videoTitle').textContent = title;
             document.getElementById('videoInfo').style.display = 'block';
             
-            // Verificar se o vídeo está dentro do limite
-            const maxDuration = channelData.paidCommercials.maxDuration || 90;
-            if (duration > maxDuration) {
-                showError(`O vídeo excede o tempo máximo permitido de ${maxDuration} segundos.`);
-                document.getElementById('proceedButton').disabled = true;
+            // VERIFICAÇÃO 1: Verificar se a duração é válida (não é NaN)
+            if (isNaN(duration) || duration === undefined) {
+                showError('Não foi possível obter a duração deste vídeo. Ele pode ser uma live ou conteúdo restrito.');
+                destroyPlayerAndHidePreview();
                 return;
             }
+            
+            // VERIFICAÇÃO 2: Verificar se a duração é maior que 0
+            if (duration <= 0) {
+                showError('VÍDEO NÃO PERMITIDO: Este vídeo tem 0 segundos de duração. Provavelmente é uma live ou conteúdo ao vivo. Apenas vídeos com duração definida são aceitos.');
+                destroyPlayerAndHidePreview();
+                return;
+            }
+            
+            // VERIFICAÇÃO 3: Verificar se o vídeo está dentro do limite máximo
+            const maxDuration = channelData.paidCommercials.maxDuration || 90;
+            if (duration > maxDuration) {
+                // DESTRUIR o player imediatamente
+                youtubePlayer.destroy();
+                youtubePlayer = null;
+                
+                // Esconder o preview do vídeo
+                document.getElementById('videoPreview').style.display = 'none';
+                document.getElementById('videoInfo').style.display = 'none';
+                document.getElementById('totalPrice').style.display = 'none';
+                document.getElementById('proceedButton').disabled = true;
+                
+                // Mostrar mensagem de erro PERMANENTE (branco com texto vermelho)
+                showError(`VÍDEO NÃO PERMITIDO: O vídeo tem ${Math.floor(duration)} segundos, mas o tempo máximo permitido é de ${maxDuration} segundos. Por favor, insira um vídeo mais curto.`);
+                
+                // Limpar a URL atual
+                document.getElementById('videoUrl').value = '';
+                lastValidUrl = null;
+                
+                return;
+            }
+            
+            // Se chegou aqui, o vídeo está dentro do limite
+            hideError(); // Esconder qualquer erro anterior
             
             // Calcular preço
             const pricePerSecond = channelData.paidCommercials.pricePerSecond || 0.05;
@@ -841,8 +981,28 @@
                 thumbnail: `https://img.youtube.com/vi/${currentVideoId}/hqdefault.jpg`
             };
             
+            // Marcar esta URL como válida
+            lastValidUrl = document.getElementById('videoUrl').value;
+            
             console.log('Dados do vídeo:', videoData);
-            hideError();
+        }
+        
+        // Função auxiliar para destruir player e esconder preview
+        function destroyPlayerAndHidePreview() {
+            if (youtubePlayer) {
+                youtubePlayer.destroy();
+                youtubePlayer = null;
+            }
+            
+            // Esconder o preview do vídeo
+            document.getElementById('videoPreview').style.display = 'none';
+            document.getElementById('videoInfo').style.display = 'none';
+            document.getElementById('totalPrice').style.display = 'none';
+            document.getElementById('proceedButton').disabled = true;
+            
+            // Limpar a URL atual
+            document.getElementById('videoUrl').value = '';
+            lastValidUrl = null;
         }
         
         function onPlayerStateChange(event) {
@@ -851,12 +1011,13 @@
         
         function onPlayerError(event) {
             console.error('Erro no player do YouTube:', event.data);
-            showError('Erro ao carregar o vídeo do YouTube. Verifique a URL.');
+            showError('Erro ao carregar o vídeo do YouTube. Verifique se o vídeo está disponível e acessível.');
+            hideVideoPreview();
         }
         
         // ==================== FUNÇÕES DA INTERFACE ====================
         
-        // Visualizar vídeo (chamada automática)
+        // Visualizar vídeo
         function previewVideo(videoUrl) {
             if (!channelData) {
                 showError('Dados do canal não carregados. Aguarde...');
@@ -867,7 +1028,7 @@
             const videoId = extractYouTubeId(videoUrl);
             
             if (!videoId) {
-                showError('URL do YouTube inválida. Certifique-se de que é um link do YouTube.');
+                showError('URL do YouTube inválida. Certifique-se de que é um link válido do YouTube.');
                 hideVideoPreview();
                 return;
             }
@@ -875,6 +1036,13 @@
             // Mostrar área de preview
             document.getElementById('videoPreview').style.display = 'block';
             document.getElementById('videoPlaceholder').style.display = 'none';
+            
+            // Desabilitar botão de prosseguir enquanto carrega
+            document.getElementById('proceedButton').disabled = true;
+            
+            // Esconder informações anteriores
+            document.getElementById('videoInfo').style.display = 'none';
+            document.getElementById('totalPrice').style.display = 'none';
             
             // Carregar player do YouTube
             createYouTubePlayer(videoId);
@@ -900,6 +1068,27 @@
                 return;
             }
             
+            // Verificação FINAL da duração (tripla verificação)
+            const maxDuration = channelData.paidCommercials.maxDuration || 90;
+            
+            // Verificar se a duração é válida
+            if (isNaN(videoData.duration) || videoData.duration === undefined) {
+                showError('Erro: A duração do vídeo não é válida.');
+                return;
+            }
+            
+            // Verificar se a duração é maior que 0
+            if (videoData.duration <= 0) {
+                showError('Erro: Este vídeo não tem duração definida (0 segundos).');
+                return;
+            }
+            
+            // Verificar se excede o limite máximo
+            if (videoData.duration > maxDuration) {
+                showError(`ERRO CRÍTICO: O vídeo excede o tempo máximo permitido de ${maxDuration} segundos.`);
+                return;
+            }
+            
             // Mostrar área de pagamento
             document.getElementById('videoForm').style.display = 'none';
             document.getElementById('videoPreview').style.display = 'none';
@@ -909,18 +1098,17 @@
             generatePixPayment();
         }
         
-        // Voltar para preview
-        function goBackToPreview() {
-            document.getElementById('pixArea').style.display = 'none';
-            document.getElementById('videoPreview').style.display = 'block';
-        }
-        
-        // Voltar para formulário
-        function goBack() {
-            document.getElementById('videoPreview').style.display = 'none';
-            document.getElementById('videoForm').style.display = 'block';
-            document.getElementById('videoUrl').value = '';
-            hideVideoPreview();
+        // Voltar para o canal
+        function goBackToChannel() {
+            if (channelData && channelData.name) {
+                const channelNameSlug = channelData.name.toLowerCase()
+                    .replace(/[^a-z0-9]/g, '-')
+                    .replace(/-+/g, '-');
+                const channelUrl = `https://canaisdetv.online/canais/${channelNameSlug}.html`;
+                window.location.href = channelUrl;
+            } else {
+                window.location.href = 'https://canaisdetv.online';
+            }
         }
         
         // Resetar formulário
@@ -930,6 +1118,8 @@
             document.getElementById('videoForm').style.display = 'block';
             document.getElementById('videoUrl').value = '';
             hideVideoPreview();
+            hideError();
+            lastValidUrl = null;
         }
         
         // ==================== FUNÇÕES DE PAGAMENTO PIX ====================
@@ -980,7 +1170,6 @@
                 if (result.qrCodeBase64) {
                     displayQRCode(result.qrCodeBase64);
                 } else if (result.qrCode) {
-                    // Se a API retornar URL do QR Code
                     document.getElementById('qrcode').innerHTML = `<img src="${result.qrCode}" alt="QR Code PIX" style="width: 100%; height: auto;">`;
                 }
                 
@@ -1070,7 +1259,7 @@
                         }, 2000);
                     }
                 }
-            }, 5000); // Verificar a cada 5 segundos
+            }, 5000);
         }
         
         // Atualizar UI do status
@@ -1102,7 +1291,7 @@
             
             try {
                 const now = new Date();
-                const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000)); // 24 horas
+                const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000));
                 
                 const commercialData = {
                     videoUrl: videoData.url,
@@ -1161,6 +1350,9 @@
                 document.getElementById('successChannelName').textContent = channelData.name;
                 document.getElementById('backToStart').style.display = 'block';
                 
+                // Esconder o botão de voltar para o canal na tela de sucesso
+                document.getElementById('globalBackButton').style.display = 'none';
+                
                 // Iniciar contagem regressiva para redirecionamento
                 startCountdown();
                 
@@ -1190,7 +1382,6 @@
         
         // Redirecionar para o canal
         function redirectToChannel() {
-            // Gerar URL do canal baseado no nome
             const channelNameSlug = channelData.name.toLowerCase()
                 .replace(/[^a-z0-9]/g, '-')
                 .replace(/-+/g, '-');
@@ -1206,14 +1397,11 @@
             if (timeUntilDeletion > 0) {
                 setTimeout(async () => {
                     try {
-                        // Excluir da coleção principal
                         await db.collection('paid_commercials').doc(commercialId).delete();
                         
-                        // Excluir da coleção do canal
                         await db.collection('channels').doc(channelData.id)
                             .collection('commercials').doc(commercialId).delete();
                         
-                        // Se existir na estrutura antiga, excluir também
                         if (channelData.userId) {
                             await db.collection('users').doc(channelData.userId)
                                 .collection('channels').doc(channelData.id)
@@ -1230,21 +1418,25 @@
         
         // ==================== FUNÇÕES AUXILIARES ====================
         
-        // Extrair ID do YouTube da URL
+        // Extrair ID do YouTube da URL incluindo shorts
         function extractYouTubeId(url) {
             const patterns = [
                 /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/,
                 /youtube\.com\/.*[?&]v=([^&]+)/,
-                /youtu\.be\/([a-zA-Z0-9_-]+)/
+                /youtu\.be\/([a-zA-Z0-9_-]+)/,
+                /youtube\.com\/shorts\/([a-zA-Z0-9_-]+)/,
+                /youtube\.com\/v\/([a-zA-Z0-9_-]+)/
             ];
             
             for (const pattern of patterns) {
                 const match = url.match(pattern);
                 if (match && match[1]) {
+                    console.log(`URL reconhecida: ${url}, ID extraído: ${match[1]}`);
                     return match[1];
                 }
             }
             
+            console.log(`URL não reconhecida: ${url}`);
             return null;
         }
         
@@ -1265,16 +1457,11 @@
             document.getElementById('loading').style.display = 'none';
         }
         
-        // Mostrar/ocultar erro
+        // Mostrar erro (background branco, texto vermelho, não desaparece automaticamente)
         function showError(message) {
             const errorDiv = document.getElementById('errorMessage');
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
-            
-            // Auto-ocultar após 5 segundos
-            setTimeout(() => {
-                errorDiv.style.display = 'none';
-            }, 5000);
         }
         
         function hideError() {
