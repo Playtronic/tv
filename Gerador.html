@@ -2894,8 +2894,19 @@ const syncSystemScript = `
 
     const videoProblemLog = new Map();
 
-    function initSyncSystem() {
-        // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
+function initSyncSystem() {
+    // 🔥 CORREÇÃO: Parar qualquer sincronização anterior
+    if (syncCheckInterval) {
+        clearInterval(syncCheckInterval);
+        syncCheckInterval = null;
+    }
+    
+    if (audioMonitorInterval) {
+        clearInterval(audioMonitorInterval);
+        audioMonitorInterval = null;
+    }
+    
+
         if (isYoutubeVideo) {
             console.log('YouTube detectado - desativando sincronização');
             return;
@@ -5470,6 +5481,61 @@ function calcularPercentualSlot() {
         // calcularSlotAtual(), e obterVideoParaSlot() agora estão definidas
         // no script global (diasScript) acima
 
+// 🔥 NOVA FUNÇÃO: Limpeza completa de recursos de vídeo
+function limparRecursosVideo() {
+    // Limpar vídeo HTML5
+    if (videoElement) {
+        try {
+            videoElement.pause();
+            videoElement.src = '';
+            videoElement.srcObject = null;
+            videoElement.load();
+        } catch (e) {
+            console.log('Erro ao limpar vídeo:', e);
+        }
+    }
+    
+    // Limpar YouTube
+    if (youtubePlayer) {
+        try {
+            youtubePlayer.stopVideo();
+            youtubePlayer.destroy();
+        } catch (e) {
+            console.log('Erro ao destruir YouTube player:', e);
+        }
+        youtubePlayer = null;
+    }
+    
+    // Limpar containers
+    if (youtubeContainer) {
+        youtubeContainer.innerHTML = '';
+        youtubeContainer.style.display = 'none';
+    }
+    
+    // Limpar event listeners registrados
+    if (window.currentVideoHandlers) {
+        window.currentVideoHandlers.forEach(handler => {
+            if (handler.element && handler.events) {
+                Object.keys(handler.events).forEach(eventName => {
+                    handler.element.removeEventListener(eventName, handler.events[eventName]);
+                });
+            }
+        });
+        window.currentVideoHandlers = [];
+    }
+    
+    // Parar sistemas de sincronização
+    if (syncCheckInterval) {
+        clearInterval(syncCheckInterval);
+        syncCheckInterval = null;
+    }
+    
+    if (audioMonitorInterval) {
+        clearInterval(audioMonitorInterval);
+        audioMonitorInterval = null;
+    }
+}
+
 // ==================== YOUTUBE API FUNCTIONS ====================
 
 // Função chamada automaticamente pela API do YouTube
@@ -5480,52 +5546,7 @@ function onYouTubeIframeAPIReady() {
 
 // Função para criar player do YouTube
 function criarPlayerYouTube(videoId, startSeconds = 0, autoplay = true) {
-    // Destruir player anterior se existir
-    if (youtubePlayer) {
-        youtubePlayer.destroy();
-        youtubePlayer = null;
-    }
-    
-    // Esconder vídeo HTML5
-    if (videoElement) {
-        videoElement.style.display = 'none';
-        videoElement.pause();
-    }
-    
-    // Mostrar container do YouTube
-    if (youtubeContainer) {
-        youtubeContainer.style.display = 'block';
-        youtubeContainer.innerHTML = '<div id="youtube-player"></div>';
-    }
-    
-    // Criar novo player com configurações para TV (sem controles nativos)
-    youtubePlayer = new YT.Player('youtube-player', {
-        height: '100%',
-        width: '100%',
-        videoId: videoId,
-        playerVars: {
-            'autoplay': autoplay && userStartedPlayback ? 1 : 0,
-            'controls': 0,  // SEM controles nativos
-            'modestbranding': 1,
-            'rel': 0,
-            'showinfo': 0,
-            'start': startSeconds,
-            'enablejsapi': 1,
-            'origin': window.location.origin,
-            'widget_referrer': window.location.href,
-            'iv_load_policy': 3,
-            'playsinline': 1
-        },
-        events: {
-            'onReady': onYouTubePlayerReady,
-            'onStateChange': onYouTubePlayerStateChange,
-            'onError': onYouTubePlayerError
-        }
-    });
-    
-    isYoutubeVideo = true;
-    playerReady = false;
-}
+
 
 // Quando o player está pronto
 function onYouTubePlayerReady(event) {
@@ -5705,7 +5726,44 @@ function atualizarIconeVolume(volume) {
 function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
     console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // Resetar flag IMEDIATAMENTE
+    // 🔥 NOVO: Limpeza total do vídeo anterior
+    if (window.currentVideoHandlers) {
+        window.currentVideoHandlers.forEach(handler => {
+            if (handler.element && handler.events) {
+                Object.keys(handler.events).forEach(eventName => {
+                    handler.element.removeEventListener(eventName, handler.events[eventName]);
+                });
+            }
+        });
+        window.currentVideoHandlers = [];
+    }
+    
+    // 🔥 NOVO: Destruir completamente o elemento de vídeo anterior
+    if (videoElement) {
+        try {
+            videoElement.pause();
+            videoElement.src = '';
+            videoElement.srcObject = null;
+            videoElement.removeAttribute('src');
+            videoElement.load();
+            
+            // Remove todos os event listeners clonando o elemento
+            const newVideo = videoElement.cloneNode(false);
+            videoElement.parentNode.replaceChild(newVideo, videoElement);
+            videoElement = newVideo;
+            videoElement.id = 'myVideo';
+            
+            // Reatribuir event listeners básicos
+            videoElement.addEventListener('ended', verificarFimDoVideo);
+            videoElement.addEventListener('error', function(e) {
+                console.error('Erro no vídeo:', e);
+            });
+        } catch (e) {
+            console.log('Erro na limpeza do vídeo:', e);
+        }
+    }
+    
+    // Resetar flag
     isLoadingVideo = false;
     
     // 1. Esconder YouTube
@@ -5827,17 +5885,24 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
         }
     }
     
-    // Remover listeners antigos
-    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
-    videoElement.removeEventListener('error', handleError);
-    videoElement.removeEventListener('canplay', handleCanPlay);
-    videoElement.removeEventListener('playing', handlePlaying);
-    
+    // Remover listeners antigos (já feito na limpeza inicial)
     // Adicionar novos listeners (APENAS UMA VEZ)
     videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
     videoElement.addEventListener('error', handleError, { once: true });
     videoElement.addEventListener('canplay', handleCanPlay, { once: true });
     videoElement.addEventListener('playing', handlePlaying, { once: true });
+    
+    // 🔥 Registrar handlers para limpeza futura
+    window.currentVideoHandlers = window.currentVideoHandlers || [];
+    window.currentVideoHandlers.push({
+        element: videoElement,
+        events: {
+            'loadedmetadata': handleLoadedMetadata,
+            'error': handleError,
+            'canplay': handleCanPlay,
+            'playing': handlePlaying
+        }
+    });
     
     // 8. INICIAR carregamento
     console.log('🔄 Chamando videoElement.load()');
@@ -5860,7 +5925,6 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
         }
     }, 3000);
 }
-
         function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
     // Evitar múltiplos carregamentos
     if (isLoadingVideo) {
@@ -5918,8 +5982,23 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
 }
 
         
-        function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
-            const videoInfo = obterVideoParaSlot(slotIndex);
+function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
+    // 🔥 LIMPAR recursos do vídeo anterior ANTES de carregar novo
+    limparRecursosVideo();
+    
+    // Incrementar contador para garbage collection
+    if (window.videoCount === undefined) window.videoCount = 0;
+    window.videoCount++;
+    
+    // Forçar garbage collection a cada 5 vídeos
+    if (window.videoCount >= 5) {
+        if (window.gc) {
+            window.gc();
+        }
+        window.videoCount = 0;
+    }
+    
+    const videoInfo = obterVideoParaSlot(slotIndex);
             
             if (!videoInfo) {
                 console.error('Nenhum vídeo encontrado para o slot', slotIndex);
@@ -6085,9 +6164,43 @@ fetch(cloudFunctionUrl)
         setTimeout(atualizarDebugPeriodicamente, 100);
     }
     // ==================== FIM ATUALIZAÇÃO DO DEBUG ====================
-
+// 🔥 ADICIONAR SISTEMA DE GARBAGE COLLECTION PERIÓDICO
+setInterval(() => {
+    // Limpar URLs de objetos que não são mais usados
+    if (videoElement && videoElement.src) {
+        try {
+            URL.revokeObjectURL(videoElement.src);
+        } catch (e) {
+            // Ignorar erros
+        }
+    }
+    
+    // Limpar caches do navegador
+    if (window.caches && window.caches.keys) {
+        caches.keys().then(function(names) {
+            for (let name of names) caches.delete(name);
+        });
+    }
+    
+    console.log('🔄 Garbage collection periódico executado');
+}, 60000); // A cada 1 minuto
     function reproduzirComercial() {
-        console.log('=== INICIANDO INTERVALO COMERCIAL ===');
+    // 🔥 LIMPAR recursos do vídeo anterior ANTES de carregar novo
+    limparRecursosVideo();
+    
+    // Incrementar contador para garbage collection
+    if (window.videoCount === undefined) window.videoCount = 0;
+    window.videoCount++;
+    
+    // Forçar garbage collection a cada 5 vídeos
+    if (window.videoCount >= 5) {
+        if (window.gc) {
+            window.gc();
+        }
+        window.videoCount = 0;
+    }
+    
+    console.log('=== INICIANDO INTERVALO COMERCIAL ===');
         console.log('CommercialBreakCount:', commercialBreakCount, 'COMMERCIALS_PER_BREAK:', COMMERCIALS_PER_BREAK);
         
         // REMOVER MENSAGEM "Carregando programação..." DURANTE COMERCIAIS
@@ -6560,6 +6673,17 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function verificarFimDoVideo() {
+    // 🔥 Parar sincronização atual
+    if (syncCheckInterval) {
+        clearInterval(syncCheckInterval);
+        syncCheckInterval = null;
+    }
+    
+    if (audioMonitorInterval) {
+        clearInterval(audioMonitorInterval);
+        audioMonitorInterval = null;
+    }
+    
     console.log('=== FIM DO VÍDEO DETECTADO ===');
     console.log('Estado atual:', currentState);
     console.log('Slot atual:', currentPlayingSlot);
