@@ -3509,51 +3509,56 @@ function calculateExpectedTime(duration) {
                     });
                 }
 
-                
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
 function cleanupInactiveViewers() {
-    if (!CHANNEL_ID) return;
-    
-    // Verifique se o Firebase foi inicializado
-    if (typeof firebase === 'undefined' || !firebase.apps.length) {
-        console.error('Firebase não inicializado');
+    // Verifique se CHANNEL_ID existe
+    if (typeof CHANNEL_ID === 'undefined' || !CHANNEL_ID) {
+        console.log('Aguardando CHANNEL_ID para limpeza de espectadores');
         return;
     }
     
-    // Use firebase.database() diretamente
-    const database = firebase.database();
-    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length) {
+        console.log('Aguardando inicialização do Firebase');
+        return;
+    }
     
-    viewersRef.once('value').then(snapshot => {
-        if (!snapshot.exists()) return;
+    try {
+        const database = firebase.database();
+        const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
         
-        const viewers = snapshot.val();
-        const now = Date.now();
-        const updates = {};
-        
-        Object.keys(viewers).forEach(key => {
-            const viewer = viewers[key];
-            if (viewer && viewer.lastHeartbeat) {
-                const timeDiff = now - viewer.lastHeartbeat;
-                if (timeDiff > 90000) {
-                    updates[key] = null;
+        viewersRef.once('value').then(snapshot => {
+            if (!snapshot.exists()) return;
+            
+            const viewers = snapshot.val();
+            const now = Date.now();
+            const updates = {};
+            
+            Object.keys(viewers).forEach(key => {
+                const viewer = viewers[key];
+                if (viewer && viewer.lastHeartbeat) {
+                    const timeDiff = now - viewer.lastHeartbeat;
+                    if (timeDiff > 90000) {
+                        updates[key] = null;
+                    }
+                } else if (viewer && viewer.timestamp) {
+                    const timeDiff = now - viewer.timestamp;
+                    if (timeDiff > 180000) {
+                        updates[key] = null;
+                    }
                 }
-            } else if (viewer && viewer.timestamp) {
-                const timeDiff = now - viewer.timestamp;
-                if (timeDiff > 180000) {
-                    updates[key] = null;
-                }
+            });
+            
+            if (Object.keys(updates).length > 0) {
+                viewersRef.update(updates)
+                    .then(() => console.log('Espectadores inativos removidos'))
+                    .catch(err => console.log('Não foi possível limpar espectadores'));
             }
         });
-        
-        if (Object.keys(updates).length > 0) {
-            viewersRef.update(updates)
-                .then(() => console.log('Espectadores inativos removidos'))
-                .catch(err => console.log('Não foi possível limpar espectadores'));
-        }
-    });
-}
-                
+    } catch (error) {
+        console.log('Erro na limpeza de espectadores:', error);
+    }
+} 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
                 setTimeout(cleanupInactiveViewers, 10000);   // Primeira limpeza após 10s
@@ -5097,24 +5102,39 @@ ${supportButtonHTML}${customButtonHTML}
         const CHANNEL_VERSION = "${version}";
         const CHANNEL_ID = "${channelId}";
         
-        // ==================== CONFIGURAÇÃO DO FIREBASE ====================
-        const firebaseConfig = {
-            apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
-            authDomain: "playtronic-tv.firebaseapp.com",
-            projectId: "playtronic-tv",
-            storageBucket: "playtronic-tv.firebasestorage.app",
-            messagingSenderId: "272337341020",
-            appId: "1:272337341020:web:a30d949985fd614b5c7499",
-            measurementId: "G-1QRKY0NN0W",
-            databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
-        };
-
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
+        // 🔥 VERIFICAÇÃO DE SEGURANÇA PARA VARIÁVEIS GLOBAIS
+        if (typeof CHANNEL_ID === 'undefined') {
+            console.warn('CHANNEL_ID não definido - o canal pode estar em modo de teste');
+            // Criar um CHANNEL_ID temporário para evitar erros
+            window.CHANNEL_ID = 'canal-temporario-' + Date.now();
+        } else {
+            window.CHANNEL_ID = CHANNEL_ID;
         }
-        
-        const auth = firebase.auth();
-        const database = firebase.database();
+
+
+        // ==================== CONFIGURAÇÃO DO FIREBASE ====================
+const firebaseConfig = {
+    apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
+    authDomain: "playtronic-tv.firebaseapp.com",
+    projectId: "playtronic-tv",
+    storageBucket: "playtronic-tv.firebasestorage.app",
+    messagingSenderId: "272337341020",
+    appId: "1:272337341020:web:a30d949985fd614b5c7499",
+    measurementId: "G-1QRKY0NN0W",
+    databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
+};
+
+// Inicializar Firebase APENAS UMA VEZ
+try {
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+        console.log('Firebase inicializado com sucesso');
+    } else {
+        console.log('Firebase já está inicializado');
+    }
+} catch (error) {
+    console.error('Erro ao inicializar Firebase:', error);
+}
         
         // VARIÁVEIS DE ESTADO
         let currentState = 'program';
