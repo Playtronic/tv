@@ -2787,6 +2787,508 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ==================== SISTEMA DE SINCRONIZAÇÃO HIPER-AGUERRIDO + VIGILÂNCIA CONSTANTE ====================
 
+// 🔥 NOVO: Sistema de Comerciais Pagos
+const paidCommercialsSystem = `
+<script>
+    let paidCommercialsList = [];
+    let usedPaidCommercialsInBreak = [];
+    let currentPaidCommercialIndex = 0;
+    let paidCommercialsInterval = null;
+    let paidCommercialsInitialized = false;
+    let isInPaidCommercialBreak = false;
+    let paidCommercialsBreakCount = 0;
+    let totalPaidCommercialsToShow = 0;
+
+    // Função para buscar comerciais pagos ativos do Firestore
+    async function fetchPaidCommercials() {
+        if (!CHANNEL_ID) return [];
+        
+        try {
+            const db = firebase.firestore();
+            const now = new Date();
+            
+            // Referência para a coleção de comerciais pagos do canal
+            const paidCommercialsRef = db.collection('paid_commercials')
+                .doc(CHANNEL_ID)
+                .collection('commercials');
+            
+            const snapshot = await paidCommercialsRef.get();
+            
+            if (snapshot.empty) {
+                console.log('Nenhum comercial pago ativo encontrado');
+                return [];
+            }
+            
+            const activeCommercials = [];
+            const expiredCommercials = [];
+            
+            // Processar cada comercial
+            snapshot.forEach(doc => {
+                const commercialData = doc.data();
+                
+                // Verificar se tem data de expiração
+                if (commercialData.expiresAt) {
+                    const expiresAt = commercialData.expiresAt.toDate();
+                    
+                    if (expiresAt > now) {
+                        // Comercial ainda ativo
+                        activeCommercials.push({
+                            id: doc.id,
+                            videoUrl: commercialData.videoUrl,
+                            expiresAt: expiresAt,
+                            createdAt: commercialData.createdAt?.toDate() || now
+                        });
+                    } else {
+                        // Comercial expirado - marcar para remoção
+                        expiredCommercials.push(doc.ref);
+                    }
+                }
+            });
+            
+            // Remover comerciais expirados
+            if (expiredCommercials.length > 0) {
+                console.log('Removendo', expiredCommercials.length, 'comerciais expirados');
+                expiredCommercials.forEach(async (ref) => {
+                    try {
+                        await ref.delete();
+                        console.log('Comercial expirado removido:', ref.id);
+                    } catch (error) {
+                        console.error('Erro ao remover comercial expirado:', error);
+                    }
+                });
+            }
+            
+            console.log('Comerciais pagos ativos encontrados:', activeCommercials.length);
+            return activeCommercials;
+            
+        } catch (error) {
+            console.error('Erro ao buscar comerciais pagos:', error);
+            return [];
+        }
+    }
+
+    // Função para verificar e atualizar visibilidade do botão "Inserir Comercial"
+    function updateInsertCommercialButton() {
+        const insertCommercialBtn = document.querySelector('a[href*="comercial.html"]');
+        if (insertCommercialBtn) {
+            if (paidCommercialsList.length >= 8) {
+                insertCommercialBtn.style.display = 'none';
+                console.log('Botão "Inserir comercial" ocultado (8+ comerciais ativos)');
+            } else {
+                insertCommercialBtn.style.display = 'inline-block';
+            }
+        }
+    }
+
+    // Função para inicializar o sistema de comerciais pagos
+    async function initializePaidCommercials() {
+        if (paidCommercialsInitialized) return;
+        
+        console.log('Inicializando sistema de comerciais pagos...');
+        paidCommercialsList = await fetchPaidCommercials();
+        paidCommercialsInitialized = true;
+        
+        // Atualizar botão "Inserir Comercial"
+        updateInsertCommercialButton();
+        
+        // Verificar se há comerciais pagos ativos
+        if (paidCommercialsList.length > 0) {
+            console.log('Comerciais pagos ativos detectados. Desativando comerciais normais.');
+            
+            // Desativar comerciais normais quando há comerciais pagos
+            if (typeof ENABLE_COMMERCIALS !== 'undefined') {
+                ENABLE_COMMERCIALS = false;
+            }
+            
+            // Embaralhar a lista de comerciais pagos
+            shufflePaidCommercials();
+            
+            // Definir número total a ser exibido (máximo 8 por intervalo)
+            totalPaidCommercialsToShow = Math.min(paidCommercialsList.length, 8);
+            
+            // Se estivermos em um intervalo comercial ao recarregar, garantir que continue
+            if (currentState === 'commercial' && !isInPaidCommercialBreak) {
+                startPaidCommercialBreak();
+            }
+        }
+    }
+
+    // Função para embaralhar comerciais pagos
+    function shufflePaidCommercials() {
+        for (let i = paidCommercialsList.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [paidCommercialsList[i], paidCommercialsList[j]] = [paidCommercialsList[j], paidCommercialsList[i]];
+        }
+        console.log('Comerciais pagos embaralhados');
+    }
+
+    // Função para obter próximo comercial pago
+    function getNextPaidCommercial() {
+        if (paidCommercialsList.length === 0) return null;
+        
+        // Se já usou todos os comerciais neste intervalo, reiniciar
+        if (usedPaidCommercialsInBreak.length >= totalPaidCommercialsToShow) {
+            console.log('Todos os comerciais pagos deste intervalo foram exibidos');
+            return null;
+        }
+        
+        // Encontrar um comercial ainda não usado neste intervalo
+        let commercial = null;
+        let attempts = 0;
+        const maxAttempts = paidCommercialsList.length * 2;
+        
+        while (!commercial && attempts < maxAttempts) {
+            const candidate = paidCommercialsList[currentPaidCommercialIndex];
+            currentPaidCommercialIndex = (currentPaidCommercialIndex + 1) % paidCommercialsList.length;
+            
+            if (!usedPaidCommercialsInBreak.includes(candidate.id)) {
+                commercial = candidate;
+                usedPaidCommercialsInBreak.push(candidate.id);
+            }
+            attempts++;
+        }
+        
+        return commercial;
+    }
+
+    // Função para iniciar intervalo de comerciais pagos
+    function startPaidCommercialBreak() {
+        console.log('=== INICIANDO INTERVALO DE COMERCIAIS PAGOS ===');
+        
+        // 🔥 SE FOR VIDEO AO VIVO, PARAR O SISTEMA DE TEMPO
+        if (isLiveStream) {
+            console.log('🔥 VIDEO AO VIVO - PAUSANDO TRANSMISSAO PARA COMERCIAIS');
+            pararSistemaComerciaisAoVivo();
+            
+            // Pausar o video ao vivo
+            if (youtubePlayer && youtubePlayer.pauseVideo) {
+                youtubePlayer.pauseVideo();
+            }
+        }
+        
+        if (paidCommercialsList.length === 0) {
+            console.log('Sem comerciais pagos ativos. Voltando à programação normal.');
+            handlePaidCommercialBreakEnd();
+            return;
+        }
+        
+        console.log('=== INICIANDO INTERVALO DE COMERCIAIS PAGOS ===');
+        isInPaidCommercialBreak = true;
+        paidCommercialsBreakCount = 0;
+        usedPaidCommercialsInBreak = [];
+        
+        // Reproduzir o primeiro comercial pago
+        playNextPaidCommercial();
+    }
+
+    // Função para reproduzir próximo comercial pago
+    function playNextPaidCommercial() {
+        if (!isInPaidCommercialBreak) return;
+        
+        const commercial = getNextPaidCommercial();
+        
+        if (!commercial) {
+            // Todos os comerciais deste intervalo foram exibidos
+            console.log('Fim do intervalo de comerciais pagos');
+            handlePaidCommercialBreakEnd();
+            return;
+        }
+        
+        console.log('Reproduzindo comercial pago:', commercial.id);
+        paidCommercialsBreakCount++;
+        
+        // Atualizar indicador
+        if (commercialIndicator) {
+            commercialIndicator.textContent = 'COMERCIAL PATROCINADO';
+            commercialIndicator.style.display = 'block';
+        }
+        
+        // Reproduzir o comercial
+        if (commercial.videoUrl.includes('youtube.com') || commercial.videoUrl.includes('youtu.be')) {
+            carregarVideoYouTube(commercial.videoUrl, 0, true);
+        } else {
+            carregarVideoHTML5(commercial.videoUrl, 0, true);
+        }
+        
+        // Configurar listener para fim do comercial
+        setupPaidCommercialEndListener(commercial);
+    }
+
+    // Configurar listener para fim do comercial pago
+    function setupPaidCommercialEndListener(commercial) {
+        const commercialEndHandler = function() {
+            console.log('Comercial pago terminado:', commercial.id);
+            
+            // Remover listeners
+            if (videoElement) {
+                videoElement.removeEventListener('ended', commercialEndHandler);
+                videoElement.removeEventListener('error', commercialErrorHandler);
+            }
+            
+            // Reproduzir próximo comercial após um pequeno delay
+            setTimeout(() => {
+                if (isInPaidCommercialBreak) {
+                    playNextPaidCommercial();
+                }
+            }, 500);
+        };
+        
+        const commercialErrorHandler = function() {
+            console.error('Erro no comercial pago:', commercial.id);
+            
+            // Remover listeners
+            if (videoElement) {
+                videoElement.removeEventListener('ended', commercialEndHandler);
+                videoElement.removeEventListener('error', commercialErrorHandler);
+            }
+            
+            // Tentar próximo comercial mesmo com erro
+            setTimeout(() => {
+                if (isInPaidCommercialBreak) {
+                    playNextPaidCommercial();
+                }
+            }, 1000);
+        };
+        
+        if (isYoutubeVideo && youtubePlayer) {
+            // Para YouTube, usar intervalo para verificar se terminou
+            const checkYouTubeEnd = setInterval(() => {
+                if (youtubePlayer && youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0) {
+                    clearInterval(checkYouTubeEnd);
+                    commercialEndHandler();
+                }
+            }, 1000);
+            
+            // Timeout de segurança
+            setTimeout(() => {
+                clearInterval(checkYouTubeEnd);
+                commercialEndHandler();
+            }, 30000);
+        } else if (videoElement) {
+            videoElement.addEventListener('ended', commercialEndHandler, { once: true });
+            videoElement.addEventListener('error', commercialErrorHandler, { once: true });
+        }
+    }
+
+    // Função para finalizar intervalo de comerciais pagos
+    function handlePaidCommercialBreakEnd() {
+        console.log('=== FIM DO INTERVALO DE COMERCIAIS PAGOS ===');
+        isInPaidCommercialBreak = false;
+        usedPaidCommercialsInBreak = [];
+        
+        if (commercialIndicator) {
+            commercialIndicator.style.display = 'none';
+        }
+        
+        // Retomar programação normal
+        const proximoSlot = getNextSlot();
+        reproduzirPrograma(proximoSlot, 0);
+    }
+
+    // 🔥 MODIFICAÇÃO: Substituir a função reproduzirComercial original
+    const originalReproduzirComercial = window.reproduzirComercial;
+    
+    window.reproduzirComercial = function() {
+        console.log('=== VERIFICANDO COMERCIAIS PAGOS ANTES DO INTERVALO ===');
+        
+        // Se houver comerciais pagos ativos, usar eles
+        if (paidCommercialsList.length > 0) {
+            console.log('Usando comerciais pagos (ativos:', paidCommercialsList.length, ')');
+            startPaidCommercialBreak();
+            return;
+        }
+        
+        // Se não houver comerciais pagos, usar a função original
+        console.log('Usando comerciais normais (nenhum pago ativo)');
+        if (originalReproduzirComercial) {
+            originalReproduzirComercial();
+        }
+    };
+
+    // 🔥 MODIFICAÇÃO: Substituir a função verificarFimDoVideo
+    const originalVerificarFimDoVideo = window.verificarFimDoVideo;
+    
+    window.verificarFimDoVideo = function() {
+        console.log('=== FIM DO VÍDEO - VERIFICANDO COMERCIAIS PAGOS ===');
+        
+        if (currentState === 'program') {
+            console.log('Programa terminou. Verificando comerciais...');
+            
+            // INCREMENTA O SLOT NO FINAL DO VÍDEO
+            currentPlayingSlot = getNextSlot();
+            console.log('Slot atual atualizado para:', currentPlayingSlot);
+            
+            // Se houver comerciais pagos, iniciar intervalo com eles
+            if (paidCommercialsList.length > 0) {
+                console.log('Iniciando intervalo com comerciais pagos...');
+                startPaidCommercialBreak();
+            } else if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
+                // Se não houver comerciais pagos, usar os normais
+                commercialBreakCount = 0;
+                console.log('Iniciando intervalo comercial normal...');
+                window.reproduzirComercial();
+            } else {
+                console.log('Sem comerciais. Indo para próximo programa...');
+                reproduzirPrograma(currentPlayingSlot, 0);
+            }
+        }
+    };
+
+    // 🔥 NOVO: Sistema de Comerciais para Vídeos Ao Vivo
+    let liveStreamCommercialTimer = null;
+    let liveStreamPlayTime = 0;
+    let isLiveStream = false;
+    let isInPaidCommercialBreak = false;
+
+    function iniciarSistemaComerciaisAoVivo() {
+        console.log('🔥 INICIANDO SISTEMA DE COMERCIAIS PARA VÍDEO AO VIVO');
+        
+        if (liveStreamCommercialTimer) {
+            clearInterval(liveStreamCommercialTimer);
+            liveStreamCommercialTimer = null;
+        }
+        
+        liveStreamPlayTime = 0;
+        
+        liveStreamCommercialTimer = setInterval(() => {
+            if (isYoutubeVideo && youtubePlayer && youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 1) {
+                liveStreamPlayTime += 1;
+                
+                console.log('⏱️ Vídeo ao vivo tocando há: ' + liveStreamPlayTime + ' segundos');
+                
+                if (liveStreamPlayTime >= 3600 && paidCommercialsList.length > 0) {
+                    console.log('⏰ 1 HORA DE TRANSMISSÃO CONTÍNUA - INICIANDO INTERVALO COMERCIAL');
+                    
+                    if (youtubePlayer.pauseVideo) {
+                        youtubePlayer.pauseVideo();
+                    }
+                    
+                    liveStreamPlayTime = 0;
+                    startPaidCommercialBreak();
+                }
+            }
+        }, 1000);
+        
+        console.log('✅ Sistema de comerciais para vídeo ao vivo iniciado');
+    }
+
+    function pararSistemaComerciaisAoVivo() {
+        if (liveStreamCommercialTimer) {
+            clearInterval(liveStreamCommercialTimer);
+            liveStreamCommercialTimer = null;
+            console.log('🛑 Sistema de comerciais para vídeo ao vivo parado');
+        }
+        liveStreamPlayTime = 0;
+        isLiveStream = false;
+        isInPaidCommercialBreak = false;
+    }
+
+    function limparRecursosPlayer() {
+        console.log('🧹🧹🧹 LIMPEZA GERAL DE RECURSOS DO PLAYER 🧹🧹🧹');
+        
+        // 1. Limpar timers do sistema ao vivo
+        pararSistemaComerciaisAoVivo();
+        
+        // 2. Limpar sistema de sync
+        if (syncCheckInterval) {
+            clearInterval(syncCheckInterval);
+            syncCheckInterval = null;
+        }
+        
+        if (audioMonitorInterval) {
+            clearInterval(audioMonitorInterval);
+            audioMonitorInterval = null;
+        }
+        
+        // 3. Limpar controles
+        if (controlsTimer) {
+            clearTimeout(controlsTimer);
+            controlsTimer = null;
+        }
+        
+        // 4. Limpar vídeo HTML5
+        if (videoElement) {
+            videoElement.pause();
+            videoElement.src = '';
+            videoElement.load();
+        }
+        
+        // 5. Limpar YouTube
+        if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
+            try {
+                youtubePlayer.destroy();
+            } catch (e) {
+                // Ignorar erro
+            }
+            youtubePlayer = null;
+            playerReady = false;
+        }
+        
+        // 6. Resetar estados
+        isLoadingVideo = false;
+        isLiveStream = false;
+        isInPaidCommercialBreak = false;
+        
+        console.log('✅ Recursos do player limpos com sucesso');
+    }
+
+    window.handlePaidCommercialBreakEnd = function() {
+        console.log('=== FIM DO INTERVALO DE COMERCIAIS PAGOS ===');
+        isInPaidCommercialBreak = false;
+        
+        if (commercialIndicator) {
+            commercialIndicator.style.display = 'none';
+        }
+        
+        if (isLiveStream && isYoutubeVideo && youtubePlayer) {
+            console.log('🔥 RETOMANDO VÍDEO AO VIVO APÓS COMERCIAIS');
+            
+            if (youtubePlayer.playVideo) {
+                youtubePlayer.playVideo();
+            }
+            
+            iniciarSistemaComerciaisAoVivo();
+        } else {
+            console.log('Retomando programação normal (nao e ao vivo)');
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+        }
+    };
+
+    // 🔥 MODIFICAÇÃO: Garantir que ao recarregar durante comercial pago, continue
+    document.addEventListener('DOMContentLoaded', function() {
+        // Aguardar inicialização do player
+        setTimeout(async () => {
+            await initializePaidCommercials();
+            
+            // Se a página foi recarregada durante um intervalo comercial
+            // e há comerciais pagos ativos, forçar reinício do intervalo
+            if (currentState === 'commercial' && paidCommercialsList.length > 0) {
+                console.log('Recarregamento detectado durante intervalo comercial. Reiniciando comerciais pagos...');
+                startPaidCommercialBreak();
+            }
+            
+            // Verificar periodicamente por novos comerciais pagos
+            setInterval(async () => {
+                const oldCount = paidCommercialsList.length;
+                paidCommercialsList = await fetchPaidCommercials();
+                
+                if (oldCount !== paidCommercialsList.length) {
+                    console.log('Contagem de comerciais pagos atualizada:', paidCommercialsList.length);
+                    updateInsertCommercialButton();
+                    
+                    // Se agora temos comerciais pagos e estávamos em intervalo normal
+                    if (paidCommercialsList.length > 0 && currentState === 'commercial' && !isInPaidCommercialBreak) {
+                        console.log('Novos comerciais pagos detectados durante intervalo. Reiniciando...');
+                        startPaidCommercialBreak();
+                    }
+                }
+            }, 30000); // Verificar a cada 30 segundos
+        }, 2000);
+    });
+<\/script>
+`;
+
 const syncSystemScript = `
 
 <script>
@@ -3442,6 +3944,7 @@ function calculateExpectedTime(duration) {
                     });
                 }
 
+                
                 // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
 function cleanupInactiveViewers() {
     // Verificar se CHANNEL_ID existe
@@ -3450,40 +3953,44 @@ function cleanupInactiveViewers() {
         return;
     }
     
-    try {
-        // Verifique se o Firebase foi inicializado
-        if (typeof firebase === 'undefined' || !firebase.apps.length) {
-            console.log('Firebase não disponível');
-            return;
-        }
-        
-        const database = firebase.database();
-        const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-        
-        viewersRef.once('value').then(snapshot => {
-            if (!snapshot.exists()) return;
-            
-            const viewers = snapshot.val();
-            const now = Date.now();
-            const updates = {};
-            
-            Object.keys(viewers).forEach(key => {
-                const viewer = viewers[key];
-                if (viewer && viewer.lastHeartbeat) {
-                    const timeDiff = now - viewer.lastHeartbeat;
-                    if (timeDiff > 90000) updates[key] = null;
-                }
-            });
-            
-            if (Object.keys(updates).length > 0) {
-                viewersRef.update(updates)
-                    .then(() => console.log('Espectadores inativos removidos'))
-                    .catch(() => {});
-            }
-        }).catch(() => {});
-    } catch (error) {
-        console.log('Cleanup error:', error.message);
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
     }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
+                }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
 }
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
@@ -5085,11 +5592,13 @@ if (slotIndex === currentPlayingSlot) {
     
     <!-- SISTEMA DE CURTIDAS/DESCURTIDAS -->
     ${likeSystemScript}
-
-        <!-- SISTEMA DE CÁLCULO DE DIAS -->
+    
+    <!-- SISTEMA DE CÁLCULO DE DIAS -->
     ${diasScript}
    
-   
+    <!-- SISTEMA DE COMERCIAIS PAGOS -->
+    ${paidCommercialsSystem}
+    
     <!-- SISTEMA DE SINCRONIA -->
     ${syncSystemScript}
 
@@ -7008,7 +7517,7 @@ function verificarFimDoVideo() {
 </div>
 
     ${donationSystemScript}
-
+    ${paidCommercialsSystem}
 
     ${hasSmartlink && smartlinkUrl ? `
 
