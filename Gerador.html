@@ -3183,6 +3183,55 @@ const paidCommercialsSystem = `
         isInPaidCommercialBreak = false;
     }
 
+    function limparRecursosPlayer() {
+        console.log('🧹🧹🧹 LIMPEZA GERAL DE RECURSOS DO PLAYER 🧹🧹🧹');
+        
+        // 1. Limpar timers do sistema ao vivo
+        pararSistemaComerciaisAoVivo();
+        
+        // 2. Limpar sistema de sync
+        if (syncCheckInterval) {
+            clearInterval(syncCheckInterval);
+            syncCheckInterval = null;
+        }
+        
+        if (audioMonitorInterval) {
+            clearInterval(audioMonitorInterval);
+            audioMonitorInterval = null;
+        }
+        
+        // 3. Limpar controles
+        if (controlsTimer) {
+            clearTimeout(controlsTimer);
+            controlsTimer = null;
+        }
+        
+        // 4. Limpar vídeo HTML5
+        if (videoElement) {
+            videoElement.pause();
+            videoElement.src = '';
+            videoElement.load();
+        }
+        
+        // 5. Limpar YouTube
+        if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
+            try {
+                youtubePlayer.destroy();
+            } catch (e) {
+                // Ignorar erro
+            }
+            youtubePlayer = null;
+            playerReady = false;
+        }
+        
+        // 6. Resetar estados
+        isLoadingVideo = false;
+        isLiveStream = false;
+        isInPaidCommercialBreak = false;
+        
+        console.log('✅ Recursos do player limpos com sucesso');
+    }
+
     window.handlePaidCommercialBreakEnd = function() {
         console.log('=== FIM DO INTERVALO DE COMERCIAIS PAGOS ===');
         isInPaidCommercialBreak = false;
@@ -3280,14 +3329,21 @@ const syncSystemScript = `
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
+        // 🔥 LIMPAR INTERVALOS ANTIGOS PRIMEIRO
+        if (syncCheckInterval) {
+            clearInterval(syncCheckInterval);
+            syncCheckInterval = null;
+        }
+        
+        if (audioMonitorInterval) {
+            clearInterval(audioMonitorInterval);
+            audioMonitorInterval = null;
+        }
+        
         // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
         if (isYoutubeVideo) {
             console.log('YouTube detectado - desativando sincronização');
             return;
-        }
-        
-        if (syncCheckInterval) {
-            clearInterval(syncCheckInterval);
         }
         
         lastValidTime = 0;
@@ -3312,6 +3368,7 @@ const syncSystemScript = `
         
         startAudioMonitoring();
     }
+
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -4329,19 +4386,25 @@ function calcularSlotAtual() {
     
     // Função para verificar se precisa recarregar a página no modo GRADE
     function verificarRecarregamentoGrade() {
-        if (PROGRAMMING_MODE !== 'grade') return;
-        
-        const agora = new Date();
-        const horas = agora.getHours();
-        const minutos = agora.getMinutes();
-        const segundos = agora.getSeconds();
-        
-        // Se estiver entre 06:00:00 e 06:24:59
-        if (horas === 6 && minutos >= 0 && minutos <= 24) {
-            // E o canal não estiver no slot 1
-            if (currentPlayingSlot !== 1) {
-                console.log('Recarregando página para iniciar novo dia com slot 1');
-                location.reload();
+        if (PROGRAMMING_MODE === 'grade') {
+            const agora = new Date();
+            const horas = agora.getHours();
+            const minutos = agora.getMinutes();
+            const segundos = agora.getSeconds();
+            
+            // Se estiver entre 06:00:00 e 06:24:59
+            if (horas === 6 && minutos >= 0 && minutos <= 24) {
+                // E o canal não estiver no slot 1
+                if (currentPlayingSlot !== 1) {
+                    console.log('🔁 Recarregando página para iniciar novo dia com slot 1');
+                    
+                    // 🔥 LIMPAR ANTES DE RECARREGAR
+                    limparRecursosPlayer();
+                    
+                    setTimeout(() => {
+                        location.reload();
+                    }, 3000);
+                }
             }
         }
     }
@@ -6228,6 +6291,27 @@ function atualizarIconeVolume(volume) {
 function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true, isCommercial = false) {
     console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
+    // 🔥🔥🔥 NOVO: LIMPEZA COMPLETA DO VÍDEO ANTERIOR
+    if (videoElement) {
+        console.log('🧹 Limpando video anterior...');
+        
+        // 1. PARAR completamente
+        videoElement.pause();
+        videoElement.src = '';
+        videoElement.load();
+        
+        // 2. REMOVER TODOS os event listeners (clone and replace)
+        const newVideoElement = videoElement.cloneNode(false);
+        videoElement.parentNode.replaceChild(newVideoElement, videoElement);
+        videoElement = newVideoElement;
+        videoElement.id = 'myVideo';
+        
+        // 3. Resetar propriedades
+        videoElement.currentTime = 0;
+        videoElement.volume = volumeSlider ? parseFloat(volumeSlider.value) : 1.0;
+        videoElement.muted = false;
+    }
+    
     // 🔥 SE NAO FOR COMERCIAL, PARAR SISTEMA DE VIDEO AO VIVO
     if (!isCommercial) {
         pararSistemaComerciaisAoVivo();
@@ -6242,6 +6326,7 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true, isCom
         youtubeContainer.style.display = 'none';
     }
     isYoutubeVideo = false;
+    
 
     // Resetar flag IMEDIATAMENTE
     isLoadingVideo = false;
@@ -6406,6 +6491,18 @@ function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true, isC
     }
     isLoadingVideo = true;
     
+    // 🔥🔥🔥 NOVO: DESTRUIR PLAYER YOUTUBE ANTERIOR
+    if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
+        console.log('🗑️ Destruindo player YouTube anterior...');
+        try {
+            youtubePlayer.destroy();
+            youtubePlayer = null;
+            playerReady = false;
+        } catch (e) {
+            console.error('Erro ao destruir player YouTube:', e);
+        }
+    }
+    
     // 🔥 NOVO: Detectar se é vídeo ao vivo
     detectarVideoAoVivoYouTube(url).then(isLive => {
         isLiveStream = isLive;
@@ -6471,18 +6568,20 @@ function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true, isC
     }, 3000);
 }
 
-        
         function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
-            const videoInfo = obterVideoParaSlot(slotIndex);
-            
-            if (!videoInfo) {
-                console.error('Nenhum vídeo encontrado para o slot', slotIndex);
-                setTimeout(() => {
-                    const proximoSlot = (slotIndex + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-                    reproduzirPrograma(proximoSlot, 0);
-                }, 5000);
-                return;
-            }
+    // 🔥 LIMPAR RECURSOS ANTES DE NOVO VIDEO
+    limparRecursosPlayer();
+    
+    const videoInfo = obterVideoParaSlot(slotIndex);
+    
+    if (!videoInfo) {
+        console.error('Nenhum vídeo encontrado para o slot', slotIndex);
+        setTimeout(() => {
+            const proximoSlot = (slotIndex + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
+            reproduzirPrograma(proximoSlot, 0);
+        }, 5000);
+        return;
+    }
             
             if (PROGRAMMING_MODE === 'grade') {
                 document.getElementById('currentProgram').textContent = \`\${videoInfo.programa.name}\`;
@@ -6655,21 +6754,25 @@ fetch(cloudFunctionUrl)
     }
     // ==================== FIM ATUALIZAÇÃO DO DEBUG ====================
 
-    function reproduzirComercial() {
-        console.log('=== INICIANDO INTERVALO COMERCIAL ===');
-        console.log('CommercialBreakCount:', commercialBreakCount, 'COMMERCIALS_PER_BREAK:', COMMERCIALS_PER_BREAK);
-        
-        // REMOVER MENSAGEM "Carregando programação..." DURANTE COMERCIAIS
-        if (loadingMessage) {
-            loadingMessage.style.display = 'none';
-        }
-        
-        if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
-            console.log('Comerciais desativados ou sem comerciais, indo para próximo programa');
-            const proximoSlot = getNextSlot();
-            reproduzirPrograma(proximoSlot, 0);
-            return;
-        }
+
+function reproduzirComercial() {
+    // 🔥 LIMPAR RECURSOS ANTES DE COMERCIAL
+    limparRecursosPlayer();
+    
+    console.log('=== INICIANDO INTERVALO COMERCIAL ===');
+    console.log('CommercialBreakCount:', commercialBreakCount, 'COMMERCIALS_PER_BREAK:', COMMERCIALS_PER_BREAK);
+    
+    // REMOVER MENSAGEM "Carregando programação..." DURANTE COMERCIAIS
+    if (loadingMessage) {
+        loadingMessage.style.display = 'none';
+    }
+    
+    if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
+        console.log('Comerciais desativados ou sem comerciais, indo para próximo programa');
+        const proximoSlot = getNextSlot();
+        reproduzirPrograma(proximoSlot, 0);
+        return;
+    }
         
         // Configurações visuais do comercial
         if (commercialIndicator) commercialIndicator.style.display = 'block';
@@ -7149,10 +7252,14 @@ function verificarFimDoVideo() {
             console.log('Sem comerciais. Indo para próximo programa...');
             reproduzirPrograma(currentPlayingSlot, 0);
         }
+        
+        // 🔥 LIMPAR RECURSOS APÓS TÉRMINO DO VÍDEO
+        setTimeout(() => {
+            limparRecursosPlayer();
+        }, 1000);
     }
     // NÃO FAZ NADA PARA COMERCIAIS - eles têm seu próprio handler
 }
-
                       function verificarMudancaDeDia() {
             if (PROGRAMMING_MODE === 'grade') {
                 const agora = new Date();
