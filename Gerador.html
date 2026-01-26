@@ -1891,7 +1891,18 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
     <script>
-        // ==================== CONFIGURAÇÃO DO FIREBASE ====================
+// ==================== CONFIGURAÇÃO DO FIREBASE ====================
+// 🔥 INICIALIZAÇÃO ÚNICA E SEGURA
+let firebaseInitialized = false;
+
+function ensureFirebaseInitialized() {
+    try {
+        if (typeof firebase === 'undefined') {
+            console.log('⏳ Firebase SDK ainda carregando...');
+            setTimeout(ensureFirebaseInitialized, 500);
+            return;
+        }
+        
         const firebaseConfig = {
             apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
             authDomain: "playtronic-tv.firebaseapp.com",
@@ -1902,32 +1913,83 @@
             measurementId: "G-1QRKY0NN0W",
             databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
         };
-// Inicializar Firebase
-let auth, db, rtdb;
-
-try {
-    if (typeof firebase !== 'undefined') {
-        // Verifica se o Firebase já foi inicializado
-        if (!firebase.apps.length) {
+        
+        // Inicializa apenas uma vez
+        if (!firebase.apps || firebase.apps.length === 0) {
             firebase.initializeApp(firebaseConfig);
-            console.log('✅ Firebase inicializado com sucesso');
+            console.log('✅ Firebase inicializado no sistema principal');
+            firebaseInitialized = true;
         } else {
             console.log('✅ Firebase já estava inicializado');
+            firebaseInitialized = true;
         }
         
-        // Só inicializa as variáveis APÓS confirmar que o Firebase está pronto
-        auth = firebase.auth();
-        db = firebase.firestore();
-        rtdb = firebase.database();
-        
-        console.log('✅ Módulos do Firebase configurados');
-    } else {
-        console.error('❌ Firebase SDK não carregado');
+    } catch (error) {
+        console.error('❌ Erro ao inicializar Firebase:', error);
+        setTimeout(ensureFirebaseInitialized, 2000);
     }
-} catch (error) {
-    console.error('❌ Erro crítico ao inicializar Firebase:', error);
-    alert('Erro ao conectar com o servidor. Recarregue a página e tente novamente.');
 }
+
+// 🔥 FUNÇÃO SEGURA PARA OBTER REFERÊNCIAS
+function getFirebaseRefs() {
+    if (!firebaseInitialized || typeof firebase === 'undefined') {
+        console.log('⏳ Aguardando Firebase inicializar...');
+        setTimeout(getFirebaseRefs, 500);
+        return null;
+    }
+    
+    try {
+        return {
+            auth: firebase.auth(),
+            db: firebase.firestore(),
+            rtdb: firebase.database()
+        };
+    } catch (error) {
+        console.error('Erro ao obter referências Firebase:', error);
+        return null;
+    }
+}
+
+// Inicia a inicialização
+ensureFirebaseInitialized();
+
+// 🔥 AGORA SIM - VARIÁVEIS GLOBAIS COM PROTEÇÃO
+const auth = {
+    onAuthStateChanged: function(callback) {
+        const refs = getFirebaseRefs();
+        if (refs && refs.auth) {
+            return refs.auth.onAuthStateChanged(callback);
+        } else {
+            // Retorna um "fake" observer até o Firebase estar pronto
+            console.log('Firebase ainda não pronto para auth');
+            setTimeout(() => auth.onAuthStateChanged(callback), 1000);
+            return () => {};
+        }
+    },
+    // Adicione outros métodos conforme necessário
+    signInWithPopup: function(provider) {
+        const refs = getFirebaseRefs();
+        return refs ? refs.auth.signInWithPopup(provider) : Promise.reject('Firebase não inicializado');
+    },
+    signOut: function() {
+        const refs = getFirebaseRefs();
+        return refs ? refs.auth.signOut() : Promise.reject('Firebase não inicializado');
+    }
+};
+
+const db = {
+    collection: function(path) {
+        const refs = getFirebaseRefs();
+        return refs ? refs.db.collection(path) : null;
+    }
+};
+
+const rtdb = {
+    ref: function(path) {
+        const refs = getFirebaseRefs();
+        return refs ? refs.rtdb.ref(path) : null;
+    }
+};
 
         // ==================== VARIÁVEIS GLOBAIS ====================
         let currentUser = null;
@@ -5656,14 +5718,12 @@ if (slotIndex === currentPlayingSlot) {
         const CHANNEL_VERSION = "${version}";
                 
                
-                // ==================== CONFIGURAÇÃO DO FIREBASE ====================
-
-        (function initFirebaseInChannel() {
+        // ==================== CONFIGURAÇÃO DO FIREBASE ====================
+        // 🔥 INICIALIZAÇÃO SEGURA PARA O CANAL
+        setTimeout(function() {
             try {
-                // Verifica se o Firebase está disponível
                 if (typeof firebase === 'undefined') {
-                    console.error('❌ Firebase SDK não carregado');
-                    setTimeout(initFirebaseInChannel, 1000);
+                    console.log('⚠️ Firebase ainda não carregou no canal');
                     return;
                 }
                 
@@ -5678,28 +5738,39 @@ if (slotIndex === currentPlayingSlot) {
                     databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
                 };
                 
-                // Inicializa apenas se não estiver inicializado
+                // Inicializa apenas se não foi inicializado
                 if (!firebase.apps || firebase.apps.length === 0) {
                     firebase.initializeApp(firebaseConfig);
                     console.log('✅ Firebase inicializado no canal');
-                } else {
-                    console.log('✅ Firebase já estava inicializado no canal');
                 }
                 
-                // 🔥 DECLARA AS VARIÁVEIS GLOBAIS PARA O CANAL
-                window.channelAuth = firebase.auth();
-                window.channelDatabase = firebase.database();
-                console.log('✅ Módulos do Firebase prontos no canal');
-                
             } catch (error) {
-                console.error('❌ Erro ao inicializar Firebase no canal:', error);
-                // Tenta novamente após 2 segundos
-                setTimeout(initFirebaseInChannel, 2000);
+                console.error('❌ Erro no Firebase do canal:', error);
             }
-        })();
+        }, 2000); // 🔥 DÁ 2 SEGUNDOS PARA O SDK CARREGAR
         
-        const auth = window.channelAuth || (typeof firebase !== 'undefined' ? firebase.auth() : null);
-        const database = window.channelDatabase || (typeof firebase !== 'undefined' ? firebase.database() : null);
+        // 🔥 VARIÁVEIS QUE SERÃO USADAS NO CANAL
+        let auth = null;
+        let database = null;
+        
+        // Função para pegar referências seguras
+        function getFirebaseRefs() {
+            if (typeof firebase !== 'undefined') {
+                try {
+                    auth = firebase.auth();
+                    database = firebase.database();
+                    console.log('✅ Referências Firebase obtidas');
+                } catch (e) {
+                    console.log('⚠️ Firebase ainda não pronto, tentando novamente...');
+                    setTimeout(getFirebaseRefs, 1000);
+                }
+            } else {
+                setTimeout(getFirebaseRefs, 1000);
+            }
+        }
+        
+        // Chama a função após o Firebase inicializar
+        setTimeout(getFirebaseRefs, 3000);
         
         // VARIÁVEIS DE ESTADO
         let currentState = 'program';
