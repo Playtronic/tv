@@ -15,7 +15,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.7.2">
+    <meta name="version" content="1.0.7.3">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="grade">
@@ -1131,7 +1131,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.7.2
+            Versão 1.0.7.3
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1232,43 +1232,48 @@ function cleanupInactiveViewers() {
     }
     
     // Verifique se o Firebase foi inicializado
-    if (typeof firebase === 'undefined' || !firebase.apps.length) {
-        console.error('Firebase não inicializado');
+    if (typeof firebase === 'undefined' || !firebase.apps || firebase.apps.length === 0) {
+        console.log('Firebase não inicializado para cleanup');
         return;
     }
     
-    // Use firebase.database() diretamente
-    const database = firebase.database();
-    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-    
-    viewersRef.once('value').then(snapshot => {
-        if (!snapshot.exists()) return;
+    try {
+        const database = firebase.database();
+        const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
         
-        const viewers = snapshot.val();
-        const now = Date.now();
-        const updates = {};
-        
-        Object.keys(viewers).forEach(key => {
-            const viewer = viewers[key];
-            if (viewer && viewer.lastHeartbeat) {
-                const timeDiff = now - viewer.lastHeartbeat;
-                if (timeDiff > 90000) {
-                    updates[key] = null;
+        viewersRef.once('value').then(snapshot => {
+            if (!snapshot.exists()) return;
+            
+            const viewers = snapshot.val();
+            const now = Date.now();
+            const updates = {};
+            
+            Object.keys(viewers).forEach(key => {
+                const viewer = viewers[key];
+                if (viewer && viewer.lastHeartbeat) {
+                    const timeDiff = now - viewer.lastHeartbeat;
+                    if (timeDiff > 90000) {
+                        updates[key] = null;
+                    }
+                } else if (viewer && viewer.timestamp) {
+                    const timeDiff = now - viewer.timestamp;
+                    if (timeDiff > 180000) {
+                        updates[key] = null;
+                    }
                 }
-            } else if (viewer && viewer.timestamp) {
-                const timeDiff = now - viewer.timestamp;
-                if (timeDiff > 180000) {
-                    updates[key] = null;
-                }
+            });
+            
+            if (Object.keys(updates).length > 0) {
+                viewersRef.update(updates)
+                    .then(() => console.log('Espectadores inativos removidos'))
+                    .catch(err => console.log('Não foi possível limpar espectadores'));
             }
+        }).catch(err => {
+            console.log('Erro ao limpar espectadores:', err);
         });
-        
-        if (Object.keys(updates).length > 0) {
-            viewersRef.update(updates)
-                .then(() => console.log('Espectadores inativos removidos'))
-                .catch(err => console.log('Não foi possível limpar espectadores'));
-        }
-    });
+    } catch (error) {
+        console.log('Erro no cleanup:', error);
+    }
 }
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
@@ -2339,6 +2344,12 @@ function calculateExpectedTime(duration) {
         // ==================== CONFIGURAÇÕES DO CANAL ====================
         // 🔥 DEFINA CHANNEL_ID AQUI, ANTES DE QUALQUER OUTRO SCRIPT!
         const CHANNEL_ID = "72dh07Ms29bfWXxIaPsz";
+
+
+        let currentState = 'program';
+        let isInPaidCommercialBreak = false;
+        let paidCommercialsList = [];
+        let currentPlayingSlot = 1;
         
         const TV_PROGRAMS = [{"id":0,"name":"Novo Popeye","totalVideos":31},{"id":1,"name":"Pica-Pau","totalVideos":197},{"id":2,"name":"Manda-Chuva","totalVideos":30},{"id":3,"name":"Jackson Five","totalVideos":12},{"id":4,"name":"Johnny Bravo","totalVideos":80},{"id":5,"name":"Tiny Toon","totalVideos":64},{"id":6,"name":"Rick e Morty","totalVideos":71},{"id":7,"name":"Harvey, o advogado","totalVideos":32},{"id":8,"name":"Os Flintstones","totalVideos":126}];
         const TV_PLAYLIST = [];
@@ -2360,7 +2371,7 @@ function calculateExpectedTime(duration) {
         const IS_ADULT_CONTENT = false;
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.7.2";
+        const CHANNEL_VERSION = "1.0.7.3";
                 
                
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2609,19 +2620,7 @@ function calculateExpectedTime(duration) {
             });
         }
         
-        // Observador de autenticação
-        function setupAuthStateObserver() {
-            auth.onAuthStateChanged((user) => {
-                currentUserChannel = user;
-                updateAuthUIChannel();
-                
-                if (user) {
-                    console.log('Usuário autenticado no canal:', user.email);
-                } else {
-                    console.log('Usuário não autenticado no canal');
-                }
-            });
-        }
+
         
         // Inicializar autenticação
         function inicializarAutenticacao() {
@@ -2726,67 +2725,62 @@ function calculateExpectedTime(duration) {
   
 
         // Calcular percentual decorrido do slot atual (COM LOGS) - VERSÃO EM SEGUNDOS
-function calcularPercentualSlot() {
-
-
-    const agora = new Date();
-    
-    if (PROGRAMMING_MODE === 'grade') {
-        const horas = agora.getHours();
-        const minutos = agora.getMinutes();
-        const segundos = agora.getSeconds();
-        
-        // Determinar hora base (6h da manhã do dia atual ou anterior)
-        let horaBase;
-        if (horas < 6) {
-            // Se for antes das 6h, usar 6h do dia anterior
-            const dataOntem = new Date(agora);
-            dataOntem.setDate(dataOntem.getDate() - 1);
-            horaBase = new Date(dataOntem);
-            horaBase.setHours(6, 0, 0, 0);
-        } else {
-            // Se for 6h ou mais, usar 6h do dia atual
-            horaBase = new Date(agora);
-            horaBase.setHours(6, 0, 0, 0);
+        function calcularPercentualSlot() {
+            const agora = new Date();
+            
+            if (PROGRAMMING_MODE === 'grade') {
+                const horas = agora.getHours();
+                const minutos = agora.getMinutes();
+                const segundos = agora.getSeconds();
+                
+                // Determinar hora base (6h da manhã do dia atual ou anterior)
+                let horaBase;
+                if (horas < 6) {
+                    // Se for antes das 6h, usar 6h do dia anterior
+                    const dataOntem = new Date(agora);
+                    dataOntem.setDate(dataOntem.getDate() - 1);
+                    horaBase = new Date(dataOntem);
+                    horaBase.setHours(6, 0, 0, 0);
+                } else {
+                    // Se for 6h ou mais, usar 6h do dia atual
+                    horaBase = new Date(agora);
+                    horaBase.setHours(6, 0, 0, 0);
+                }
+                
+                // Calcular diferença em segundos desde as 6h
+                const diferencaMs = agora.getTime() - horaBase.getTime();
+                const segundosDesde6h = diferencaMs / 1000; // em segundos com fração
+                
+                // Calcular segundos dentro do slot atual (cada slot tem 25 minutos = 1500 segundos)
+                const segundosNoSlotAtual = segundosDesde6h % (SLOT_DURATION * 60);
+                const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
+                
+                console.log('Grade - Percentual slot:', (percentual*100).toFixed(1) + '%', 
+                           'Segundos desde 6h:', segundosDesde6h.toFixed(0), 's',
+                           'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
+                
+                return percentual;
+            } else {
+                // Modo Playlist: cálculo baseado no tempo desde a estreia
+                const dataEstreia = new Date(RELEASE_DATE + 'T06:00:00');
+                const diferencaMs = agora.getTime() - dataEstreia.getTime();
+                const segundosDesdeEstreia = diferencaMs / 1000; // em segundos com fração
+                
+                // Se for negativo, ainda não começou
+                if (segundosDesdeEstreia < 0) {
+                    return 0;
+                }
+                
+                const segundosNoSlotAtual = segundosDesdeEstreia % (SLOT_DURATION * 60);
+                const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
+                
+                console.log('Playlist - Percentual slot:', (percentual*100).toFixed(1) + '%', 
+                           'Segundos desde estreia:', segundosDesdeEstreia.toFixed(0), 's',
+                           'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
+                
+                return percentual;
+            }
         }
-        
-        // Calcular diferença em segundos desde as 6h
-        const diferencaMs = agora.getTime() - horaBase.getTime();
-        const segundosDesde6h = diferencaMs / 1000; // em segundos com fração
-        
-        // Calcular segundos dentro do slot atual (cada slot tem 25 minutos = 1500 segundos)
-        const segundosNoSlotAtual = segundosDesde6h % (SLOT_DURATION * 60);
-        const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
-        
-        console.log('Grade - Percentual slot:', (percentual*100).toFixed(1) + '%', 
-                   'Segundos desde 6h:', segundosDesde6h.toFixed(0), 's',
-                   'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
-        
-        return percentual;
-    } else {
-        // Modo Playlist: cálculo baseado no tempo desde a estreia
-        const dataEstreia = new Date(RELEASE_DATE + 'T06:00:00');
-        const diferencaMs = agora.getTime() - dataEstreia.getTime();
-        const segundosDesdeEstreia = diferencaMs / 1000; // em segundos com fração
-        
-        // Se for negativo, ainda não começou
-        if (segundosDesdeEstreia < 0) {
-            return 0;
-        }
-        
-        const segundosNoSlotAtual = segundosDesdeEstreia % (SLOT_DURATION * 60);
-        const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
-        
-        console.log('Playlist - Percentual slot:', (percentual*100).toFixed(1) + '%', 
-                   'Segundos desde estreia:', segundosDesdeEstreia.toFixed(0), 's',
-                   'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
-        
-        return percentual;
-    }
-}
-
-        
-}
 
 // 🔥 NOVA FUNÇÃO: Detectar se é um vídeo ao vivo do YouTube
 function detectarVideoAoVivoYouTube(videoUrl) {
@@ -4888,30 +4882,46 @@ document.addEventListener('DOMContentLoaded', function() {
     window.verificarFimDoVideo = function() {
         console.log('=== FIM DO VÍDEO - VERIFICANDO COMERCIAIS PAGOS ===');
         
+        // 🔥 CORREÇÃO: Verificar se currentState está definido
+        if (typeof currentState === 'undefined') {
+            console.log('⚠️ currentState não definido, definindo como "program"');
+            currentState = 'program';
+        }
+        
         if (currentState === 'program') {
             console.log('Programa terminou. Verificando comerciais...');
             
             // INCREMENTA O SLOT NO FINAL DO VÍDEO
-            currentPlayingSlot = getNextSlot();
-            console.log('Slot atual atualizado para:', currentPlayingSlot);
+            if (typeof getNextSlot === 'function') {
+                currentPlayingSlot = getNextSlot();
+                console.log('Slot atual atualizado para:', currentPlayingSlot);
+            }
             
             // Se houver comerciais pagos, iniciar intervalo com eles
-            if (paidCommercialsList.length > 0) {
+            if (paidCommercialsList && paidCommercialsList.length > 0) {
                 console.log('Iniciando intervalo com comerciais pagos...');
-                startPaidCommercialBreak();
-            } else if (ENABLE_COMMERCIALS && TV_COMMERCIALS.length > 0) {
+                if (typeof startPaidCommercialBreak === 'function') {
+                    startPaidCommercialBreak();
+                }
+            } else if (ENABLE_COMMERCIALS && TV_COMMERCIALS && TV_COMMERCIALS.length > 0) {
                 // Se não houver comerciais pagos, usar os normais
-                commercialBreakCount = 0;
+                if (typeof commercialBreakCount !== 'undefined') {
+                    commercialBreakCount = 0;
+                }
                 console.log('Iniciando intervalo comercial normal...');
-                window.reproduzirComercial();
+                if (typeof reproduzirComercial === 'function') {
+                    window.reproduzirComercial();
+                }
             } else {
                 console.log('Sem comerciais. Indo para próximo programa...');
-                reproduzirPrograma(currentPlayingSlot, 0);
+                if (typeof reproduzirPrograma === 'function' && typeof currentPlayingSlot !== 'undefined') {
+                    reproduzirPrograma(currentPlayingSlot, 0);
+                }
             }
         }
     };
 
-    // 🔥 NOVO: Sistema de Comerciais para Vídeos Ao Vivo
+    //Sistema de Comerciais para Vídeos Ao Vivo
     let liveStreamCommercialTimer = null;
     let liveStreamPlayTime = 0;
     let isLiveStream = false;
