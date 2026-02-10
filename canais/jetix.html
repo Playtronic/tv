@@ -15,7 +15,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.7.3">
+    <meta name="version" content="1.0.7.4">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="grade">
@@ -1131,7 +1131,7 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.7.3
+            Versão 1.0.7.4
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1222,59 +1222,61 @@
                     });
                 }
 
-                
-                // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
-function cleanupInactiveViewers() {
-    // Verificar se CHANNEL_ID existe
-    if (typeof CHANNEL_ID === 'undefined' || !CHANNEL_ID) {
-        console.log('CHANNEL_ID não definido para cleanup');
-        return;
-    }
-    
-    // Verifique se o Firebase foi inicializado
-    if (typeof firebase === 'undefined' || !firebase.apps || firebase.apps.length === 0) {
-        console.log('Firebase não inicializado para cleanup');
-        return;
-    }
-    
-    try {
-        const database = firebase.database();
-        const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-        
-        viewersRef.once('value').then(snapshot => {
-            if (!snapshot.exists()) return;
-            
-            const viewers = snapshot.val();
-            const now = Date.now();
-            const updates = {};
-            
-            Object.keys(viewers).forEach(key => {
-                const viewer = viewers[key];
-                if (viewer && viewer.lastHeartbeat) {
-                    const timeDiff = now - viewer.lastHeartbeat;
-                    if (timeDiff > 90000) {
-                        updates[key] = null;
+                                // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS (CORRIGIDA)
+                function cleanupInactiveViewers() {
+                    // Verificar se CHANNEL_ID existe
+                    if (typeof CHANNEL_ID === 'undefined' || !CHANNEL_ID) {
+                        console.log('CHANNEL_ID não definido para cleanup');
+                        return;
                     }
-                } else if (viewer && viewer.timestamp) {
-                    const timeDiff = now - viewer.timestamp;
-                    if (timeDiff > 180000) {
-                        updates[key] = null;
+                    
+                    // Verificar se Firebase está pronto
+                    if (typeof firebase === 'undefined' || !firebase.apps || firebase.apps.length === 0) {
+                        console.log('Firebase não inicializado para cleanup');
+                        return;
+                    }
+                    
+                    try {
+                        const database = firebase.database();
+                        const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+                        
+                        viewersRef.once('value').then(snapshot => {
+                            if (!snapshot.exists()) {
+                                console.log('Nenhum espectador para limpar');
+                                return;
+                            }
+                            
+                            const viewers = snapshot.val();
+                            const now = Date.now();
+                            const updates = {};
+                            
+                            Object.keys(viewers).forEach(key => {
+                                const viewer = viewers[key];
+                                if (viewer && viewer.lastHeartbeat) {
+                                    const timeDiff = now - viewer.lastHeartbeat;
+                                    if (timeDiff > 90000) {
+                                        updates[key] = null;
+                                    }
+                                } else if (viewer && viewer.timestamp) {
+                                    const timeDiff = now - viewer.timestamp;
+                                    if (timeDiff > 180000) {
+                                        updates[key] = null;
+                                    }
+                                }
+                            });
+                            
+                            if (Object.keys(updates).length > 0) {
+                                viewersRef.update(updates)
+                                    .then(() => console.log('Espectadores inativos removidos'))
+                                    .catch(err => console.log('Não foi possível limpar espectadores'));
+                            }
+                        }).catch(err => {
+                            console.log('Erro ao limpar espectadores:', err);
+                        });
+                    } catch (error) {
+                        console.log('Erro no cleanup:', error);
                     }
                 }
-            });
-            
-            if (Object.keys(updates).length > 0) {
-                viewersRef.update(updates)
-                    .then(() => console.log('Espectadores inativos removidos'))
-                    .catch(err => console.log('Não foi possível limpar espectadores'));
-            }
-        }).catch(err => {
-            console.log('Erro ao limpar espectadores:', err);
-        });
-    } catch (error) {
-        console.log('Erro no cleanup:', error);
-    }
-}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -2371,15 +2373,15 @@ function calculateExpectedTime(duration) {
         const IS_ADULT_CONTENT = false;
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.7.3";
+        const CHANNEL_VERSION = "1.0.7.4";
                 
-               
-        // ==================== CONFIGURAÇÃO DO FIREBASE ====================
-        // 🔥 INICIALIZAÇÃO SEGURA PARA O CANAL
-        setTimeout(function() {
+                       // ==================== CONFIGURAÇÃO DO FIREBASE ====================
+        // 🔥 INICIALIZAÇÃO SIMPLES E CONFIÁVEL
+        function initFirebaseInChannel() {
             try {
                 if (typeof firebase === 'undefined') {
-                    console.log('⚠️ Firebase ainda não carregou no canal');
+                    console.log('⏳ Firebase SDK não carregado, tentando novamente...');
+                    setTimeout(initFirebaseInChannel, 1000);
                     return;
                 }
                 
@@ -2395,15 +2397,30 @@ function calculateExpectedTime(duration) {
                 };
                 
                 // Inicializa apenas se não foi inicializado
-                if (!firebase.apps || firebase.apps.length === 0) {
+                if (!firebase.apps.length) {
                     firebase.initializeApp(firebaseConfig);
                     console.log('✅ Firebase inicializado no canal');
+                } else {
+                    console.log('✅ Firebase já inicializado no canal');
                 }
+                
+                // Obter referências
+                auth = firebase.auth();
+                database = firebase.database();
+                
+                console.log('✅ Referências Firebase obtidas');
                 
             } catch (error) {
                 console.error('❌ Erro no Firebase do canal:', error);
+                setTimeout(initFirebaseInChannel, 2000);
             }
-        }, 2000); // 🔥 DÁ 2 SEGUNDOS PARA O SDK CARREGAR
+        }
+        
+        // Inicializar Firebase após 1 segundo
+        setTimeout(initFirebaseInChannel, 1000);
+
+
+ // 🔥 DÁ 2 SEGUNDOS PARA O SDK CARREGAR
         
         // 🔥 VARIÁVEIS QUE SERÃO USADAS NO CANAL
         let auth = null;
@@ -2429,7 +2446,6 @@ function calculateExpectedTime(duration) {
         setTimeout(getFirebaseRefs, 3000);
         
         // VARIÁVEIS DE ESTADO
-        let currentState = 'program';
         let currentCommercialIndex = 0;
         let commercialBreakCount = 0;
         let controlsTimeout;
@@ -4882,40 +4898,41 @@ document.addEventListener('DOMContentLoaded', function() {
     window.verificarFimDoVideo = function() {
         console.log('=== FIM DO VÍDEO - VERIFICANDO COMERCIAIS PAGOS ===');
         
-        // 🔥 CORREÇÃO: Verificar se currentState está definido
+        // 🔥 CORREÇÃO: currentState já está definido como global
         if (typeof currentState === 'undefined') {
             console.log('⚠️ currentState não definido, definindo como "program"');
-            currentState = 'program';
+            window.currentState = 'program';
         }
         
-        if (currentState === 'program') {
+        if (window.currentState === 'program') {
             console.log('Programa terminou. Verificando comerciais...');
             
             // INCREMENTA O SLOT NO FINAL DO VÍDEO
             if (typeof getNextSlot === 'function') {
-                currentPlayingSlot = getNextSlot();
-                console.log('Slot atual atualizado para:', currentPlayingSlot);
+                window.currentPlayingSlot = getNextSlot();
+                console.log('Slot atual atualizado para:', window.currentPlayingSlot);
             }
             
             // Se houver comerciais pagos, iniciar intervalo com eles
-            if (paidCommercialsList && paidCommercialsList.length > 0) {
+            if (window.paidCommercialsList && window.paidCommercialsList.length > 0) {
                 console.log('Iniciando intervalo com comerciais pagos...');
                 if (typeof startPaidCommercialBreak === 'function') {
                     startPaidCommercialBreak();
                 }
-            } else if (ENABLE_COMMERCIALS && TV_COMMERCIALS && TV_COMMERCIALS.length > 0) {
+            } else if (typeof ENABLE_COMMERCIALS !== 'undefined' && ENABLE_COMMERCIALS && 
+                       typeof TV_COMMERCIALS !== 'undefined' && TV_COMMERCIALS.length > 0) {
                 // Se não houver comerciais pagos, usar os normais
                 if (typeof commercialBreakCount !== 'undefined') {
                     commercialBreakCount = 0;
                 }
                 console.log('Iniciando intervalo comercial normal...');
                 if (typeof reproduzirComercial === 'function') {
-                    window.reproduzirComercial();
+                    reproduzirComercial();
                 }
             } else {
                 console.log('Sem comerciais. Indo para próximo programa...');
-                if (typeof reproduzirPrograma === 'function' && typeof currentPlayingSlot !== 'undefined') {
-                    reproduzirPrograma(currentPlayingSlot, 0);
+                if (typeof reproduzirPrograma === 'function' && typeof window.currentPlayingSlot !== 'undefined') {
+                    reproduzirPrograma(window.currentPlayingSlot, 0);
                 }
             }
         }
