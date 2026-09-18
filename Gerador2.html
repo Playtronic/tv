@@ -4106,6 +4106,15 @@ if (slotIndex === currentPlayingSlot) {
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"><\/script>
     <!-- Google Cast SDK -->
+    <!-- CHROMECAST_FIX_V1: callback ANTES do SDK -->
+    <script>
+        window.__onGCastApiAvailable = function(isAvailable) {
+            window.__castApiAvailable = isAvailable;
+            if (isAvailable && typeof window.__initCastButton === "function") {
+                window.__initCastButton();
+            }
+        };
+    <\/script>
     <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"><\/script>
 
 
@@ -5089,7 +5098,9 @@ if (slotIndex === currentPlayingSlot) {
                     <button class="volume-btn" id="volumeBtn">🔊</button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
                 </div>
-                <google-cast-launcher id="castButton" title="Transmitir para TV" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
+                <div id="castButtonWrapper" style="display: none; align-items: center; margin-left: 8px;">
+                    <google-cast-launcher id="castButton" style="width: 24px; height: 24px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
+                </div>
                 <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
             </div>
             `}
@@ -7076,24 +7087,53 @@ function verificarFimDoVideo() {
     <!-- 📺 Chromecast Init (isolado para não quebrar o player) -->
     
 
-    <!-- 📺 Chromecast Init -->
+    <!-- 📺 Chromecast Init (robusto com polling) -->
     <script>
-        window.__onGCastApiAvailable = function(isAvailable) {
-            if (!isAvailable) return;
+    (function() {
+        var castInitialized = false;
+        var castAttempts = 0;
+        var castMaxAttempts = 30;
+    
+        window.__initCastButton = function() {
+            if (castInitialized) return true;
+    
             try {
-                var castContext = cast.framework.CastContext.getInstance();
+                if (!window.cast || !window.cast.framework || !window.cast.framework.CastContext) {
+                    return false;
+                }
+    
+                var castContext = window.cast.framework.CastContext.getInstance();
                 castContext.setOptions({
-                    receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-                    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+                    receiverApplicationId: window.chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+                    autoJoinPolicy: window.chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
                 });
-                console.log("✅ [CAST] Chromecast pronto (modo manual)");
+    
+                var wrapper = document.getElementById("castButtonWrapper");
+                if (wrapper) {
+                    wrapper.style.display = "inline-flex";
+                }
+    
+                castInitialized = true;
+                console.log("✅ [CAST] Chromecast inicializado");
+                return true;
             } catch(e) {
-                console.error("❌ [CAST] Init falhou:", e);
+                console.error("❌ [CAST] Erro:", e);
+                return false;
             }
         };
-        if (window.cast && window.cast.framework) {
-            window.__onGCastApiAvailable(true);
-        }
+    
+        if (window.__initCastButton()) return;
+    
+        var castInterval = setInterval(function() {
+            castAttempts++;
+            if (window.__initCastButton() || castAttempts >= castMaxAttempts) {
+                clearInterval(castInterval);
+                if (!castInitialized) {
+                    console.log("ℹ️ [CAST] Chromecast não disponível neste navegador");
+                }
+            }
+        }, 500);
+    })();
     <\/script>
 </body>
 </html>`;
