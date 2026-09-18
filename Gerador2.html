@@ -2349,7 +2349,103 @@ function determinarDataEstreia(dadosGerador) {
         }
 
         // Função para gerar HTML do canal (ATUALIZADA COM NOVA LÓGICA DE DATA)
-function gerarHTMLdoCanal(dados, channelId) {
+        // ═══════════════════════════════════════════════════════════════
+        // 🔒 [PROTEÇÃO] Helpers de criptografia AES-GCM
+        // ═══════════════════════════════════════════════════════════════
+        const _PROTECTION_TAG = 'PTVX::';
+        
+        function _getMasterKey() {
+            const parts = [
+        String.fromCharCode(0x50, 0x4c, 0x34, 0x59, 0x54, 0x52, 0x30, 0x4e),
+        String.fromCharCode(0x31, 0x43, 0x5f, 0x53, 0x33, 0x43, 0x52, 0x33),
+        String.fromCharCode(0x54, 0x5f, 0x4b, 0x33, 0x59, 0x5f, 0x56, 0x31),
+        String.fromCharCode(0x5f, 0x32, 0x30, 0x32, 0x35, 0x5f, 0x53, 0x54)
+    ];
+            return parts.join('');
+        }
+        
+        async function _encryptUrl(plainUrl) {
+            try {
+                if (!plainUrl || typeof plainUrl !== 'string') return plainUrl;
+                if (plainUrl.indexOf('http') !== 0) return plainUrl;
+                if (plainUrl.indexOf(_PROTECTION_TAG) === 0) return plainUrl;
+                
+                const keyStr = _getMasterKey();
+                const keyBuf = await crypto.subtle.importKey(
+                    'raw', new TextEncoder().encode(keyStr),
+                    { name: 'AES-GCM' }, false, ['encrypt']
+                );
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const cipher = await crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv }, keyBuf, new TextEncoder().encode(plainUrl)
+                );
+                const combined = new Uint8Array(iv.length + cipher.byteLength);
+                combined.set(iv, 0);
+                combined.set(new Uint8Array(cipher), iv.length);
+                
+                let binStr = '';
+                for (let i = 0; i < combined.length; i++) {
+                    binStr += String.fromCharCode(combined[i]);
+                }
+                return _PROTECTION_TAG + btoa(binStr);
+            } catch(e) {
+                console.error('❌ [_encryptUrl] falha:', e);
+                return plainUrl;
+            }
+        }
+        
+        async function _decryptUrl(encrypted) {
+            if (!encrypted || typeof encrypted !== 'string') return encrypted;
+            if (encrypted.indexOf(_PROTECTION_TAG) !== 0) return encrypted;
+            
+            try {
+                const b64 = encrypted.substring(_PROTECTION_TAG.length);
+                const raw = atob(b64);
+                const combined = new Uint8Array(raw.length);
+                for (let i = 0; i < raw.length; i++) combined[i] = raw.charCodeAt(i);
+                
+                const iv = combined.slice(0, 12);
+                const data = combined.slice(12);
+                
+                const keyStr = _getMasterKey();
+                const keyBuf = await crypto.subtle.importKey(
+                    'raw', new TextEncoder().encode(keyStr),
+                    { name: 'AES-GCM' }, false, ['decrypt']
+                );
+                const plain = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv }, keyBuf, data
+                );
+                return new TextDecoder().decode(plain);
+            } catch(e) {
+                console.error('❌ [_decryptUrl] falha:', e);
+                return null;
+            }
+        }
+        
+        function _checkSecurityContext() {
+            // 🔒 Camada 5a: bloqueia iframe
+            try {
+                if (window.self !== window.top) {
+                    console.warn('🚫 [PROTEÇÃO] Canal embutido em iframe — bloqueado');
+                    document.body.innerHTML = '<div style="padding:40px;text-align:center;font-family:Arial;color:#fff;background:#1a1a2e;min-height:100vh;"><h2>Conteúdo não autorizado</h2><p>Este canal não pode ser exibido dentro de iframe.</p></div>';
+                    return false;
+                }
+            } catch(e) {}
+            
+            // 🔒 Camada 5b: verifica domínio
+            const allowed = ['canaisdetv.online', 'localhost', '127.0.0.1'];
+            const host = (location.hostname || '').toLowerCase();
+            const okDomain = allowed.some(function(d) { return host.indexOf(d) !== -1; });
+            if (!okDomain) {
+                console.warn('🚫 [PROTEÇÃO] Domínio não autorizado:', host);
+                document.body.innerHTML = '<div style="padding:40px;text-align:center;font-family:Arial;color:#fff;background:#1a1a2e;min-height:100vh;"><h2>Conteúdo não autorizado</h2><p>Este canal só funciona em: ' + allowed.join(', ') + '</p></div>';
+                return false;
+            }
+            
+            return true;
+        }
+
+async function gerarHTMLdoCanal(dados, channelId) {
 
     const isOffline = dados.isOffline || false;
     const visibility = dados.visibility || 'brazil';
@@ -2463,23 +2559,30 @@ function gerarHTMLdoCanal(dados, channelId) {
     <\/script>` : '';
 
 
-    // Gerar lista de programas (modo grade)
-const programasArray = dados.programas ? dados.programas.map((program, index) => ({
-    id: index,
-    name: program.name,
-    totalVideos: program.videos ? program.videos.length : 0,
-    videos: program.videos || []
-})) : [];
+        // ═══════════════════════════════════════════════════════════════
+    // 🔒 [PROTEÇÃO] Programas com URLs cifradas AES-GCM
+    // ═══════════════════════════════════════════════════════════════
+    const programasArray = dados.programas ? await Promise.all(dados.programas.map(async (program, index) => {
+        const videosCifrados = await Promise.all((program.videos || []).map(function(v) {
+            return _encryptUrl(v);
+        }));
+        return {
+            id: index,
+            name: program.name,
+            totalVideos: videosCifrados.length,
+            videos: videosCifrados
+        };
+    })) : [];
 
-// Gerar lista de vídeos da playlist (modo playlist)
-const playlistArray = dados.playlistVideos ? dados.playlistVideos.map((video, index) => ({
-    id: index,
-    name: video.name,
-    url: video.url || ''
+    const playlistArray = dados.playlistVideos ? await Promise.all(dados.playlistVideos.map(async (video, index) => {
+        const urlCifrada = await _encryptUrl(video.url || '');
+        return {
+            id: index,
+            name: video.name,
+            url: urlCifrada
+        };
+    })) : [];
 
-})) : [];
-
-// 🔥 ADICIONE TAMBÉM um total geral:
 const totalPlaylistVideos = dados.playlistVideos ? dados.playlistVideos.length : 0;
     
     // Gerar lista de comerciais
@@ -7053,7 +7156,7 @@ async function publicarCanal(nomeCanal, dadosGerador) {
         }
         
         // Gerar HTML do canal
-        const htmlCanal = gerarHTMLdoCanal(dadosGerador, channelIdParaVideos);
+        const htmlCanal = await gerarHTMLdoCanal(dadosGerador, channelIdParaVideos);
         
         const dadosEnvio = {
             nomeCanal: nomeCanal,
