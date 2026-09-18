@@ -17,7 +17,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.2.0">
+    <meta name="version" content="1.0.2.1">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -1025,7 +1025,7 @@
                     <button class="volume-btn" id="volumeBtn">🔊</button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
                 </div>
-<google-cast-launcher id="castButton" title="Transmitir para TV" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
+                <google-cast-launcher id="castButton" title="Transmitir para TV" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
                 <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
             </div>
             
@@ -1132,7 +1132,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.2.0
+            Versão 1.0.2.1
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2304,7 +2304,7 @@ function calculateExpectedTime(duration) {
         // CONFIGURAÇÕES DO CANAL
 
         const TV_PROGRAMS = [];
-        const TV_PLAYLIST = [{"id":0,"name":"Johnny Castaway","url":"PTVX::KIuD0FVs+YBk4xWYG8bcEn/SS4gKD8vlQbXOzxgc8InZQ2aHF70Deg45Yrx0x3x7mAUPfLRAc5ZFYha/AtU/Y2CFL1rliFpPQ7kOBJcZeydmGM70ixzx"},{"id":1,"name":"Johnny Castaway","url":"PTVX::mjcyWeRPn06FThDUs7OCDa20BsbS1suSKkUPF249pAwDsa5LZSepBhT80Gwp091VcvTtZXN05ljdwZSMvyqZOt/PN21pbyY="},{"id":2,"name":"Johnny Castaway","url":"PTVX::3rmO2Qd130TW2Z86eL1VZpjuiGCQJh3LdN0FrNfd9UfcQ0DfOb7YPUA7sVBKoMRGHV1e71DJhoDaycZghH+t8BVTLdzAYLg="}];
+        const TV_PLAYLIST = [{"id":0,"name":"Johnny Castaway","url":"PTVX::AuB8zAaAr1I9iLmDgfKMzz6cLJB8ajnzLxOl/KerjVSsVPbi+jz532bSNpUAo84ABwLOm0GkUo+v2R3IfJIfvPfCMIEi3/Hf3qy92zk871+9fQnl3In7"},{"id":1,"name":"Johnny Castaway","url":"PTVX::OuTNqYi3PyUjH2B6lvvCqVlqNR5NImr5Yw5W2zy/RKhC5vKJWqMf8UIFu9NEECbO+4vL2OPi1hBjbNa1rkAIq+SIpvdOlDA="},{"id":2,"name":"Johnny Castaway","url":"PTVX::lCtWR6dIfg8sKp5AnlRafrjuXuhMnxALVgV9/fOin0p6p/9YOAg76SX2dnWl2wO2bQxImcL8EUryztpy16EyitfKOcwedsY="}];
         const PROGRAMMING_MODE = "playlist";const TOTAL_PROGRAMS = 0;
         const TOTAL_PLAYLIST_VIDEOS = 3;
         const PROGRAM_VIDEO_COUNTS = [];
@@ -2324,7 +2324,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-18";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.2.0";
+        const CHANNEL_VERSION = "1.0.2.1";
         const CHANNEL_ID = "dPEwaJi8KjpFXA5S3zZr";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2944,25 +2944,43 @@ function atualizarIconeVolume(volume) {
 }
 
 async function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-    // 🔥 Se receber URL da Cloud Function, resolve primeiro
-    if (url && (url.indexOf('cloudfunctions.net') !== -1 || url.indexOf('getProtectedVideo') !== -1)) {
+    // 🔓 [DECRYPT AES-GCM] Detecta URL cifrada e decodifica
+    if (url && typeof url === 'string' && url.indexOf('PTVX::') === 0) {
         try {
-            console.log('🔎 Dispatcher: resolvendo Cloud Function:', url.substring(0, 80));
-            const r = await fetch(url, { cache: 'no-store' });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const data = await r.json();
-            if (!data.success || !data.url) throw new Error('CF sem URL: ' + JSON.stringify(data));
-            url = data.url;
-            console.log('✅ Dispatcher: URL real =', url.substring(0, 80));
-        } catch (e) {
-            console.error('❌ Dispatcher: erro ao resolver Cloud Function:', e);
+            console.log('🔓 [PROTEÇÃO] URL cifrada, decodificando...');
+            const dec = await _decryptUrl(url);
+            if (!dec || typeof dec !== 'string') {
+                console.error('❌ [PROTEÇÃO] Decrypt retornou vazio');
+                return;
+            }
+            url = dec;
+            console.log('✅ [PROTEÇÃO] URL decifrada:', url.substring(0, 80));
+        } catch(e) {
+            console.error('❌ [PROTEÇÃO] Decrypt falhou:', e);
             return;
         }
     }
-    // Se virou YouTube, delega
+    
+    // 🔥 Cloud Function legacy (se ainda existir)
+    if (url && (url.indexOf('cloudfunctions.net') !== -1 || url.indexOf('getProtectedVideo') !== -1)) {
+        try {
+            const r = await fetch(url, { cache: 'no-store' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            if (!data.success || !data.url) throw new Error('CF sem URL');
+            url = data.url;
+        } catch(e) {
+            console.error('❌ Cloud Function falhou:', e);
+            return;
+        }
+    }
+    
+    // 🎥 YouTube delega
     if (url && (url.indexOf('youtube.com') !== -1 || url.indexOf('youtu.be') !== -1)) {
         return _carregarVideoYouTube_raw(url, iniciarNoPercentual, autoplay);
     }
+    
+    // ▶️ HTML5 direto
     return _carregarVideoHTML5_raw(url, iniciarNoPercentual, autoplay);
 }
 
@@ -4403,6 +4421,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     <!-- 📺 Chromecast Init (isolado para não quebrar o player) -->
+    
+
+    <!-- 📺 Chromecast Init -->
     <script>
         window.__onGCastApiAvailable = function(isAvailable) {
             if (!isAvailable) return;
@@ -4412,11 +4433,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
                     autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
                 });
-                console.log("✅ [CAST] Chromecast pronto");
+                console.log("✅ [CAST] Chromecast pronto (modo manual)");
             } catch(e) {
                 console.error("❌ [CAST] Init falhou:", e);
             }
         };
+        if (window.cast && window.cast.framework) {
+            window.__onGCastApiAvailable(true);
+        }
     </script>
 </body>
 </html>
