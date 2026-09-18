@@ -13,11 +13,20 @@
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
     <!-- Google Cast SDK -->
+    <!-- CHROMECAST_FIX_V1: callback ANTES do SDK -->
+    <script>
+        window.__onGCastApiAvailable = function(isAvailable) {
+            window.__castApiAvailable = isAvailable;
+            if (isAvailable && typeof window.__initCastButton === "function") {
+                window.__initCastButton();
+            }
+        };
+    </script>
     <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.2.4">
+    <meta name="version" content="1.0.2.5">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -1025,7 +1034,9 @@
                     <button class="volume-btn" id="volumeBtn">🔊</button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
                 </div>
-                <google-cast-launcher id="castButton" title="Transmitir para TV" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
+                <div id="castButtonWrapper" style="display: none; align-items: center; margin-left: 8px;">
+                    <google-cast-launcher id="castButton" style="width: 24px; height: 24px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
+                </div>
                 <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
             </div>
             
@@ -1132,7 +1143,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.2.4
+            Versão 1.0.2.5
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2304,7 +2315,7 @@ function calculateExpectedTime(duration) {
         // CONFIGURAÇÕES DO CANAL
 
         const TV_PROGRAMS = [];
-        const TV_PLAYLIST = [{"id":0,"name":"Johnny Castaway","url":"PTVX::XPQTSn7d2/A9sl8SaPgEtch3MH1Gv8zf45w5GAe1MG90yEoHL7n3rioEczDVrjLN5wKiPLCLQx7nV118sVCzS3INOq3NFJKYY/4LLqjJ1AHZNfl3Fz2z"},{"id":1,"name":"Johnny Castaway","url":"PTVX::HEhgoUyfsq1/VrAGN0NAlAgxkEBVwGQqPq7MiFnQ1gwxkV6TmHVopN2qJrgMb+vERfFiQ4mV8I751GqvR7HLpBscDv/EFi0="},{"id":2,"name":"Johnny Castaway","url":"PTVX::NSC26fSIQjO2OwTiI7T2HLdgptXMxCrp16MAUJiMaBcknpisfwFGW+zWRYnLd7uvDuQ3pULTn8kCGhTAlNz9WHJUFvHxDIw="}];
+        const TV_PLAYLIST = [{"id":0,"name":"Johnny Castaway","url":"PTVX::7p853Z75MZ/s6szUcT9SdNSxIvg4hFdmkFUZZA/XEYAvxgYXyCzdqnQnIm+0XVYUQPMHahraErl0Xmf3tLMnCcPohDH3V3V+mPGlIvUF6M131i0DqMUw"},{"id":1,"name":"Johnny Castaway","url":"PTVX::YrO/iW7XeAsl6jRrnD/FHEgIWF8MKx5i1Ik5ase0n8YNA7unUASnF1I43rbDdfgvy0/AUmTL7gjrDiKQ1ewvmeaiOP53Qck="},{"id":2,"name":"Johnny Castaway","url":"PTVX::TKXJRR3BTakp/RQbPs2zLitAKdGRG25T536seHL3hPVa5aCqamVYfHKVW1VQ2Gc+L9zUrKHYzlzGeSwR6nj9g0rXlUzc/tI="}];
         const PROGRAMMING_MODE = "playlist";const TOTAL_PROGRAMS = 0;
         const TOTAL_PLAYLIST_VIDEOS = 3;
         const PROGRAM_VIDEO_COUNTS = [];
@@ -2324,7 +2335,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-18";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.2.4";
+        const CHANNEL_VERSION = "1.0.2.5";
         const CHANNEL_ID = "dPEwaJi8KjpFXA5S3zZr";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -4464,24 +4475,53 @@ document.addEventListener('DOMContentLoaded', function() {
     <!-- 📺 Chromecast Init (isolado para não quebrar o player) -->
     
 
-    <!-- 📺 Chromecast Init -->
+    <!-- 📺 Chromecast Init (robusto com polling) -->
     <script>
-        window.__onGCastApiAvailable = function(isAvailable) {
-            if (!isAvailable) return;
+    (function() {
+        var castInitialized = false;
+        var castAttempts = 0;
+        var castMaxAttempts = 30;
+    
+        window.__initCastButton = function() {
+            if (castInitialized) return true;
+    
             try {
-                var castContext = cast.framework.CastContext.getInstance();
+                if (!window.cast || !window.cast.framework || !window.cast.framework.CastContext) {
+                    return false;
+                }
+    
+                var castContext = window.cast.framework.CastContext.getInstance();
                 castContext.setOptions({
-                    receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-                    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+                    receiverApplicationId: window.chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+                    autoJoinPolicy: window.chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
                 });
-                console.log("✅ [CAST] Chromecast pronto (modo manual)");
+    
+                var wrapper = document.getElementById("castButtonWrapper");
+                if (wrapper) {
+                    wrapper.style.display = "inline-flex";
+                }
+    
+                castInitialized = true;
+                console.log("✅ [CAST] Chromecast inicializado");
+                return true;
             } catch(e) {
-                console.error("❌ [CAST] Init falhou:", e);
+                console.error("❌ [CAST] Erro:", e);
+                return false;
             }
         };
-        if (window.cast && window.cast.framework) {
-            window.__onGCastApiAvailable(true);
-        }
+    
+        if (window.__initCastButton()) return;
+    
+        var castInterval = setInterval(function() {
+            castAttempts++;
+            if (window.__initCastButton() || castAttempts >= castMaxAttempts) {
+                clearInterval(castInterval);
+                if (!castInitialized) {
+                    console.log("ℹ️ [CAST] Chromecast não disponível neste navegador");
+                }
+            }
+        }, 500);
+    })();
     </script>
 </body>
 </html>
