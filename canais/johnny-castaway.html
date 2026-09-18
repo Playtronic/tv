@@ -15,7 +15,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.1.3">
+    <meta name="version" content="1.0.1.4">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -1028,8 +1028,6 @@
             
         </div>        
 
-
-// 🔥 BOTÕES DE MONETIZAÇÃO
 <div style="text-align: center; margin: 20px 0; padding: 10px;">
     
     <a href="https://canaisdetv.online/comercial.html?channelId=dPEwaJi8KjpFXA5S3zZr" target="_blank" 
@@ -1131,7 +1129,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.1.3
+            Versão 1.0.1.4
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1457,7 +1455,7 @@ function cleanupInactiveViewers() {
     
     // Função para calcular dias desde a estreia (PARA TODOS OS MODOS)
     function calcularDiasDesdeEstreiaCanal() {
-        const RELEASE_DATE = "2026-01-12";
+        const RELEASE_DATE = "2026-09-18";
         
         if (!RELEASE_DATE) {
             return 1;
@@ -2321,9 +2319,9 @@ function calculateExpectedTime(duration) {
         const ENABLE_DEBUG = true;
         const IS_ADULT_CONTENT = false;
         
-        const RELEASE_DATE = "2026-01-12";
+        const RELEASE_DATE = "2026-09-18";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.1.3";
+        const CHANNEL_VERSION = "1.0.1.4";
         const CHANNEL_ID = "dPEwaJi8KjpFXA5S3zZr";
         
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
@@ -2942,7 +2940,30 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+async function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    // 🔥 Se receber URL da Cloud Function, resolve primeiro
+    if (url && (url.indexOf('cloudfunctions.net') !== -1 || url.indexOf('getProtectedVideo') !== -1)) {
+        try {
+            console.log('🔎 Dispatcher: resolvendo Cloud Function:', url.substring(0, 80));
+            const r = await fetch(url, { cache: 'no-store' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            if (!data.success || !data.url) throw new Error('CF sem URL: ' + JSON.stringify(data));
+            url = data.url;
+            console.log('✅ Dispatcher: URL real =', url.substring(0, 80));
+        } catch (e) {
+            console.error('❌ Dispatcher: erro ao resolver Cloud Function:', e);
+            return;
+        }
+    }
+    // Se virou YouTube, delega
+    if (url && (url.indexOf('youtube.com') !== -1 || url.indexOf('youtu.be') !== -1)) {
+        return _carregarVideoYouTube_raw(url, iniciarNoPercentual, autoplay);
+    }
+    return _carregarVideoHTML5_raw(url, iniciarNoPercentual, autoplay);
+}
+
+function _carregarVideoHTML5_raw(url, iniciarNoPercentual = 0, autoplay = true) {
     console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
     // Resetar flag IMEDIATAMENTE
@@ -2972,12 +2993,9 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
     // 4. Configurar atributos ESSENCIAIS
     videoElement.playsInline = true;
     videoElement.preload = 'auto';
-    videoElement.crossOrigin = 'anonymous';
-    videoElement.setAttribute('playsinline', '');
+videoElement.setAttribute('playsinline', '');
     videoElement.setAttribute('webkit-playsinline', '');
-    videoElement.setAttribute('crossorigin', 'anonymous');
-    
-    // 5. MOSTRAR elemento
+// 5. MOSTRAR elemento
     videoElement.style.display = 'block';
     
     // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
@@ -3101,7 +3119,28 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
     }, 3000);
 }
 
-        function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
+        async function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
+    // 🔥 Se receber URL da Cloud Function, resolve primeiro
+    if (url && (url.indexOf('cloudfunctions.net') !== -1 || url.indexOf('getProtectedVideo') !== -1)) {
+        try {
+            console.log('🔎 Dispatcher YT: resolvendo Cloud Function...');
+            const r = await fetch(url, { cache: 'no-store' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            if (!data.success || !data.url) throw new Error('CF sem URL');
+            url = data.url;
+        } catch (e) {
+            console.error('❌ Dispatcher YT: erro:', e);
+            return;
+        }
+    }
+    if (url && url.indexOf('youtube') === -1 && url.indexOf('youtu.be') === -1) {
+        return _carregarVideoHTML5_raw(url, iniciarNoPercentual, autoplay);
+    }
+    return _carregarVideoYouTube_raw(url, iniciarNoPercentual, autoplay);
+}
+
+function _carregarVideoYouTube_raw(url, iniciarNoPercentual = 0, autoplay = true) {
     // Evitar múltiplos carregamentos
     if (isLoadingVideo) {
         console.log('Já está carregando vídeo (YouTube), ignorando chamada duplicada');
@@ -3248,7 +3287,7 @@ if (!cloudFunctionUrl) {
 console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
 
 // FAZER A REQUISIÇÃO PARA OBTER A URL REAL DO VÍDEO
-fetch(cloudFunctionUrl)
+fetch(cloudFunctionUrl, { cache: 'no-store' })
     .then(response => {
         if (!response.ok) {
             throw new Error('HTTP ' + response.status);
