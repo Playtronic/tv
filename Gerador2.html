@@ -5089,8 +5089,8 @@ if (slotIndex === currentPlayingSlot) {
                     <button class="volume-btn" id="volumeBtn">🔊</button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
                 </div>
-                                <google-cast-launcher id="castButton" title="Transmitir para TV" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
-<button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
+<google-cast-launcher id="castButton" title="Transmitir para TV" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
+                <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
             </div>
             `}
         </div>        
@@ -6902,94 +6902,7 @@ function verificarFimDoVideo() {
 }
 
 
-                // 📺 [CHROMECAST] Sistema de transmissão
-        (function() {
-            'use strict';
-            let castContext = null;
-            let remotePlayer = null;
-            let remotePlayerController = null;
-            let isCasting = false;
-            
-            async function transmitirParaTV() {
-                if (!castContext || !castContext.getCurrentSession()) return;
-                if (typeof videoElement === 'undefined' || !videoElement || !videoElement.src) return;
-                if (videoElement.src.indexOf('blob:') === 0) {
-                    console.warn('⚠️ Blob URL não suporta Chromecast');
-                    return;
-                }
-                if (videoElement.src.indexOf('youtube') !== -1) {
-                    console.warn('⚠️ YouTube não suporta Chromecast nativamente');
-                    return;
-                }
-                
-                const mediaInfo = new chrome.cast.media.MediaInfo(videoElement.src, 'video/mp4');
-                mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
-                mediaInfo.metadata.title = (document.getElementById('currentProgram') || {}).textContent || 'Programa';
-                mediaInfo.metadata.metadataType = chrome.cast.media.MetadataType.GENERIC;
-                mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED;
-                
-                const req = new chrome.cast.media.LoadRequest(mediaInfo);
-                req.autoplay = true;
-                if (videoElement.currentTime > 0) req.currentTime = videoElement.currentTime;
-                
-                try {
-                    await castContext.getCurrentSession().loadMedia(req);
-                    console.log('✅ [CAST] Vídeo enviado para TV');
-                    isCasting = true;
-                } catch(e) {
-                    console.error('❌ [CAST] Erro:', e);
-                }
-            }
-            
-            function syncRemoto() {
-                if (!remotePlayer || typeof videoElement === 'undefined' || !videoElement) return;
-                if (remotePlayer.isPlaying && !videoElement.paused) videoElement.pause();
-                if (remotePlayer.volumeLevel !== undefined && typeof volumeSlider !== 'undefined' && volumeSlider) {
-                    volumeSlider.value = remotePlayer.volumeLevel;
-                }
-            }
-            
-            window.__onGCastApiAvailable = function(available) {
-                if (!available) return;
-                try {
-                    castContext = cast.framework.CastContext.getInstance();
-                    castContext.setOptions({
-                        receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-                        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-                    });
-                    remotePlayer = new cast.framework.RemotePlayer();
-                    remotePlayerController = new cast.framework.RemotePlayerController(remotePlayer);
-                    
-                    remotePlayerController.addEventListener(
-                        cast.framework.RemotePlayerEventType.IS_CONNECTED_CHANGED,
-                        function(e) {
-                            if (e.value) {
-                                console.log('🔗 [CAST] Conectado. Transmitindo...');
-                                setTimeout(transmitirParaTV, 800);
-                            } else {
-                                console.log('🔌 [CAST] Desconectado');
-                                isCasting = false;
-                            }
-                        }
-                    );
-                    remotePlayerController.addEventListener(
-                        cast.framework.RemotePlayerEventType.IS_PAUSED_CHANGED, syncRemoto
-                    );
-                    remotePlayerController.addEventListener(
-                        cast.framework.RemotePlayerEventType.VOLUME_LEVEL_CHANGED, syncRemoto
-                    );
-                    console.log('✅ [CAST] Chromecast pronto');
-                } catch(e) {
-                    console.error('❌ [CAST] Init falhou:', e);
-                }
-            };
-            
-            if (window.cast && window.cast.framework) {
-                window.__onGCastApiAvailable(true);
-            }
-        })();
-        
-document.addEventListener('DOMContentLoaded', function() {
+                document.addEventListener('DOMContentLoaded', function() {
     inicializarAutenticacao();
     
     if (!IS_OFFLINE) {
@@ -7100,6 +7013,23 @@ document.addEventListener('DOMContentLoaded', function() {
     ` : ''}
 
 
+
+    <!-- 📺 Chromecast Init (isolado para não quebrar o player) -->
+    <script>
+        window.__onGCastApiAvailable = function(isAvailable) {
+            if (!isAvailable) return;
+            try {
+                var castContext = cast.framework.CastContext.getInstance();
+                castContext.setOptions({
+                    receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+                    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+                });
+                console.log("✅ [CAST] Chromecast pronto");
+            } catch(e) {
+                console.error("❌ [CAST] Init falhou:", e);
+            }
+        };
+    <\/script>
 </body>
 </html>`;
             
