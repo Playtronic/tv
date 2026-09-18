@@ -5044,6 +5044,13 @@ if (slotIndex === currentPlayingSlot) {
     </div>
     ` : ''}
 
+        <div id="castMessageModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:100000; justify-content:center; align-items:center; padding:20px;">
+          <div style="background:linear-gradient(135deg,#1a2a6c,#b21f1f); border-radius:15px; padding:30px; max-width:460px; width:100%; border:2px solid #fdbb2d; box-shadow:0 10px 40px rgba(0,0,0,0.6); position:relative;">
+            <h3 id="castModalTitle" style="color:#fdbb2d; margin:0 0 15px 0; font-size:1.3rem; text-shadow:1px 1px 3px rgba(0,0,0,0.5);"></h3>
+            <div id="castModalBody" style="color:#fff; line-height:1.6; font-size:0.95rem;"></div>
+            <button id="castModalClose" style="margin:20px 0 0 0; width:100%; background:#fdbb2d; color:#000; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer; font-size:15px;">Fechar</button>
+          </div>
+        </div>
         <div id="mainContent">
         <div class="container" style="position: relative; z-index: 1;">
 
@@ -5098,7 +5105,13 @@ if (slotIndex === currentPlayingSlot) {
                     <button class="volume-btn" id="volumeBtn">🔊</button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
                 </div>
-                <button id="castButton" title="Transmitir para TV" aria-label="Transmitir para TV" style="display:none;background:none;border:none;color:#fff;cursor:pointer;padding:5px;margin-left:8px;align-items:center;justify-content:center;vertical-align:middle;"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M1,18 L1,21 L4,21 C4,19.34 2.66,18 1,18 Z M1,14 L1,16 C3.76,16 6,18.24 6,21 L8,21 C8,17.13 4.87,14 1,14 Z M1,10 L1,12 C5.97,12 10,16.03 10,21 L12,21 C12,14.92 7.07,10 1,10 Z M21,3 L3,3 C1.9,3 1,3.9 1,5 L1,8 L3,8 L3,5 L21,5 L21,19 L12,19 L12,21 L21,21 C22.1,21 23,20.1 23,19 L23,5 C23,3.9 22.1,3 21,3 Z"/></svg></button>
+                <div id="castButtonWrapper" style="display:none; position:relative; margin-left:8px; align-items:center;">
+                  <button id="castButton" title="Transmitir" aria-label="Transmitir" style="display:inline-flex; background:none; border:none; color:#fff; cursor:pointer; padding:5px; margin:0; align-items:center; justify-content:center; font-size:0; text-shadow:none; box-shadow:none;"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M1,18 L1,21 L4,21 C4,19.34 2.66,18 1,18 Z M1,14 L1,16 C3.76,16 6,18.24 6,21 L8,21 C8,17.13 4.87,14 1,14 Z M1,10 L1,12 C5.97,12 10,16.03 10,21 L12,21 C12,14.92 7.07,10 1,10 Z M21,3 L3,3 C1.9,3 1,3.9 1,5 L1,8 L3,8 L3,5 L21,5 L21,19 L12,19 L12,21 L21,21 C22.1,21 23,20.1 23,19 L23,5 C23,3.9 22.1,3 21,3 Z"/></svg></button>
+                  <div id="castMenu" style="display:none; position:absolute; bottom:50px; right:0; background:rgba(20,20,30,0.98); border:1px solid rgba(253,187,45,0.4); border-radius:10px; padding:6px 0; min-width:260px; box-shadow:0 8px 24px rgba(0,0,0,0.6); z-index:99999;">
+                    <button id="castOptionDevice" style="display:block; width:100%; background:none; border:none; color:#fff; text-align:left; padding:12px 16px; cursor:pointer; font-size:14px; margin:0; font-weight:normal; text-shadow:none; box-shadow:none; border-radius:0; border-bottom:1px solid rgba(255,255,255,0.08);">📺 Transmitir para Chromecast</button>
+                    <button id="castOptionMirror" style="display:block; width:100%; background:none; border:none; color:#fff; text-align:left; padding:12px 16px; cursor:pointer; font-size:14px; margin:0; font-weight:normal; text-shadow:none; box-shadow:none; border-radius:0;">🖥️ Espelhar tela inteira</button>
+                  </div>
+                </div>
                 <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
             </div>
             `}
@@ -7082,12 +7095,53 @@ function verificarFimDoVideo() {
 
 
 
-    <!-- 📺 Chromecast Init v3 -->
+    <!-- 📺 Chromecast Init v4 -->
     <script>
     (function(){
       "use strict";
-      var castInit = false, tries = 0, maxTries = 60;
+      var castInit = false, tries = 0, maxTries = 60, castContext = null;
       function logC(m){ try { console.log("[CAST] " + m); } catch(e){} }
+      function showModal(title, html){
+        var m = document.getElementById("castMessageModal");
+        var t = document.getElementById("castModalTitle");
+        var b = document.getElementById("castModalBody");
+        if (!m || !t || !b) return;
+        t.textContent = title;
+        b.innerHTML = html;
+        m.style.display = "flex";
+      }
+      function closeModal(){ var m = document.getElementById("castMessageModal"); if (m) m.style.display = "none"; }
+      function closeMenu(){ var mm = document.getElementById("castMenu"); if (mm) mm.style.display = "none"; }
+      function toggleMenu(){
+        var mm = document.getElementById("castMenu");
+        if (!mm) return;
+        mm.style.display = (mm.style.display === "block") ? "none" : "block";
+      }
+      function showNoDevice(){
+        showModal("📺 Nenhum dispositivo encontrado",
+          "<p style='margin-bottom:12px;'>Não encontramos nenhum <b>Chromecast</b>, <b>Android TV</b> ou <b>Google TV</b> na sua rede Wi-Fi.</p>" +
+          "<p style='margin-bottom:10px;'><b>Verifique:</b></p>" +
+          "<ul style='margin-left:20px; margin-bottom:12px; line-height:1.8;'>" +
+          "<li>O dispositivo está ligado?</li>" +
+          "<li>Está na <b>mesma rede Wi-Fi</b> do computador?</li>" +
+          "<li>Está configurado pelo app <b>Google Home</b>?</li>" +
+          "</ul>" +
+          "<p style='font-size:0.9rem; opacity:0.85; padding:10px; background:rgba(253,187,45,0.15); border-left:3px solid #fdbb2d; border-radius:5px;'>💡 Você ainda pode usar <b>Espelhar tela inteira</b> pelo menu do Chrome.</p>");
+      }
+      function showMirror(){
+        var mac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+        var sc = mac ? "⌘ + Option + S" : "Ctrl + Shift + S";
+        showModal("🖥️ Espelhar tela inteira",
+          "<p style='margin-bottom:15px;'>Para espelhar a tela no Chromecast, siga os passos:</p>" +
+          "<ol style='margin-left:20px; line-height:1.9;'>" +
+          "<li>Clique nos <b>3 pontinhos (⋮)</b> no canto superior direito do Chrome</li>" +
+          "<li>Vá em <b>Salvar e compartilhar</b> → <b>Transmitir...</b></li>" +
+          "<li>Escolha <b>Transmitir tela</b> ou <b>Transmitir guia</b></li>" +
+          "<li>Selecione o dispositivo de destino</li>" +
+          "</ol>" +
+          "<p style='margin-top:15px; padding:10px; background:rgba(253,187,45,0.15); border-left:3px solid #fdbb2d; border-radius:5px; font-size:0.9rem;'><b>Atalho rápido:</b> " + sc + "</p>" +
+          "<p style='margin-top:10px; font-size:0.85rem; opacity:0.7;'>Disponível apenas no Chrome ou Edge. Requer dispositivo Cast na rede Wi-Fi.</p>");
+      }
       function getVideoUrl(){
         var el = document.getElementById("myVideo");
         if (!el) return null;
@@ -7098,7 +7152,13 @@ function verificarFimDoVideo() {
       }
       function loadOnCast(ctx){
         var url = getVideoUrl();
-        if (!url){ console.warn("[CAST] Vídeo não é HTML5 direto"); return; }
+        if (!url){
+          logC("Vídeo atual não é HTML5 direto");
+          showModal("⚠️ Vídeo incompatível com Cast",
+            "<p>O botão <b>Transmitir para Chromecast</b> só envia <b>vídeos HTML5 diretos</b> (.mp4, .m3u8).</p>" +
+            "<p style='margin-top:10px; opacity:0.85;'>Como o vídeo atual é do <b>YouTube</b> (ou usa formato protegido), você pode transmitir a <b>tela inteira</b> pelo menu do Chrome.</p>");
+          return;
+        }
         var el = document.getElementById("myVideo");
         var mi = new window.chrome.cast.media.MediaInfo(url, "video/mp4");
         var meta = new window.chrome.cast.media.GenericMediaMetadata();
@@ -7112,38 +7172,62 @@ function verificarFimDoVideo() {
         if (el && el.currentTime > 0) req.currentTime = el.currentTime;
         ctx.getCurrentSession().loadMedia(req);
       }
+      function handleDevice(){
+        if (!castContext){ showNoDevice(); return; }
+        try {
+          castContext.requestSession().then(function(){
+            logC("Sessão iniciada");
+            loadOnCast(castContext);
+          }).catch(function(e){
+            var code = (e && e.code) ? e.code : String(e);
+            logC("Cancelado: " + code);
+            if (code === "session_error" || code === "no_session" || String(code).indexOf("session_error") !== -1){
+              showNoDevice();
+            }
+          });
+        } catch(e){
+          logC("Erro: " + e.message);
+          showNoDevice();
+        }
+      }
+      function bindEvents(){
+        var btn = document.getElementById("castButton");
+        var od  = document.getElementById("castOptionDevice");
+        var om  = document.getElementById("castOptionMirror");
+        var mc  = document.getElementById("castModalClose");
+        var mod = document.getElementById("castMessageModal");
+        if (btn && !btn.dataset.bound){ btn.dataset.bound = "1"; btn.addEventListener("click", function(e){ e.stopPropagation(); toggleMenu(); }); }
+        if (od && !od.dataset.bound){ od.dataset.bound = "1"; od.addEventListener("click", function(e){ e.stopPropagation(); closeMenu(); handleDevice(); }); }
+        if (om && !om.dataset.bound){ om.dataset.bound = "1"; om.addEventListener("click", function(e){ e.stopPropagation(); closeMenu(); showMirror(); }); }
+        if (mc && !mc.dataset.bound){ mc.dataset.bound = "1"; mc.addEventListener("click", closeModal); }
+        if (mod && !mod.dataset.bound){ mod.dataset.bound = "1"; mod.addEventListener("click", function(e){ if (e.target === mod) closeModal(); }); }
+        if (!document.__castOutside){
+          document.__castOutside = true;
+          document.addEventListener("click", function(e){
+            var menu = document.getElementById("castMenu");
+            var wrap = document.getElementById("castButtonWrapper");
+            if (menu && menu.style.display === "block" && wrap && !wrap.contains(e.target)) closeMenu();
+          });
+          document.addEventListener("keydown", function(e){ if (e.key === "Escape"){ closeMenu(); closeModal(); } });
+        }
+      }
       function tryInit(){
         if (castInit) return true;
         try {
           if (!window.cast || !window.cast.framework || !window.cast.framework.CastContext) return false;
           if (!window.chrome || !window.chrome.cast || !window.chrome.cast.media) return false;
-          var ctx = window.cast.framework.CastContext.getInstance();
-          ctx.setOptions({
+          castContext = window.cast.framework.CastContext.getInstance();
+          castContext.setOptions({
             receiverApplicationId: window.chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
             autoJoinPolicy: window.chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
           });
-          var btn = document.getElementById("castButton");
-          if (btn){
-            btn.style.display = "inline-flex";
-            if (!btn.dataset.bound){
-              btn.dataset.bound = "1";
-              btn.addEventListener("click", function(){
-                try {
-                  ctx.requestSession().then(function(){
-                    logC("Sessão iniciada");
-                    loadOnCast(ctx);
-                  }).catch(function(e){ console.warn("[CAST] Cancelado:", e); });
-                } catch(e){ console.error("[CAST] Erro:", e); }
-              });
-            }
-          }
+          var w = document.getElementById("castButtonWrapper");
+          if (w) w.style.display = "inline-flex";
+          bindEvents();
           castInit = true;
           logC("Chromecast pronto — botão visível");
           return true;
-        } catch(e){
-          console.error("[CAST] Erro:", e);
-          return false;
-        }
+        } catch(e){ console.error("[CAST] Erro:", e); return false; }
       }
       window.__initCastButton = tryInit;
       window.__onGCastApiAvailable = function(ok){
