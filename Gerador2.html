@@ -5089,7 +5089,7 @@ if (slotIndex === currentPlayingSlot) {
                     <button class="volume-btn" id="volumeBtn">🔊</button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
                 </div>
-<google-cast-launcher id="castButton" title="Transmitir para TV" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
+                <google-cast-launcher id="castButton" title="Transmitir para TV" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;"></google-cast-launcher>
                 <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
             </div>
             `}
@@ -5827,25 +5827,43 @@ function atualizarIconeVolume(volume) {
 }
 
 async function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
-    // 🔥 Se receber URL da Cloud Function, resolve primeiro
-    if (url && (url.indexOf('cloudfunctions.net') !== -1 || url.indexOf('getProtectedVideo') !== -1)) {
+    // 🔓 [DECRYPT AES-GCM] Detecta URL cifrada e decodifica
+    if (url && typeof url === 'string' && url.indexOf('PTVX::') === 0) {
         try {
-            console.log('🔎 Dispatcher: resolvendo Cloud Function:', url.substring(0, 80));
-            const r = await fetch(url, { cache: 'no-store' });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const data = await r.json();
-            if (!data.success || !data.url) throw new Error('CF sem URL: ' + JSON.stringify(data));
-            url = data.url;
-            console.log('✅ Dispatcher: URL real =', url.substring(0, 80));
-        } catch (e) {
-            console.error('❌ Dispatcher: erro ao resolver Cloud Function:', e);
+            console.log('🔓 [PROTEÇÃO] URL cifrada, decodificando...');
+            const dec = await _decryptUrl(url);
+            if (!dec || typeof dec !== 'string') {
+                console.error('❌ [PROTEÇÃO] Decrypt retornou vazio');
+                return;
+            }
+            url = dec;
+            console.log('✅ [PROTEÇÃO] URL decifrada:', url.substring(0, 80));
+        } catch(e) {
+            console.error('❌ [PROTEÇÃO] Decrypt falhou:', e);
             return;
         }
     }
-    // Se virou YouTube, delega
+    
+    // 🔥 Cloud Function legacy (se ainda existir)
+    if (url && (url.indexOf('cloudfunctions.net') !== -1 || url.indexOf('getProtectedVideo') !== -1)) {
+        try {
+            const r = await fetch(url, { cache: 'no-store' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            if (!data.success || !data.url) throw new Error('CF sem URL');
+            url = data.url;
+        } catch(e) {
+            console.error('❌ Cloud Function falhou:', e);
+            return;
+        }
+    }
+    
+    // 🎥 YouTube delega
     if (url && (url.indexOf('youtube.com') !== -1 || url.indexOf('youtu.be') !== -1)) {
         return _carregarVideoYouTube_raw(url, iniciarNoPercentual, autoplay);
     }
+    
+    // ▶️ HTML5 direto
     return _carregarVideoHTML5_raw(url, iniciarNoPercentual, autoplay);
 }
 
@@ -7015,6 +7033,9 @@ function verificarFimDoVideo() {
 
 
     <!-- 📺 Chromecast Init (isolado para não quebrar o player) -->
+    
+
+    <!-- 📺 Chromecast Init -->
     <script>
         window.__onGCastApiAvailable = function(isAvailable) {
             if (!isAvailable) return;
@@ -7024,11 +7045,14 @@ function verificarFimDoVideo() {
                     receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
                     autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
                 });
-                console.log("✅ [CAST] Chromecast pronto");
+                console.log("✅ [CAST] Chromecast pronto (modo manual)");
             } catch(e) {
                 console.error("❌ [CAST] Init falhou:", e);
             }
         };
+        if (window.cast && window.cast.framework) {
+            window.__onGCastApiAvailable(true);
+        }
     <\/script>
 </body>
 </html>`;
