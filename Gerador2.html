@@ -5243,6 +5243,8 @@ if (slotIndex === currentPlayingSlot) {
         let controlsTimer = null;
         const CONTROLS_HIDE_DELAY = 3000;
         let isLoadingVideo = false;
+        var userVolume = 1.0;
+        var userMuted = false;
         
         // VARIÁVEIS PARA CONTAGEM DE ESPECTADORES
         let viewerSessionId = null;
@@ -5959,8 +5961,8 @@ videoElement.setAttribute('playsinline', '');
             console.log('▶️ Tentando reproduzir...');
             
             // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
-            videoElement.muted = false;
-            videoElement.volume = 1.0;
+            videoElement.muted = userMuted;
+            videoElement.volume = userMuted ? 0 : (userVolume > 0 ? userVolume : 1.0);
             
             videoElement.play()
                 .then(() => {
@@ -6021,10 +6023,7 @@ videoElement.setAttribute('playsinline', '');
     
     function handlePlaying() {
         console.log('▶️ playing - Vídeo começou a tocar');
-        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
-        if (videoElement.muted) {
-            videoElement.muted = false;
-        }
+        // 🔥 CORREÇÃO: Respeitar mute do usuário (não forçar áudio)
     }
     
     // Remover listeners antigos
@@ -6053,11 +6052,7 @@ videoElement.setAttribute('playsinline', '');
             src: videoElement.src?.substring(0, 100)
         });
         
-        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
-        if (videoElement.muted && userStartedPlayback) {
-            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
-            videoElement.muted = false;
-        }
+        // 🔥 CORREÇÃO: Respeitar mute do usuário (não forçar áudio)
     }, 3000);
 }
 
@@ -6517,40 +6512,33 @@ setInterval(ocultarControlesYouTube, 1000);
     // Configurar controles de volume
     if (volumeBtn && volumeSlider) {
         volumeSlider.addEventListener('input', function() {
+            var v = parseFloat(this.value);
+            userVolume = v;
+            userMuted = (v === 0);
             if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.setVolume(this.value * 100);
+                youtubePlayer.setVolume(v * 100);
+                if (v === 0) youtubePlayer.mute(); else youtubePlayer.unMute();
             } else if (videoElement) {
-                videoElement.volume = this.value;
+                videoElement.muted = userMuted;
+                videoElement.volume = v;
             }
-            atualizarIconeVolume(this.value);
+            atualizarIconeVolume(v);
             showControls();
             resetControlsTimer();
         });
         
         volumeBtn.addEventListener('click', function() {
-            let currentVolume = 1;
+            userMuted = !userMuted;
+            var v = userMuted ? 0 : (userVolume > 0 ? userVolume : 1.0);
             if (isYoutubeVideo && youtubePlayer && playerReady) {
-                currentVolume = youtubePlayer.getVolume() / 100;
+                if (userMuted) youtubePlayer.mute();
+                else { youtubePlayer.unMute(); youtubePlayer.setVolume(v * 100); }
             } else if (videoElement) {
-                currentVolume = videoElement.volume;
+                videoElement.muted = userMuted;
+                videoElement.volume = v;
             }
-            
-            if (currentVolume > 0) {
-                if (isYoutubeVideo && youtubePlayer && playerReady) {
-                    youtubePlayer.setVolume(0);
-                } else if (videoElement) {
-                    videoElement.volume = 0;
-                }
-                volumeSlider.value = 0;
-            } else {
-                if (isYoutubeVideo && youtubePlayer && playerReady) {
-                    youtubePlayer.setVolume(100);
-                } else if (videoElement) {
-                    videoElement.volume = 1;
-                }
-                volumeSlider.value = 1;
-            }
-            atualizarIconeVolume(volumeSlider.value);
+            volumeSlider.value = v;
+            atualizarIconeVolume(v);
             showControls();
             resetControlsTimer();
         });
