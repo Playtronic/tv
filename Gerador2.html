@@ -2553,199 +2553,7 @@ async function gerarHTMLdoCanal(dados, channelId) {
             return true;
         }
         
-        
-    <!-- ==================== CONTROLE CHROMECAST ==================== -->
-    <script>
-        (function() {
-            'use strict';
-            
-            // Variáveis de estado do Cast
-            let castContext = null;
-            let remotePlayer = null;
-            let remotePlayerController = null;
-            let currentMediaInfo = null;
-            let isCasting = false;
-            
-            // Função para construir o MediaInfo a partir do vídeo atual
-            function construirMediaInfo(videoUrl, titulo, subtitulo, logoUrl) {
-                // Verifica se é YouTube (não suportado diretamente pelo Cast padrão)
-                if (videoUrl && (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be'))) {
-                    console.warn('⚠️ [CAST] YouTube não é suportado nativamente. Use a URL MP4 direta.');
-                    return null;
-                }
-                
-                const mediaInfo = new chrome.cast.media.MediaInfo(videoUrl, 'video/mp4');
-                mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
-                mediaInfo.metadata.metadataType = chrome.cast.media.MetadataType.GENERIC;
-                mediaInfo.metadata.title = titulo || 'Programa';
-                mediaInfo.metadata.subtitle = subtitulo || '';
-                if (logoUrl) {
-                    mediaInfo.metadata.images = [{ url: logoUrl }];
-                }
-                
-                // Adiciona suporte a seek e volume
-                mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED;
-                mediaInfo.tracks = [];
-                
-                return mediaInfo;
-            }
-            
-            // Função para enviar o vídeo para a TV
-            async function transmitirParaTV() {
-                if (!castContext || !castContext.getCurrentSession()) {
-                    console.warn('⚠️ [CAST] Nenhuma sessão de Cast ativa.');
-                    return;
-                }
-                
-                // Verifica se há um vídeo carregado
-                if (!videoElement || !videoElement.src) {
-                    console.warn('⚠️ [CAST] Nenhum vídeo carregado para transmitir.');
-                    return;
-                }
-                
-                // Verifica se é blob URL (não pode ser transmitido)
-                if (videoElement.src.startsWith('blob:')) {
-                    console.warn('⚠️ [CAST] Blob URL não pode ser transmitido. Use URL direta.');
-                    alert('Para transmitir via Chromecast, o vídeo precisa estar em URL direta.\n\nDesative a proteção de blob para este canal ou use um CDN com URL assinada.');
-                    return;
-                }
-                
-                // Monta o MediaInfo
-                const titulo = document.getElementById('currentProgram')?.textContent || 'Programa';
-                const subtitulo = 'Assistindo no ' + (typeof CHANNEL_ID !== 'undefined' ? CHANNEL_ID : 'canal');
-                const logoUrl = typeof DEFAULT_LOGO !== 'undefined' ? DEFAULT_LOGO : '';
-                
-                currentMediaInfo = construirMediaInfo(videoElement.src, titulo, subtitulo, logoUrl);
-                
-                if (!currentMediaInfo) {
-                    return;
-                }
-                
-                // Cria a requisição de carregamento
-                const request = new chrome.cast.media.LoadRequest(currentMediaInfo);
-                request.autoplay = true;
-                
-                // Sincroniza o tempo atual
-                if (videoElement.currentTime > 0) {
-                    request.currentTime = videoElement.currentTime;
-                }
-                
-                try {
-                    const session = castContext.getCurrentSession();
-                    await session.loadMedia(request);
-                    console.log('✅ [CAST] Vídeo transmitido com sucesso!');
-                    isCasting = true;
-                } catch (error) {
-                    console.error('❌ [CAST] Erro ao transmitir:', error);
-                    alert('Erro ao transmitir para TV. Verifique se o vídeo é compatível.');
-                }
-            }
-            
-            // Função para parar a transmissão e voltar para o player local
-            function pararTransmissao() {
-                if (remotePlayerController) {
-                    remotePlayerController.stop();
-                }
-                isCasting = false;
-                console.log('🛑 [CAST] Transmissão interrompida.');
-            }
-            
-            // Função para sincronizar estado remoto com o player local
-            function sincronizarComRemoto() {
-                if (!remotePlayer || !videoElement) return;
-                
-                // Se o remote player está tocando, pausa o local
-                if (remotePlayer.isPlaying && !videoElement.paused) {
-                    videoElement.pause();
-                }
-                // Se o remote player está pausado, mantém o local pausado
-                else if (!remotePlayer.isPlaying && !videoElement.paused && isCasting) {
-                    videoElement.pause();
-                }
-                
-                // Sincroniza volume
-                if (remotePlayer.volumeLevel !== undefined) {
-                    const volume = remotePlayer.volumeLevel;
-                    if (typeof volumeSlider !== 'undefined' && volumeSlider) {
-                        volumeSlider.value = volume;
-                    }
-                }
-            }
-            
-            // Inicializa o Cast quando o SDK estiver pronto
-            window.__onGCastApiAvailable = function(isAvailable) {
-                if (!isAvailable) {
-                    console.log('⚠️ [CAST] SDK do Google Cast não disponível.');
-                    return;
-                }
-                
-                console.log('✅ [CAST] SDK do Google Cast carregado.');
-                
-                try {
-                    // Inicializa o CastContext
-                    castContext = cast.framework.CastContext.getInstance();
-                    
-                    // Tenta usar o receptor padrão do Google (CC1AD845)
-                    // Em produção, substitua pelo ID do seu receptor personalizado
-                    castContext.setOptions({
-                        receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-                        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
-                    });
-                    
-                    // Cria as instâncias do RemotePlayer
-                    remotePlayer = new cast.framework.RemotePlayer();
-                    remotePlayerController = new cast.framework.RemotePlayerController(remotePlayer);
-                    
-                    // Adiciona listeners para eventos remotos
-                    remotePlayerController.addEventListener(
-                        cast.framework.RemotePlayerEventType.IS_CONNECTED_CHANGED,
-                        function(event) {
-                            if (event.value) {
-                                console.log('🔗 [CAST] Conectado a um dispositivo Cast.');
-                                // Quando conecta, transmite o vídeo atual
-                                setTimeout(transmitirParaTV, 1000);
-                            } else {
-                                console.log('🔌 [CAST] Desconectado do dispositivo Cast.');
-                                isCasting = false;
-                                // Retoma o player local
-                                if (videoElement && videoElement.src && !videoElement.src.startsWith('blob:')) {
-                                    videoElement.play().catch(function() {});
-                                }
-                            }
-                        }
-                    );
-                    
-                    remotePlayerController.addEventListener(
-                        cast.framework.RemotePlayerEventType.IS_PAUSED_CHANGED,
-                        sincronizarComRemoto
-                    );
-                    
-                    remotePlayerController.addEventListener(
-                        cast.framework.RemotePlayerEventType.VOLUME_LEVEL_CHANGED,
-                        sincronizarComRemoto
-                    );
-                    
-                    console.log('🎬 [CAST] Sistema de Chromecast pronto.');
-                    
-                } catch (error) {
-                    console.error('❌ [CAST] Erro ao inicializar:', error);
-                }
-            };
-            
-            // Fallback: se o SDK já estiver carregado, chama direto
-            if (window.cast && window.cast.framework) {
-                window.__onGCastApiAvailable(true);
-            }
-            
-            // Exporta funções para uso global
-            window.__transmitirParaTV = transmitirParaTV;
-            window.__pararTransmissao = pararTransmissao;
-            
-        })();
-    </script>
-
-
-    document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function() {
             checkCountry();
         });
     <\/script>` : '';
@@ -4297,9 +4105,6 @@ if (slotIndex === currentPlayingSlot) {
    
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"><\/script>
-    <!-- Google Cast SDK -->
-    <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
@@ -5282,8 +5087,7 @@ if (slotIndex === currentPlayingSlot) {
                     <button class="volume-btn" id="volumeBtn">🔊</button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
                 </div>
-                                    <google-cast-launcher id="castButton" style="width: 40px; height: 40px; margin-left: 8px; cursor: pointer; --connected-color: #fdbb2d; --disconnected-color: #ffffff;" title="Transmitir para TV"></google-cast-launcher>
-                    <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
+                <button class="fullscreen-btn" id="fullscreenBtn">⛶</button>
             </div>
             `}
         </div>        
