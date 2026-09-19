@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Monetização - Gerador de TV Online</title>
-<link rel="icon" href="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/favicon.png" type="image/png">
+<link rel="icon" href="https://raw.githubusercontent.com/Playtronic/tv/refs/main/template/favicon.png" type="image/png">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-gradient(135deg,#1a2a6c,#b21f1f,#fdbb2d);color:white;min-height:100vh;padding:20px}
@@ -293,6 +293,10 @@ function mpReadTokens(){
 
 function mpTokenExists(t){return !!(t&&(t.don||t.com||t.root))}
 
+// 🔥 CORRIGIDO: efetivo = token no bloco OU root
+function mpEffectiveDon(){return MP.don||MP.root||''}
+function mpEffectiveCom(){return MP.com||MP.root||''}
+
 function mpSetCheckboxLocked(id,locked){
   const cb=document.getElementById(id);if(!cb)return;
   if(locked){cb.disabled=true;cb.classList.add('mp-locked-checkbox');cb.checked=false;cb.title='Conecte o Mercado Pago primeiro';}
@@ -343,7 +347,24 @@ function mpApplyUI(){
   }
 }
 
-// 🔥 CORRIGIDA: copia do root para os blocos, e sincroniza bloco a bloco
+function mpRefreshStatus(){
+  MP.loading=true;mpApplyUI();
+  return mpReadTokens().then(t=>{
+    MP.loading=false;
+    MP.don=t.don;MP.com=t.com;MP.root=t.root;
+    MP.connected=mpTokenExists(t);
+    window.__mpLastRead=t;
+    mpApplyUI();
+    // Sincroniza em background — se falhar (regras), não bloqueia
+    if(MP.connected){
+      mpSyncToBoth().catch(e=>console.log('[MP] sync falhou (não crítico):',e&&e.message));
+    }
+  }).catch(e=>{
+    console.warn('[MP] erro refresh:',e);
+    MP.loading=false;MP.connected=false;mpApplyUI();
+  });
+}
+
 function mpSyncToBoth(){
   const cid=channelId||mpGetCid();const fs=mpGetFs();const uid=mpGetUid();
   if(!cid||!fs)return Promise.resolve();
@@ -357,7 +378,6 @@ function mpSyncToBoth(){
       let upd=null;
       if(rootTok&&!donTok&&!comTok){
         upd={'pixDonations.mpAccessToken':rootTok,'pixDonations.mpConnected':true,'paidCommercials.mpAccessToken':rootTok,'paidCommercials.mpConnected':true};
-        console.log('[MP] copiando root para os blocos');
       }else if(donTok&&!comTok){
         upd={'paidCommercials.mpAccessToken':donTok,'paidCommercials.mpConnected':true};
       }else if(comTok&&!donTok){
@@ -366,44 +386,8 @@ function mpSyncToBoth(){
       if(!upd)return;
       return fs.collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true})
         .then(()=>{if(uid)return fs.collection('users').doc(uid).collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true});})
-        .then(()=>{
-          if(upd['pixDonations.mpAccessToken']){
-            monetizationData.pixDonations.mpAccessToken=upd['pixDonations.mpAccessToken'];
-            monetizationData.pixDonations.mpConnected=true;
-            MP.don=upd['pixDonations.mpAccessToken'];
-          }
-          if(upd['paidCommercials.mpAccessToken']){
-            monetizationData.paidCommercials.mpAccessToken=upd['paidCommercials.mpAccessToken'];
-            monetizationData.paidCommercials.mpConnected=true;
-            MP.com=upd['paidCommercials.mpAccessToken'];
-          }
-        });
+        .catch(e=>{console.log('[MP] escrita bloqueada (não crítico):',e.message);});
     });
-}
-
-// 🔥 CORRIGIDA: sincroniza e relê para atualizar UI
-function mpRefreshStatus(){
-  MP.loading=true;mpApplyUI();
-  return mpReadTokens().then(t=>{
-    MP.loading=false;
-    MP.don=t.don;MP.com=t.com;MP.root=t.root;
-    MP.connected=mpTokenExists(t);
-    window.__mpLastRead=t;
-    mpApplyUI();
-    if(MP.connected){
-      return mpSyncToBoth().then(()=>{
-        return mpReadTokens().then(t2=>{
-          MP.don=t2.don;MP.com=t2.com;MP.root=t2.root;
-          if(MP.don){monetizationData.pixDonations.mpAccessToken=MP.don;monetizationData.pixDonations.mpConnected=true;}
-          if(MP.com){monetizationData.paidCommercials.mpAccessToken=MP.com;monetizationData.paidCommercials.mpConnected=true;}
-          console.log('[MP] pós-sync — don='+(MP.don?'SIM':'NÃO')+' com='+(MP.com?'SIM':'NÃO'));
-        });
-      });
-    }
-  }).catch(e=>{
-    console.warn('[MP] erro refresh:',e);
-    MP.loading=false;MP.connected=false;mpApplyUI();
-  });
 }
 
 function mpConnect(){
@@ -607,6 +591,7 @@ function updateUI(){
   document.getElementById('saveBtn').disabled=true;
 }
 
+// 🔥 CORRIGIDO: aceita token no bloco OU no root
 function validateMonetizationSettings(){
   const errors=[];
   if(window.__hasPaidBlock&&!document.getElementById('paidCommercials').checked){
@@ -618,12 +603,12 @@ function validateMonetizationSettings(){
     else if(!u.startsWith('https://'))errors.push('URL do Smartlink deve começar com https://');
   }
   if(document.getElementById('pixDonations').checked){
-    if(!monetizationData.pixDonations||!monetizationData.pixDonations.mpAccessToken||!monetizationData.pixDonations.mpAccessToken.trim()){
+    if(!mpEffectiveDon()&&!monetizationData.pixDonations.mpAccessToken){
       errors.push('Opção 2 (Doações PIX): conecte o Mercado Pago antes de salvar.');
     }
   }
   if(document.getElementById('paidCommercials').checked){
-    if(!monetizationData.paidCommercials||!monetizationData.paidCommercials.mpAccessToken||!monetizationData.paidCommercials.mpAccessToken.trim()){
+    if(!mpEffectiveCom()&&!monetizationData.paidCommercials.mpAccessToken){
       errors.push('Opção 3 (Comerciais Pagos): conecte o Mercado Pago antes de salvar.');
     }
     const pps=parseFloat(document.getElementById('pricePerSecond').value);
@@ -685,8 +670,17 @@ async function saveMonetization(){
     monetizationData.paidCommercials.pixKeyType=document.getElementById('commercialsPixKeyType').value;
     monetizationData.paidCommercials.pixKey=document.getElementById('commercialsPixKey').value.trim();
 
-    if(MP.don){monetizationData.pixDonations.mpAccessToken=MP.don;monetizationData.pixDonations.mpConnected=true;}
-    if(MP.com){monetizationData.paidCommercials.mpAccessToken=MP.com;monetizationData.paidCommercials.mpConnected=true;}
+    // Injeta tokens efetivos em memória (garante que são salvos)
+    const donTok=mpEffectiveDon();
+    const comTok=mpEffectiveCom();
+    if(donTok){
+      monetizationData.pixDonations.mpAccessToken=donTok;
+      monetizationData.pixDonations.mpConnected=true;
+    }
+    if(comTok){
+      monetizationData.paidCommercials.mpAccessToken=comTok;
+      monetizationData.paidCommercials.mpConnected=true;
+    }
 
     await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).collection('monetization').doc('settings').set(monetizationData,{merge:true});
 
