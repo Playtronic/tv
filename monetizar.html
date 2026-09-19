@@ -494,6 +494,76 @@
         .mp-required-warning a { color: #00aeef; text-decoration: underline; font-weight: bold; }
         /* ===== FIM MP CONNECT ===== */
 </style>
+
+<style>
+/* ===== MP CONNECT v4 - INJETADO ===== */
+.mp-connect-box {
+    background: linear-gradient(135deg, rgba(0,174,239,0.15), rgba(0,174,239,0.05));
+    border: 2px solid #00aeef;
+    border-radius: 10px;
+    padding: 16px;
+    margin: 15px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+.mp-connect-box .mp-status {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: bold; font-size: 1rem; flex: 1; min-width: 200px;
+}
+.mp-connect-box .mp-status .mp-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    display: inline-block; flex-shrink: 0;
+}
+.mp-connect-box .mp-status.connected { color: #2ecc71; }
+.mp-connect-box .mp-status.connected .mp-dot {
+    background: #2ecc71; box-shadow: 0 0 10px rgba(46,204,113,0.6);
+}
+.mp-connect-box .mp-status.disconnected { color: #ffcc44; }
+.mp-connect-box .mp-status.disconnected .mp-dot {
+    background: #ffcc44; box-shadow: 0 0 10px rgba(255,204,68,0.6);
+    animation: mpPulse 2s infinite;
+}
+@keyframes mpPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.mp-connect-btn {
+    background: #00aeef; color: #fff;
+    padding: 12px 24px; font-size: 15px;
+    font-weight: bold; border-radius: 8px;
+    border: none; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+    white-space: nowrap; transition: all 0.3s;
+}
+.mp-connect-btn:hover { background: #0095cc; transform: translateY(-1px); }
+.mp-connect-btn.mp-disconnect { background: #e74c3c; }
+.mp-connect-btn.mp-disconnect:hover { background: #c0392b; }
+.mp-required-warning {
+    background: rgba(255,152,0,0.12);
+    border-left: 4px solid #ff9800;
+    border-radius: 6px;
+    padding: 12px 15px;
+    margin: 15px 0;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: #ffcc44;
+}
+.mp-required-warning strong { color: #ff9800; }
+.mp-required-warning a { color: #00aeef; text-decoration: underline; font-weight: bold; }
+.mp-blocked-hint {
+    display: none;
+    background: rgba(231,76,60,0.15);
+    border-left: 4px solid #e74c3c;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 10px 0 0 0;
+    color: #ff8b7e;
+    font-size: 0.9rem;
+    font-weight: bold;
+}
+.mp-blocked-hint.active { display: block; }
+/* ===== FIM MP CONNECT v4 ===== */
+</style>
 </head>
 <body>
     <div class="container">
@@ -1474,6 +1544,345 @@ function mpInit() {
 })();
 // ===== FIM MP CONNECT =====
 
+</script>
+
+<script>
+(function(){
+  if (window.__mpConnectV4) { console.log("[MP v4] ja carregado"); return; }
+  window.__mpConnectV4 = true;
+
+  var MP_CLIENT_ID = "4240568631810752";
+  var MP_REDIRECT_URI = "https://us-central1-playtronic-tv.cloudfunctions.net/mercadoPagoCallback";
+
+  function getChannelId() {
+    try {
+      var u = new URLSearchParams(window.location.search);
+      return u.get("channelId") || "";
+    } catch(e) { return ""; }
+  }
+
+  function getFirestore() {
+    try { return firebase.firestore(); } catch(e) { return null; }
+  }
+
+  function buildConnectBox(type) {
+    var isDon = (type === "donations");
+    var idSuf = isDon ? "Donations" : "Commercials";
+    var label = isDon ? "Doacoes via PIX" : "Comerciais Pagos";
+
+    var wrapper = document.createElement("div");
+    wrapper.className = "mp-connect-box";
+    wrapper.setAttribute("data-mp-type", type);
+
+    var status = document.createElement("div");
+    status.className = "mp-status disconnected";
+    status.id = "mpStatus" + idSuf;
+    var dot = document.createElement("span");
+    dot.className = "mp-dot";
+    var txt = document.createElement("span");
+    txt.className = "mp-status-text";
+    txt.textContent = "Mercado Pago nao conectado";
+    status.appendChild(dot);
+    status.appendChild(txt);
+
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mp-connect-btn";
+    btn.id = "mpConnectBtn" + idSuf;
+    btn.setAttribute("data-type", type);
+    btn.textContent = "Conectar Mercado Pago";
+
+    wrapper.appendChild(status);
+    wrapper.appendChild(btn);
+
+    var hint = document.createElement("div");
+    hint.className = "mp-blocked-hint";
+    hint.id = "mpBlockedHint" + idSuf;
+    hint.textContent = label + ": ativado mas o Mercado Pago nao foi conectado. Conecte para poder salvar.";
+
+    var container = document.createElement("div");
+    container.appendChild(wrapper);
+    container.appendChild(hint);
+    return container;
+  }
+
+  function findSectionByCheckbox(cbId) {
+    var cb = document.getElementById(cbId);
+    if (!cb) return null;
+    var el = cb;
+    for (var i = 0; i < 20 && el; i++) {
+      el = el.parentElement;
+      if (!el) break;
+      if (el.classList && el.classList.contains("monetization-option")) return el;
+    }
+    return null;
+  }
+
+  function injectBoxFor(type) {
+    var isDon = (type === "donations");
+    var cbId = isDon ? "pixDonations" : "paidCommercials";
+    var settingsId = isDon ? "pixSettings" : "paidCommercialsSettings";
+    var section = findSectionByCheckbox(cbId);
+    if (!section) { console.warn("[MP v4] secao nao encontrada:", cbId); return; }
+
+    if (section.querySelector(".mp-connect-box")) {
+      console.log("[MP v4] box " + type + " ja existe");
+      return;
+    }
+
+    var settings = document.getElementById(settingsId);
+    var box = buildConnectBox(type);
+    if (settings) {
+      settings.insertBefore(box, settings.firstChild);
+    } else {
+      var info = section.querySelector(".payment-info");
+      if (info && info.nextSibling) section.insertBefore(box, info.nextSibling);
+      else section.appendChild(box);
+    }
+
+    var aviso = document.createElement("div");
+    aviso.className = "mp-required-warning";
+    aviso.innerHTML = "ATENCAO: Para receber os pagamentos, voce <strong>precisa ter uma conta no Mercado Pago</strong>. O valor e depositado automaticamente na sua conta. Se ainda nao tem, <a href=\"https://www.mercadopago.com.br/\" target=\"_blank\">crie uma gratis aqui</a>.";
+    var cb = document.getElementById(cbId);
+    var controlDiv = cb ? cb.closest(".control-option") : null;
+    if (controlDiv && controlDiv.parentElement) {
+      controlDiv.parentElement.insertBefore(aviso, controlDiv);
+    }
+
+    console.log("[MP v4] box + aviso injetados em:", type);
+  }
+
+  function updateUI(type, connected) {
+    var isDon = (type === "donations");
+    var idSuf = isDon ? "Donations" : "Commercials";
+    var statusEl = document.getElementById("mpStatus" + idSuf);
+    var btnEl = document.getElementById("mpConnectBtn" + idSuf);
+    var hintEl = document.getElementById("mpBlockedHint" + idSuf);
+    var cbEl = document.getElementById(isDon ? "pixDonations" : "paidCommercials");
+    if (!statusEl || !btnEl) return;
+    var txt = statusEl.querySelector(".mp-status-text");
+    if (connected) {
+      statusEl.className = "mp-status connected";
+      if (txt) txt.textContent = "Mercado Pago conectado";
+      btnEl.classList.add("mp-disconnect");
+      btnEl.textContent = "Desconectar";
+      btnEl.disabled = false;
+      if (hintEl) hintEl.classList.remove("active");
+    } else {
+      statusEl.className = "mp-status disconnected";
+      if (txt) txt.textContent = "Mercado Pago nao conectado";
+      btnEl.classList.remove("mp-disconnect");
+      btnEl.textContent = "Conectar Mercado Pago";
+      btnEl.disabled = false;
+      if (hintEl) {
+        if (cbEl && cbEl.checked) hintEl.classList.add("active");
+        else hintEl.classList.remove("active");
+      }
+    }
+  }
+
+  function refreshStatus() {
+    var cid = getChannelId();
+    if (!cid) return;
+    var fs = getFirestore();
+    if (!fs) return;
+    fs.collection("channels").doc(cid).collection("monetization").doc("settings").get()
+      .then(function(snap) {
+        if (!snap.exists) {
+          updateUI("donations", false);
+          updateUI("commercials", false);
+          return;
+        }
+        var d = snap.data() || {};
+        var donTok = (d.pixDonations && d.pixDonations.mpAccessToken) ? String(d.pixDonations.mpAccessToken).trim() : "";
+        var comTok = (d.paidCommercials && d.paidCommercials.mpAccessToken) ? String(d.paidCommercials.mpAccessToken).trim() : "";
+        updateUI("donations", !!donTok);
+        updateUI("commercials", !!comTok);
+      })
+      .catch(function(e) { console.warn("[MP v4] erro status:", e); });
+  }
+
+  function connect(type) {
+    var cid = getChannelId();
+    if (!cid) { alert("ID do canal nao encontrado na URL."); return; }
+    var state = cid + "_" + type;
+    var url = "https://auth.mercadopago.com/authorization"
+      + "?client_id=" + encodeURIComponent(MP_CLIENT_ID)
+      + "&response_type=code"
+      + "&platform_id=mp"
+      + "&redirect_uri=" + encodeURIComponent(MP_REDIRECT_URI)
+      + "&state=" + encodeURIComponent(state);
+    console.log("[MP v4] OAuth:", url);
+    window.location.href = url;
+  }
+
+  function disconnect(type) {
+    if (!confirm("Tem certeza que deseja desconectar o Mercado Pago?")) return;
+    var cid = getChannelId();
+    var fs = getFirestore();
+    if (!cid || !fs) return;
+    var isDon = (type === "donations");
+    var field = isDon ? "pixDonations" : "paidCommercials";
+    var upd = {};
+    upd[field + ".mpAccessToken"] = "";
+    upd[field + ".mpRefreshToken"] = "";
+    upd[field + ".mpUserId"] = "";
+    upd[field + ".mpConnected"] = false;
+    fs.collection("channels").doc(cid).collection("monetization").doc("settings")
+      .set(upd, { merge: true })
+      .then(function() {
+        updateUI(type, false);
+        if (typeof showSuccess === "function") showSuccess("Mercado Pago desconectado.");
+      })
+      .catch(function(e) {
+        console.error(e);
+        if (typeof showError === "function") showError("Erro: " + e.message);
+        else alert("Erro: " + e.message);
+      });
+  }
+
+  function bindButtons() {
+    ["mpConnectBtnDonations", "mpConnectBtnCommercials"].forEach(function(id) {
+      var btn = document.getElementById(id);
+      if (!btn || btn.__mpBound) return;
+      btn.__mpBound = true;
+      btn.addEventListener("click", function(ev) {
+        ev.preventDefault();
+        var type = this.getAttribute("data-type");
+        if (this.classList.contains("mp-disconnect")) disconnect(type);
+        else connect(type);
+      });
+    });
+    ["pixDonations", "paidCommercials"].forEach(function(id) {
+      var cb = document.getElementById(id);
+      if (!cb || cb.__mpBound) return;
+      cb.__mpBound = true;
+      cb.addEventListener("change", function() { refreshStatus(); });
+    });
+  }
+
+  // Intercepta clique em Salvar e Publicar (capturing phase)
+  async function validateMpConnected() {
+    var errors = [];
+    var cid = getChannelId();
+    if (!cid) return errors;
+    var fs = getFirestore();
+    if (!fs) return errors;
+
+    var donChk = document.getElementById("pixDonations");
+    var comChk = document.getElementById("paidCommercials");
+    if ((!donChk || !donChk.checked) && (!comChk || !comChk.checked)) return errors;
+
+    var d = {};
+    try {
+      var snap = await fs.collection("channels").doc(cid).collection("monetization").doc("settings").get();
+      if (snap.exists) d = snap.data() || {};
+    } catch(e) { console.warn("[MP v4] erro fetch:", e); }
+
+    if (donChk && donChk.checked) {
+      var donTok = (d.pixDonations && d.pixDonations.mpAccessToken) ? String(d.pixDonations.mpAccessToken).trim() : "";
+      if (!donTok) errors.push("Opcao 2 (Doacoes via PIX): conecte o Mercado Pago antes de salvar.");
+    }
+    if (comChk && comChk.checked) {
+      var comTok = (d.paidCommercials && d.paidCommercials.mpAccessToken) ? String(d.paidCommercials.mpAccessToken).trim() : "";
+      if (!comTok) errors.push("Opcao 3 (Comerciais Pagos): conecte o Mercado Pago antes de salvar.");
+    }
+    return errors;
+  }
+
+  function handleSaveClick(ev) {
+    // Só nos interessa o clique no botao Salvar
+    var t = ev.target;
+    while (t && t !== document.body) {
+      if (t.id === "saveBtn") break;
+      t = t.parentElement;
+    }
+    if (!t || t.id !== "saveBtn") return;
+
+    // Sincronamente, antes de deixar seguir
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    ev.stopPropagation();
+
+    validateMpConnected().then(function(errors) {
+      if (errors && errors.length > 0) {
+        var msg = "Erro de validacao:<br>" + errors.map(function(e){return "&bull; " + e;}).join("<br>") + "<br><br>Conecte o Mercado Pago no bloco correspondente.";
+        if (typeof showError === "function") showError(msg);
+        else alert(errors.join("\n"));
+        return;
+      }
+      // Deixa o fluxo original seguir - dispara clique sinteticamente sem interceptar
+      var btn = document.getElementById("saveBtn");
+      if (!btn) return;
+      btn.__mpBypass = true;
+      btn.click();
+    });
+  }
+
+  // Bypassa nossa propria interceptacao na segunda chamada
+  function bypassSafe(ev) {
+    var t = ev.target;
+    while (t && t !== document.body) {
+      if (t.id === "saveBtn") break;
+      t = t.parentElement;
+    }
+    if (t && t.id === "saveBtn" && t.__mpBypass) {
+      t.__mpBypass = false;
+      return; // deixa seguir
+    }
+  }
+
+  // Espera o DOM e as variaveis do monetizar.js carregarem
+  function init() {
+    var tries = 0;
+    var iv = setInterval(function() {
+      tries++;
+      var don = document.getElementById("pixDonations");
+      var com = document.getElementById("paidCommercials");
+      var save = document.getElementById("saveBtn");
+      if (don && com) {
+        clearInterval(iv);
+        injectBoxFor("donations");
+        injectBoxFor("commercials");
+        bindButtons();
+        refreshStatus();
+
+        // Registrar intercepcao de save
+        if (save) {
+          document.addEventListener("click", function(ev){ bypassSafe(ev); }, true);
+          document.addEventListener("click", handleSaveClick, true);
+        }
+
+        // Se veio de OAuth, mostra mensagem
+        var params = new URLSearchParams(window.location.search);
+        if (params.get("mpConnected") === "success") {
+          var type = params.get("type") || "";
+          var label = type === "commercials" ? "Comerciais" : "Doacoes";
+          if (typeof showSuccess === "function") showSuccess("Mercado Pago conectado (" + label + ")!");
+          window.history.replaceState({}, document.title, window.location.pathname + "?channelId=" + getChannelId());
+        } else if (params.get("mpError") || params.get("error")) {
+          var msg = decodeURIComponent(params.get("message") || params.get("mpError") || params.get("error") || "");
+          if (typeof showError === "function") showError("Erro OAuth: " + msg);
+          window.history.replaceState({}, document.title, window.location.pathname + "?channelId=" + getChannelId());
+        }
+
+        console.log("[MP v4] inicializado");
+      }
+      if (tries >= 200) {
+        clearInterval(iv);
+        console.warn("[MP v4] timeout aguardando elementos");
+      }
+    }, 250);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    setTimeout(init, 500);
+  }
+})();
+
+/* ===== FIM MP CONNECT v4 ===== */
 </script>
 </body>
 </html>
