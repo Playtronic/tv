@@ -52,7 +52,6 @@ button:disabled:hover{background:#6b7280;transform:none}
 .payment-info{background:rgba(46,204,113,.1);padding:15px;border-radius:8px;margin:15px 0;border-left:4px solid #2ecc71}
 .payment-info p{margin:0;line-height:1.6}
 .commission-highlight{color:#ffcc44;font-weight:bold}
-/* MP CONNECT */
 .mp-connect-box{background:linear-gradient(135deg,rgba(0,174,239,.15),rgba(0,174,239,.05));border:2px solid #00aeef;border-radius:10px;padding:20px;margin:20px 0;display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
 .mp-connect-box .mp-status{display:flex;align-items:center;gap:12px;font-weight:bold;font-size:1.05rem;flex:1;min-width:220px}
 .mp-connect-box .mp-status .mp-dot{width:14px;height:14px;border-radius:50%;display:inline-block;flex-shrink:0}
@@ -94,7 +93,6 @@ button:disabled:hover{background:#6b7280;transform:none}
 </div>
 </div>
 
-<!-- MP Connect Global -->
 <div class="mp-connect-box" id="mpGlobalBox" style="display:none">
 <div class="mp-status verifying" id="mpStatusGlobal">
 <span class="mp-dot"></span>
@@ -104,7 +102,6 @@ button:disabled:hover{background:#6b7280;transform:none}
 </div>
 <div class="mp-locked-hint" id="mpGlobalLockedHint"></div>
 
-<!-- 1. Smartlink Adsterra -->
 <div class="monetization-option">
 <h3>1. Smartlink Adsterra</h3>
 <div class="control-option">
@@ -134,7 +131,6 @@ button:disabled:hover{background:#6b7280;transform:none}
 </div>
 </div>
 
-<!-- 2. Doações via PIX -->
 <div class="monetization-option">
 <h3>2. Doações via PIX</h3>
 <div class="payment-info">
@@ -170,7 +166,6 @@ ATENÇÃO: Para receber os pagamentos, você <strong>precisa ter uma conta no Me
 </div>
 </div>
 
-<!-- 3. Comerciais Pagos -->
 <div class="monetization-option">
 <h3>3. Comerciais Pagos</h3>
 <div class="payment-info">
@@ -309,7 +304,6 @@ function mpSetHint(text){
   if(text){h.textContent=text;h.classList.add('active');}else{h.classList.remove('active');}
 }
 
-// 🔥 NOVO: mostra/esconde os avisos de conta MP conforme estado
 function mpSetWarnings(show){
   document.querySelectorAll('.mp-warn').forEach(function(el){
     el.style.display = show ? 'block' : 'none';
@@ -329,7 +323,7 @@ function mpApplyUI(){
     bt.textContent='Aguarde...';bt.disabled=true;bt.classList.remove('mp-disconnect');
     mpSetCheckboxLocked('pixDonations',true);mpSetCheckboxLocked('paidCommercials',true);
     mpSetHint('Aguarde a verificação do Mercado Pago...');
-    mpSetWarnings(false); // 🔥 esconde durante verificação
+    mpSetWarnings(false);
     return;
   }
   if(MP.connected){
@@ -338,32 +332,18 @@ function mpApplyUI(){
     bt.textContent='Desconectar Mercado Pago';bt.disabled=false;bt.classList.add('mp-disconnect');
     mpSetCheckboxLocked('pixDonations',false);mpSetCheckboxLocked('paidCommercials',false);
     mpSetHint('');
-    mpSetWarnings(false); // 🔥 esconde quando conectado
+    mpSetWarnings(false);
   }else{
     st.className='mp-status disconnected';
     if(tx)tx.textContent='Mercado Pago não conectado';
     bt.textContent='Conectar Mercado Pago';bt.disabled=false;bt.classList.remove('mp-disconnect');
     mpSetCheckboxLocked('pixDonations',true);mpSetCheckboxLocked('paidCommercials',true);
     mpSetHint('As opções 2 e 3 estão bloqueadas. Conecte o Mercado Pago para habilitá-las.');
-    mpSetWarnings(true); // 🔥 mostra quando desconectado
+    mpSetWarnings(true);
   }
 }
 
-function mpRefreshStatus(){
-  MP.loading=true;mpApplyUI();
-  return mpReadTokens().then(t=>{
-    MP.loading=false;
-    MP.don=t.don;MP.com=t.com;MP.root=t.root;
-    MP.connected=mpTokenExists(t);
-    window.__mpLastRead=t;
-    mpApplyUI();
-    if(MP.connected)return mpSyncToBoth();
-  }).catch(e=>{
-    console.warn('[MP] erro refresh:',e);
-    MP.loading=false;MP.connected=false;mpApplyUI();
-  });
-}
-
+// 🔥 CORRIGIDA: copia do root para os blocos, e sincroniza bloco a bloco
 function mpSyncToBoth(){
   const cid=channelId||mpGetCid();const fs=mpGetFs();const uid=mpGetUid();
   if(!cid||!fs)return Promise.resolve();
@@ -373,13 +353,57 @@ function mpSyncToBoth(){
       const d=snap.data()||{};
       const donTok=(d.pixDonations&&d.pixDonations.mpAccessToken)?String(d.pixDonations.mpAccessToken).trim():'';
       const comTok=(d.paidCommercials&&d.paidCommercials.mpAccessToken)?String(d.paidCommercials.mpAccessToken).trim():'';
+      const rootTok=d.mpAccessToken?String(d.mpAccessToken).trim():'';
       let upd=null;
-      if(donTok&&!comTok)upd={'paidCommercials.mpAccessToken':donTok,'paidCommercials.mpConnected':true};
-      else if(comTok&&!donTok)upd={'pixDonations.mpAccessToken':comTok,'pixDonations.mpConnected':true};
+      if(rootTok&&!donTok&&!comTok){
+        upd={'pixDonations.mpAccessToken':rootTok,'pixDonations.mpConnected':true,'paidCommercials.mpAccessToken':rootTok,'paidCommercials.mpConnected':true};
+        console.log('[MP] copiando root para os blocos');
+      }else if(donTok&&!comTok){
+        upd={'paidCommercials.mpAccessToken':donTok,'paidCommercials.mpConnected':true};
+      }else if(comTok&&!donTok){
+        upd={'pixDonations.mpAccessToken':comTok,'pixDonations.mpConnected':true};
+      }
       if(!upd)return;
       return fs.collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true})
-        .then(()=>{if(uid)return fs.collection('users').doc(uid).collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true});});
+        .then(()=>{if(uid)return fs.collection('users').doc(uid).collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true});})
+        .then(()=>{
+          if(upd['pixDonations.mpAccessToken']){
+            monetizationData.pixDonations.mpAccessToken=upd['pixDonations.mpAccessToken'];
+            monetizationData.pixDonations.mpConnected=true;
+            MP.don=upd['pixDonations.mpAccessToken'];
+          }
+          if(upd['paidCommercials.mpAccessToken']){
+            monetizationData.paidCommercials.mpAccessToken=upd['paidCommercials.mpAccessToken'];
+            monetizationData.paidCommercials.mpConnected=true;
+            MP.com=upd['paidCommercials.mpAccessToken'];
+          }
+        });
     });
+}
+
+// 🔥 CORRIGIDA: sincroniza e relê para atualizar UI
+function mpRefreshStatus(){
+  MP.loading=true;mpApplyUI();
+  return mpReadTokens().then(t=>{
+    MP.loading=false;
+    MP.don=t.don;MP.com=t.com;MP.root=t.root;
+    MP.connected=mpTokenExists(t);
+    window.__mpLastRead=t;
+    mpApplyUI();
+    if(MP.connected){
+      return mpSyncToBoth().then(()=>{
+        return mpReadTokens().then(t2=>{
+          MP.don=t2.don;MP.com=t2.com;MP.root=t2.root;
+          if(MP.don){monetizationData.pixDonations.mpAccessToken=MP.don;monetizationData.pixDonations.mpConnected=true;}
+          if(MP.com){monetizationData.paidCommercials.mpAccessToken=MP.com;monetizationData.paidCommercials.mpConnected=true;}
+          console.log('[MP] pós-sync — don='+(MP.don?'SIM':'NÃO')+' com='+(MP.com?'SIM':'NÃO'));
+        });
+      });
+    }
+  }).catch(e=>{
+    console.warn('[MP] erro refresh:',e);
+    MP.loading=false;MP.connected=false;mpApplyUI();
+  });
 }
 
 function mpConnect(){
@@ -501,12 +525,6 @@ async function verifyChannelAccess(cidToCheck){
 }
 
 function getUrlParameter(name){return new URLSearchParams(location.search).get(name);}
-
-async function updateMonetizationData(){
-  const ref=db.collection('channels').doc(channelId);
-  await ref.collection('monetization').doc('settings').set(monetizationData,{merge:true});
-  await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).collection('monetization').doc('settings').set(monetizationData,{merge:true});
-}
 
 async function loadChannelData(){
   try{
