@@ -569,6 +569,11 @@
                             <label for="maxCommercialDuration">Duração máxima (segundos):</label>
                             <input type="number" id="maxCommercialDuration" min="5" max="300" value="90" style="width: 150px; padding: 10px;">
                         </div>
+                        <div>
+                            <label for="dailyCommercialsLimit">Limite diário de comerciais:</label>
+                            <input type="number" id="dailyCommercialsLimit" min="1" max="100" value="5" style="width: 150px; padding: 10px;">
+                            <div class="field-info">Máx. de comerciais pagos aceitos por dia (1 a 100)</div>
+                        </div>
                     </div>
 
                     <div class="pix-type-group">
@@ -663,6 +668,7 @@
                 enabled: false, 
                 pricePerSecond: 0.05, 
                 maxDuration: 90,
+                dailyCommercialsLimit: 5,
                 pixKey: '',
                 pixKeyType: ''
             }
@@ -845,7 +851,47 @@
                     originalMonetizationData = JSON.parse(JSON.stringify(monetizationData));
                 }
 
+                // ─── Verificar se há comerciais pagos ativos ───
+                try {
+                    const activeChk = await db.collection('channels').doc(channelId).get();
+                    if (activeChk.exists) {
+                        const activeUntil = activeChk.data()?.paidCommercialsActiveUntil || 0;
+                        window.__hasPaidBlock = activeUntil > Date.now();
+                        window.__paidBlockUntil = activeUntil;
+                    } else {
+                        window.__hasPaidBlock = false;
+                        window.__paidBlockUntil = 0;
+                    }
+                } catch (e) {
+                    console.warn('Verificação de bloqueio falhou:', e);
+                    window.__hasPaidBlock = false;
+                    window.__paidBlockUntil = 0;
+                }
+
                 updateUI();
+                
+                // ─── Bloquear toggle se houver comerciais pagos ativos ───
+                if (window.__hasPaidBlock) {
+                    const cbPc = document.getElementById('paidCommercials');
+                    if (cbPc) {
+                        cbPc.checked = true;
+                        cbPc.disabled = true;
+                        cbPc.title = 'Bloqueado: existem comerciais pagos ativos até ' + 
+                                     new Date(window.__paidBlockUntil).toLocaleString('pt-BR');
+                    }
+                    const setPc = document.getElementById('paidCommercialsSettings');
+                    if (setPc) {
+                        setPc.style.display = 'block';
+                        if (!document.getElementById('paidBlockNotice')) {
+                            const notice = document.createElement('div');
+                            notice.id = 'paidBlockNotice';
+                            notice.style.cssText = 'background:#fff3cd;color:#856404;padding:12px;border-radius:8px;margin-bottom:15px;border-left:4px solid #ffcc44;font-weight:bold;';
+                            notice.innerHTML = '🔒 <strong>Opção bloqueada</strong><br><small>Existem comerciais pagos ativos até <b>' + new Date(window.__paidBlockUntil).toLocaleString('pt-BR') + '</b>.<br>Não é possível desabilitar até lá.</small>';
+                            setPc.insertBefore(notice, setPc.firstChild);
+                        }
+                    }
+                }
+                
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
 
@@ -878,6 +924,7 @@
             document.getElementById('paidCommercials').checked = monetizationData.paidCommercials?.enabled || false;
             document.getElementById('pricePerSecond').value = monetizationData.paidCommercials?.pricePerSecond || 0.05;
             document.getElementById('maxCommercialDuration').value = monetizationData.paidCommercials?.maxDuration || 90;
+            document.getElementById('dailyCommercialsLimit').value = monetizationData.paidCommercials?.dailyCommercialsLimit || 5;
             document.getElementById('commercialsPixKeyType').value = monetizationData.paidCommercials?.pixKeyType || '';
             document.getElementById('commercialsPixKey').value = monetizationData.paidCommercials?.pixKey || '';
             document.getElementById('paidCommercialsSettings').style.display = monetizationData.paidCommercials?.enabled ? 'block' : 'none';
@@ -889,6 +936,11 @@
         // 🔒 VALIDAR CONFIGURAÇÕES
         function validateMonetizationSettings() {
             const errors = [];
+
+            // ─── Bloqueio: não desabilitar comerciais pagos com ativos ───
+            if (window.__hasPaidBlock && !document.getElementById('paidCommercials').checked) {
+                errors.push('Não é possível desabilitar comerciais pagos enquanto houver comerciais ativos.');
+            }
 
             // Validar opção 1: Smartlink Adsterra
             if (document.getElementById('adsterraSmartlink').checked) {
@@ -936,6 +988,11 @@
                 if (maxDuration < 5 || maxDuration > 300) {
                     errors.push('Duração máxima deve estar entre 5 e 300 segundos.');
                 }
+                
+                const dailyLimit = parseInt(document.getElementById('dailyCommercialsLimit').value);
+                if (isNaN(dailyLimit) || dailyLimit < 1 || dailyLimit > 100) {
+                    errors.push('Limite diário deve estar entre 1 e 100 comerciais.');
+                }
             }
 
             return errors;
@@ -960,6 +1017,7 @@
                     enabled: document.getElementById('paidCommercials').checked,
                     pricePerSecond: parseFloat(document.getElementById('pricePerSecond').value) || 0.05,
                     maxDuration: parseInt(document.getElementById('maxCommercialDuration').value) || 90,
+                    dailyCommercialsLimit: parseInt(document.getElementById('dailyCommercialsLimit').value) || 5,
                     pixKeyType: document.getElementById('commercialsPixKeyType').value,
                     pixKey: document.getElementById('commercialsPixKey').value.trim()
                 }
@@ -985,6 +1043,7 @@
                 'pixKey',
                 'pricePerSecond',
                 'maxCommercialDuration',
+                'dailyCommercialsLimit',
                 'paidCommercials',
                 'commercialsPixKeyType',
                 'commercialsPixKey'
@@ -1067,6 +1126,7 @@
                 monetizationData.paidCommercials.enabled = document.getElementById('paidCommercials').checked;
                 monetizationData.paidCommercials.pricePerSecond = parseFloat(document.getElementById('pricePerSecond').value) || 0.05;
                 monetizationData.paidCommercials.maxDuration = parseInt(document.getElementById('maxCommercialDuration').value) || 90;
+                monetizationData.paidCommercials.dailyCommercialsLimit = parseInt(document.getElementById('dailyCommercialsLimit').value) || 5;
                 monetizationData.paidCommercials.pixKeyType = document.getElementById('commercialsPixKeyType').value;
                 monetizationData.paidCommercials.pixKey = document.getElementById('commercialsPixKey').value.trim();
 
