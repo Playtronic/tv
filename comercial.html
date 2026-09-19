@@ -1027,10 +1027,46 @@
             }
         }
         
+        // ─── NOVO: Verificar limite diário de comerciais ───
+        async function checkDailyLimit() {
+            try {
+                const startOfDay = new Date();
+                startOfDay.setHours(0, 0, 0, 0);
+                
+                const snapshot = await db.collection('channels').doc(currentChannelId)
+                    .collection('commercials')
+                    .where('createdAt', '>=', firebase.firestore.Timestamp.fromDate(startOfDay))
+                    .where('status', '==', 'active')
+                    .get();
+                
+                const count = snapshot.size;
+                const limit = channelData.paidCommercials.dailyCommercialsLimit || 5;
+                
+                return { allowed: count < limit, count: count, limit: limit };
+            } catch (e) {
+                console.error('Erro ao verificar limite diário:', e);
+                return { allowed: true, count: 0, limit: 999 };
+            }
+        }
+        
         // Prosseguir para pagamento
-        function proceedToPayment() {
+        async function proceedToPayment() {
             if (!videoData || !currentUser) {
                 showError('Dados incompletos. Tente novamente.');
+                return;
+            }
+            
+            // ─── VERIFICAÇÃO DE LIMITE DIÁRIO ───
+            showLoading('Verificando disponibilidade...');
+            const limitCheck = await checkDailyLimit();
+            hideLoading();
+            
+            if (!limitCheck.allowed) {
+                showError(
+                    '🚫 Limite diário de comerciais atingido (' +
+                    limitCheck.count + '/' + limitCheck.limit + '). ' +
+                    'Tente novamente em 24 horas.'
+                );
                 return;
             }
             
@@ -1282,6 +1318,48 @@
                 
                 // Salvar na coleção de comerciais pagos
                 const commercialRef = await db.collection('paid_commercials').add(commercialData);
+                
+                // ─── NOVO: Atualizar array principal + paidCommercialsActiveUntil ───
+                const channelRefUpdate = db.collection('channels').doc(channelData.id);
+                const channelSnapUpdate = await channelRefUpdate.get();
+                const existingUntil = (channelSnapUpdate.data() && channelSnapUpdate.data().paidCommercialsActiveUntil) || 0;
+                const newActiveUntil = Math.max(existingUntil, expiresAt.getTime());
+                
+                const paidCommercialEntry = {
+                    name: '[PAGO] ' + (videoData.title || 'Comercial'),
+                    url: videoData.url,
+                    isPaid: true,
+                    commercialId: commercialRef.id,
+                    payerId: currentUser.uid,
+                    paidAmount: videoData.totalPrice,
+                    expiresAt: expiresAt.getTime(),
+                    priority: true,
+                    createdAt: Date.now()
+                };
+                
+                try {
+                    await channelRefUpdate.update({
+                        commercials: firebase.firestore.FieldValue.arrayUnion(paidCommercialEntry),
+                        paidCommercialsActiveUntil: newActiveUntil
+                    });
+                    console.log('✅ Array principal do canal atualizado');
+                } catch (e) {
+                    console.warn('⚠️ Falha ao atualizar array principal:', e);
+                }
+                
+                if (channelData.userId) {
+                    try {
+                        await db.collection('users').doc(channelData.userId)
+                            .collection('channels').doc(channelData.id)
+                            .update({
+                                commercials: firebase.firestore.FieldValue.arrayUnion(paidCommercialEntry),
+                                paidCommercialsActiveUntil: newActiveUntil
+                            });
+                        console.log('✅ Array legado atualizado');
+                    } catch (e) {
+                        console.warn('⚠️ Falha ao atualizar array legado:', e);
+                    }
+                }
                 
                 // Também adicionar à lista de comerciais do canal
                 const channelCommercialsRef = db.collection('channels').doc(channelData.id)
