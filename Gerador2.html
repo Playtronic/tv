@@ -2502,6 +2502,10 @@ async function gerarHTMLdoCanal(dados, channelId) {
             <div class="program-name" id="programmingModeDisplay">${programmingMode === 'grade' ? 'Grade' : 'Playlist'}</div>
         </div>
         <div class="program-item">
+            <div class="program-label">Comerciais:</div>
+            <div class="program-name" id="commercialModeDisplay">-</div>
+        </div>
+        <div class="program-item">
             <div class="program-label">Dias desde a estreia:</div>
             <div class="program-name" id="debugDays">-</div>
         </div>
@@ -4102,6 +4106,7 @@ if (slotIndex === currentPlayingSlot) {
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"><\/script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"><\/script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"><\/script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"><\/script>
    
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"><\/script>
@@ -5225,6 +5230,66 @@ if (slotIndex === currentPlayingSlot) {
         
         const auth = firebase.auth();
         const database = firebase.database();
+        
+        // ─── LIVE SYNC + MODO EXCLUSIVO DE COMERCIAIS ───
+        var CHANNEL_COMMERCIALS_LIVE = [];
+        var CHANNEL_PAID_MODE = false;
+        var CHANNEL_COMMERCIALS_SYNCED = false;
+        var LAST_KNOWN_COMMERCIALS = [];
+        
+        function aplicarFiltroComerciais() {
+            var now = Date.now();
+            var paid = [];
+            var owner = [];
+            
+            LAST_KNOWN_COMMERCIALS.forEach(function(c) {
+                if (c.isPaid) {
+                    if (!c.expiresAt || c.expiresAt > now) paid.push(c);
+                } else {
+                    owner.push(c);
+                }
+            });
+            
+            var antes = CHANNEL_COMMERCIALS_LIVE.length;
+            var modoAntes = CHANNEL_PAID_MODE;
+            
+            if (paid.length > 0) {
+                CHANNEL_PAID_MODE = true;
+                CHANNEL_COMMERCIALS_LIVE = paid.map(function(c) { return c.url; });
+            } else {
+                CHANNEL_PAID_MODE = false;
+                CHANNEL_COMMERCIALS_LIVE = owner.map(function(c) { return c.url; });
+            }
+            
+            if (modoAntes !== CHANNEL_PAID_MODE || antes !== CHANNEL_COMMERCIALS_LIVE.length) {
+                currentCommercialIndex = 0;
+                availableCommercials = [];
+                console.log('[LIVE] ' + (CHANNEL_PAID_MODE ? 'MODO PAGO' : 'MODO NORMAL') + ' - ' + CHANNEL_COMMERCIALS_LIVE.length + ' comercial(is)');
+            }
+            
+            var el = document.getElementById('commercialModeDisplay');
+            if (el) {
+                el.textContent = CHANNEL_PAID_MODE ? ('Pagos (' + paid.length + ')') : ('Do dono (' + owner.length + ')');
+                el.style.color = CHANNEL_PAID_MODE ? '#2ecc71' : '#fdbb2d';
+            }
+        }
+        
+        (function setupLiveCommercials() {
+            if (!CHANNEL_ID || typeof firebase === 'undefined' || !firebase.firestore) return;
+            try {
+                var ref = firebase.firestore().collection('channels').doc(CHANNEL_ID);
+                ref.onSnapshot(function(doc) {
+                    if (!doc.exists) return;
+                    var data = doc.data();
+                    LAST_KNOWN_COMMERCIALS = Array.isArray(data.commercials) ? data.commercials : [];
+                    CHANNEL_COMMERCIALS_SYNCED = true;
+                    aplicarFiltroComerciais();
+                });
+                setInterval(aplicarFiltroComerciais, 60000);
+            } catch (e) {
+                console.warn('[LIVE] falha ao sincronizar comerciais:', e);
+            }
+        })();
         
         // VARIÁVEIS DE ESTADO
         let currentState = 'program';
@@ -6408,26 +6473,30 @@ if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
 
 
     function obterProximoComercial() {
-        if (TV_COMMERCIALS.length === 0) {
+        var lista;
+        if (CHANNEL_COMMERCIALS_SYNCED) {
+            lista = CHANNEL_COMMERCIALS_LIVE;
+        } else {
+            lista = TV_COMMERCIALS;
+        }
+        
+        if (!lista || lista.length === 0) {
             return null;
         }
         
         if (COMMERCIALS_ORDER === 'sequential') {
-            const commercialIndex = currentCommercialIndex % TV_COMMERCIALS.length;
-            const commercialUrl = TV_COMMERCIALS[commercialIndex];
-            currentCommercialIndex = (currentCommercialIndex + 1) % TV_COMMERCIALS.length;
-            return commercialUrl;
+            var idx = currentCommercialIndex % lista.length;
+            var url = lista[idx];
+            currentCommercialIndex = (currentCommercialIndex + 1) % lista.length;
+            return url;
         } else {
             if (availableCommercials.length === 0) {
-                availableCommercials = [...TV_COMMERCIALS];
+                availableCommercials = lista.slice();
             }
-            
-            const randomIndex = Math.floor(Math.random() * availableCommercials.length);
-            const commercialUrl = availableCommercials[randomIndex];
-            
-            availableCommercials.splice(randomIndex, 1);
-            
-            return commercialUrl;
+            var r = Math.floor(Math.random() * availableCommercials.length);
+            var u = availableCommercials[r];
+            availableCommercials.splice(r, 1);
+            return u;
         }
     }
     
@@ -8158,6 +8227,34 @@ console.log('---');
                             // Adicionar identificador ao card para localizar depois
                             channelCard.setAttribute('data-channel', channel.id);
                             channelsList.appendChild(channelCard);
+                            
+                            // ─── Proteção visual: comerciais pagos ativos ───
+                            (async function aplicarProtecaoVisual() {
+                                try {
+                                    const snapPv = await db.collection('channels').doc(channel.id).get();
+                                    if (!snapPv.exists) return;
+                                    const dataPv = snapPv.data();
+                                    const activeUntil = (dataPv && dataPv.paidCommercialsActiveUntil) || 0;
+                                    if (activeUntil <= Date.now()) return;
+                                    
+                                    const delBtn = channelCard.querySelector('.delete-channel');
+                                    const togBtn = channelCard.querySelector('.toggle-offline-channel');
+                                    const exp = new Date(activeUntil).toLocaleString('pt-BR');
+                                    
+                                    if (delBtn) {
+                                        delBtn.disabled = true;
+                                        delBtn.style.opacity = '0.4';
+                                        delBtn.style.cursor = 'not-allowed';
+                                        delBtn.title = 'Bloqueado: comerciais pagos ativos até ' + exp;
+                                    }
+                                    if (togBtn) {
+                                        togBtn.disabled = true;
+                                        togBtn.style.opacity = '0.4';
+                                        togBtn.style.cursor = 'not-allowed';
+                                        togBtn.title = 'Bloqueado: comerciais pagos ativos até ' + exp;
+                                    }
+                                } catch (e) { /* silencioso */ }
+                            })();
 
 if (!isOffline && isPublished) {
     // 🔥 AGORA USAR O ID DO FIRESTORE (não o nome formatado)
@@ -8267,6 +8364,25 @@ if (watchBtn) {
                 alert("É necessário fazer login para modificar canais");
                 return;
             }
+            
+            // ─── BLOQUEIO: comerciais pagos ativos ───
+            try {
+                const chk = await db.collection('channels').doc(channelId).get();
+                if (chk.exists) {
+                    const until = (chk.data() && chk.data().paidCommercialsActiveUntil) || 0;
+                    if (!isCurrentlyOffline && until > Date.now()) {
+                        const dt = new Date(until);
+                        const hrs = Math.ceil((until - Date.now()) / 3600000);
+                        alert('🚫 Não é possível tirar este canal do ar.\n\n' +
+                              'Existem comerciais pagos ativos.\n' +
+                              'O último expira em: ' + dt.toLocaleString('pt-BR') + '\n' +
+                              'Tempo restante: ~' + hrs + ' hora(s)\n\n' +
+                              'O canal voltará a ficar disponível automaticamente.');
+                        return;
+                    }
+                }
+            } catch (e) { console.warn('Bloqueio falhou, permitindo:', e); }
+            // ─── Fim do bloqueio ───
             
             try {
                 const doc = await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).get();
@@ -9263,6 +9379,24 @@ console.log("Preenchendo formulário...");
             
             const channel = channels.find(c => c.id === channelId);
             if (!channel) return;
+            
+            // ─── BLOQUEIO: comerciais pagos ativos ───
+            try {
+                const chk = await db.collection('channels').doc(channelId).get();
+                if (chk.exists) {
+                    const until = (chk.data() && chk.data().paidCommercialsActiveUntil) || 0;
+                    if (until > Date.now()) {
+                        const dt = new Date(until);
+                        const hrs = Math.ceil((until - Date.now()) / 3600000);
+                        alert('🚫 Não é possível apagar este canal.\n\n' +
+                              'Existem comerciais pagos ativos.\n' +
+                              'O último expira em: ' + dt.toLocaleString('pt-BR') + '\n' +
+                              'Tempo restante: ~' + hrs + ' hora(s)');
+                        return;
+                    }
+                }
+            } catch (e) { console.warn('Bloqueio falhou, permitindo:', e); }
+            // ─── Fim do bloqueio ───
             
             if (confirm('Tem certeza que deseja apagar este canal? Isso removerá o canal do servidor, banco de dados, banco de dados em tempo real e do seu perfil.')) {
                 try {
