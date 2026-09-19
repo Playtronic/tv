@@ -9,13 +9,14 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
    
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.1.3">
+    <meta name="version" content="1.0.1.4">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="false">
     <meta name="programming-mode" content="playlist">
@@ -907,8 +908,7 @@
 </head>
 <body>
     
-    <!-- Botão de login para o canal -->
-
+            <!-- Botão de login para o canal -->
             <button id="loginButtonChannel" class="login-button-channel" style="position: fixed; top: 20px; right: 20px; background: #e67e22; border: none; color: white; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 0.9rem; font-weight: bold; transition: all 0.3s; z-index: 1000; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);">
                 Entrar
             </button>
@@ -1069,6 +1069,10 @@
             <div class="program-name" id="programmingModeDisplay">Playlist</div>
         </div>
         <div class="program-item">
+            <div class="program-label">Comerciais:</div>
+            <div class="program-name" id="commercialModeDisplay">-</div>
+        </div>
+        <div class="program-item">
             <div class="program-label">Dias desde a estreia:</div>
             <div class="program-name" id="debugDays">-</div>
         </div>
@@ -1125,12 +1129,12 @@
         
  <div class="contact-info">Contato: tvmanchete@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.1.3
+            Versão 1.0.1.4
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
 
-  
+    
     <script>
         function checkCountry() {
             const userLang = navigator.language || navigator.userLanguage;
@@ -1216,61 +1220,50 @@
                     });
                 }
 
-                                // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS (CORRIGIDA)
-                function cleanupInactiveViewers() {
-                    // Verificar se CHANNEL_ID existe
-                    if (typeof CHANNEL_ID === 'undefined' || !CHANNEL_ID) {
-                        console.log('CHANNEL_ID não definido para cleanup');
-                        return;
-                    }
-                    
-                    // Verificar se Firebase está pronto
-                    if (typeof firebase === 'undefined' || !firebase.apps || firebase.apps.length === 0) {
-                        console.log('Firebase não inicializado para cleanup');
-                        return;
-                    }
-                    
-                    try {
-                        const database = firebase.database();
-                        const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
-                        
-                        viewersRef.once('value').then(snapshot => {
-                            if (!snapshot.exists()) {
-                                console.log('Nenhum espectador para limpar');
-                                return;
-                            }
-                            
-                            const viewers = snapshot.val();
-                            const now = Date.now();
-                            const updates = {};
-                            
-                            Object.keys(viewers).forEach(key => {
-                                const viewer = viewers[key];
-                                if (viewer && viewer.lastHeartbeat) {
-                                    const timeDiff = now - viewer.lastHeartbeat;
-                                    if (timeDiff > 90000) {
-                                        updates[key] = null;
-                                    }
-                                } else if (viewer && viewer.timestamp) {
-                                    const timeDiff = now - viewer.timestamp;
-                                    if (timeDiff > 180000) {
-                                        updates[key] = null;
-                                    }
-                                }
-                            });
-                            
-                            if (Object.keys(updates).length > 0) {
-                                viewersRef.update(updates)
-                                    .then(() => console.log('Espectadores inativos removidos'))
-                                    .catch(err => console.log('Não foi possível limpar espectadores'));
-                            }
-                        }).catch(err => {
-                            console.log('Erro ao limpar espectadores:', err);
-                        });
-                    } catch (error) {
-                        console.log('Erro no cleanup:', error);
-                    }
+                
+                // 🔥 FUNÇÃO PARA LIMPAR ESPECTADORES INATIVOS
+function cleanupInactiveViewers() {
+    if (!CHANNEL_ID) return;
+    
+    // Verifique se o Firebase foi inicializado
+    if (typeof firebase === 'undefined' || !firebase.apps.length) {
+        console.error('Firebase não inicializado');
+        return;
+    }
+    
+    // Use firebase.database() diretamente
+    const database = firebase.database();
+    const viewersRef = database.ref('onlineUsers/' + CHANNEL_ID);
+    
+    viewersRef.once('value').then(snapshot => {
+        if (!snapshot.exists()) return;
+        
+        const viewers = snapshot.val();
+        const now = Date.now();
+        const updates = {};
+        
+        Object.keys(viewers).forEach(key => {
+            const viewer = viewers[key];
+            if (viewer && viewer.lastHeartbeat) {
+                const timeDiff = now - viewer.lastHeartbeat;
+                if (timeDiff > 90000) {
+                    updates[key] = null;
                 }
+            } else if (viewer && viewer.timestamp) {
+                const timeDiff = now - viewer.timestamp;
+                if (timeDiff > 180000) {
+                    updates[key] = null;
+                }
+            }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+            viewersRef.update(updates)
+                .then(() => console.log('Espectadores inativos removidos'))
+                .catch(err => console.log('Não foi possível limpar espectadores'));
+        }
+    });
+}
                 
                 // 🔥 EXECUTA LIMPEZA PERIÓDICA
                 setInterval(cleanupInactiveViewers, 120000); // A cada 2 minutos
@@ -1669,25 +1662,19 @@ function calcularSlotAtual() {
     
     // Função para verificar se precisa recarregar a página no modo GRADE
     function verificarRecarregamentoGrade() {
-        if (PROGRAMMING_MODE === 'grade') {
-            const agora = new Date();
-            const horas = agora.getHours();
-            const minutos = agora.getMinutes();
-            const segundos = agora.getSeconds();
-            
-            // Se estiver entre 06:00:00 e 06:24:59
-            if (horas === 6 && minutos >= 0 && minutos <= 24) {
-                // E o canal não estiver no slot 1
-                if (currentPlayingSlot !== 1) {
-                    console.log('🔁 Recarregando página para iniciar novo dia com slot 1');
-                    
-                    // 🔥 LIMPAR ANTES DE RECARREGAR
-                    limparRecursosPlayer();
-                    
-                    setTimeout(() => {
-                        location.reload();
-                    }, 3000);
-                }
+        if (PROGRAMMING_MODE !== 'grade') return;
+        
+        const agora = new Date();
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        const segundos = agora.getSeconds();
+        
+        // Se estiver entre 06:00:00 e 06:24:59
+        if (horas === 6 && minutos >= 0 && minutos <= 24) {
+            // E o canal não estiver no slot 1
+            if (currentPlayingSlot !== 1) {
+                console.log('Recarregando página para iniciar novo dia com slot 1');
+                location.reload();
             }
         }
     }
@@ -1721,7 +1708,7 @@ function calcularSlotAtual() {
             
             return {
                 programa: programa,
-                    videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=grade&index1=' + programIndex + '&index2=' + currentVideoIndex,
+                    videoUrl: (programa.videos && programa.videos[currentVideoIndex]) ? programa.videos[currentVideoIndex] : '',
                 programaIndex: programIndex,
                 videoIndex: currentVideoIndex,
                 dia: currentDay,
@@ -1780,7 +1767,7 @@ if (slotIndex === currentPlayingSlot) {
             console.log('===============================');
             
             return {
-                videoUrl: 'https://us-central1-playtronic-tv.cloudfunctions.net/getProtectedVideo?channelId=' + CHANNEL_ID + '&videoType=playlist&index1=' + indiceArray,
+                videoUrl: (videoInfo && videoInfo.url) ? videoInfo.url : '',
                 nome: videoInfo.name,
                 slotAjustado: indiceArray
             };
@@ -1788,10 +1775,9 @@ if (slotIndex === currentPlayingSlot) {
     }
 </script>
 
-    
+   
     <!-- SISTEMA DE SINCRONIA -->
     
-
 <script>
     let syncCheckInterval = null;
     let lastValidTime = 0;
@@ -1830,21 +1816,14 @@ if (slotIndex === currentPlayingSlot) {
     const videoProblemLog = new Map();
 
     function initSyncSystem() {
-        // 🔥 LIMPAR INTERVALOS ANTIGOS PRIMEIRO
-        if (syncCheckInterval) {
-            clearInterval(syncCheckInterval);
-            syncCheckInterval = null;
-        }
-        
-        if (audioMonitorInterval) {
-            clearInterval(audioMonitorInterval);
-            audioMonitorInterval = null;
-        }
-        
         // 🔥 CORREÇÃO: Não inicializar sincronização para YouTube
         if (isYoutubeVideo) {
             console.log('YouTube detectado - desativando sincronização');
             return;
+        }
+        
+        if (syncCheckInterval) {
+            clearInterval(syncCheckInterval);
         }
         
         lastValidTime = 0;
@@ -1869,7 +1848,6 @@ if (slotIndex === currentPlayingSlot) {
         
         startAudioMonitoring();
     }
-
     function getCurrentVideoURL() {
         if (isYoutubeVideo && youtubePlayer) {
             try {
@@ -2337,16 +2315,13 @@ function calculateExpectedTime(duration) {
 
     
     <script>
-        // ==================== CONFIGURAÇÕES DO CANAL ====================
-        // 🔥 DEFINA CHANNEL_ID AQUI, ANTES DE QUALQUER OUTRO SCRIPT!
-        const CHANNEL_ID = "VZypAHSSgoJCtoDhnIPN";
+        // CONFIGURAÇÕES DO CANAL
 
-        
         const TV_PROGRAMS = [];
-        const TV_PLAYLIST = [{"id":0,"name":"O Trapalhão Na Ilha do Tesouro"},{"id":1,"name":"Trovão Azul"},{"id":2,"name":"Indiana Jones E Os Caçadores Da Arca Perdida"},{"id":3,"name":"A História Sem Fim"},{"id":4,"name":"O Corcel Negro"},{"id":5,"name":"Conan O Bárbaro"},{"id":6,"name":"E.T. O Extraterrestre"},{"id":7,"name":"Contatos Imediatos Do Terceiro Grau"},{"id":8,"name":"Trocando As Bolas"},{"id":9,"name":"Popeye"},{"id":10,"name":"A Fantástica Fábrica De Chocolates"},{"id":11,"name":"A Vida De Brian"},{"id":12,"name":"Rocky, Um Lutador"},{"id":13,"name":"Mad Max"},{"id":14,"name":"Os Trapalhões No Planeta Dos Macacos"},{"id":15,"name":"Recrutas Da Pesada"},{"id":16,"name":"Os Deuses Devem Estar Loucos"},{"id":17,"name":"Simbad, O Marujo Trapalhão "},{"id":18,"name":"Superman"},{"id":19,"name":"Saltimbancos Trapalhões"},{"id":20,"name":"Apertem Os Cintos... O Piloto Sumiu!"},{"id":21,"name":"Ninja, A Máquina Assassina"},{"id":22,"name":"A Lagoa Azul"},{"id":23,"name":"007 - Somente Para Seus Olhos"},{"id":24,"name":"Os Trapalhões Nas Minas Do Rei Salomão"},{"id":25,"name":"Rambo: Programado Para Matar"},{"id":26,"name":"Karatê Kid - A Hora Da Verdade"},{"id":27,"name":"Loucademia De Polícia"},{"id":28,"name":"Os Trapalhões Na Guerra Dos Planetas"},{"id":29,"name":"Comando Para Matar"},{"id":30,"name":"Braddock"},{"id":31,"name":"Um Conto De Natal"},{"id":32,"name":"De Volta Para O Futuro"},{"id":33,"name":"O Exterminador Do Futuro"},{"id":34,"name":"Duna"},{"id":35,"name":"Superman 2"},{"id":36,"name":"Rocky II"},{"id":37,"name":"007 contra Octopussy"},{"id":38,"name":"Indiana Jones E O Templo da Perdição"},{"id":39,"name":"Thriller"},{"id":40,"name":"Gremlins - O Pequeno Monstro"},{"id":41,"name":"Conan, o destruidor"},{"id":42,"name":"007 - Na Mira Dos Assassinos"},{"id":43,"name":"Rocky III"},{"id":44,"name":"Superman 3"},{"id":45,"name":"Splash - Uma Sereia Em Minha Vida"},{"id":46,"name":"A Pequena Loja Dos Horrores"},{"id":47,"name":"Tudo Por Uma Esmeralda"},{"id":48,"name":"Supergirl"},{"id":49,"name":"Águia de Aço"},{"id":50,"name":"As Minas Do Rei Salomão"},{"id":51,"name":"Aventureiros Do Fogo"},{"id":52,"name":"Braddock 2"},{"id":53,"name":"Brazil: O Filme"},{"id":54,"name":"Clube Dos Cinco"},{"id":55,"name":"Comando Delta"},{"id":56,"name":"Conta Comigo"},{"id":57,"name":"Crocodilo Dundee"},{"id":58,"name":"Curtindo A Vida Adoidado"},{"id":59,"name":"Highlander, O Guerreiro Imortal"},{"id":60,"name":"Loucademia De Policia 2"},{"id":61,"name":"Mad Max: Além Da Cúpula Do Trovão"},{"id":62,"name":"O Predador"},{"id":63,"name":"O Sobrevivente"},{"id":64,"name":"Os Goonies"},{"id":65,"name":"Rambo II"},{"id":66,"name":"Robocop - O Policial Do Futuro"},{"id":67,"name":"Rocky IV"},{"id":68,"name":"Silverado"},{"id":69,"name":"Stallone Cobra"},{"id":70,"name":"Te Pego Lá Fora"},{"id":71,"name":"Top Gun - Ases Indomáveis"},{"id":72,"name":"Um Dia A Casa Cai"},{"id":73,"name":"Short Circuit: O Incrível Robô"},{"id":74,"name":"Um Tira Da Pesada"},{"id":75,"name":"007 - Marcado Para Morte"},{"id":76,"name":"Batman"},{"id":77,"name":"Corra Que A Polícia Vem Aí"},{"id":78,"name":"Crocodilo Dundee 2"},{"id":79,"name":"Falcão, o Campeão dos Campeões"},{"id":80,"name":"Irmãos Gêmeos"},{"id":81,"name":"Um Robô em Curto-circuito 2"},{"id":82,"name":"Karatê Kid 2"},{"id":83,"name":"Um Tira Da Pesada 2"},{"id":84,"name":"Loucademia De Polícia 3"},{"id":85,"name":"O Grande Dragão Branco"},{"id":86,"name":"Olha Quem Está Falando"},{"id":87,"name":"Quero Ser Grande"},{"id":88,"name":"Um Príncipe Em Nova York"},{"id":89,"name":"Cegos, Surdos E Loucos"},{"id":90,"name":"Duro De Matar"},{"id":91,"name":"Superman 4"},{"id":92,"name":"Rambo 3"},{"id":93,"name":"Os Deuses Devem Estar Loucos 2"},{"id":94,"name":"De Volta Para O Futuro 2"},{"id":95,"name":"K-9"},{"id":96,"name":"Inferno Vermelho"},{"id":97,"name":"Máquina Mortífera"},{"id":98,"name":"Bom dia, Vietnã!"},{"id":99,"name":"Os Fantasmas Se Divertem"},{"id":100,"name":"Querida Encolhi As Crianças"},{"id":101,"name":"Karatê Kid 3"},{"id":102,"name":"Kickboxer: O Desafio Do Dragão"},{"id":103,"name":"Braddock 3"},{"id":104,"name":"Máquina Mortífera 2"},{"id":105,"name":"Uma Cilada Para Roger Rabbit"},{"id":106,"name":"Namorada De Aluguel"},{"id":107,"name":"Um Morto Muito Louco"},{"id":108,"name":"Moonwalker"},{"id":109,"name":"Dick Tracy"},{"id":110,"name":"Um Tira no Jardim de Infância"},{"id":111,"name":"O Pestinha"},{"id":112,"name":"Gremlins 2"},{"id":113,"name":"Uma Dupla Quase Perfeita"},{"id":114,"name":"Rocky V"},{"id":115,"name":"O Predador 2"},{"id":116,"name":"O Vingador do Futuro"},{"id":117,"name":"Robocop 2"},{"id":118,"name":"Ela é o Diabo"},{"id":119,"name":"De Volta para o Futuro III"},{"id":120,"name":"Esqueceram De Mim"},{"id":121,"name":"Leão Branco: O Lutador Sem Lei"},{"id":122,"name":"As Tartarugas Ninjas"},{"id":123,"name":"Condenação Brutal"},{"id":124,"name":"Ghost - Do Outro Lado da Vida"},{"id":125,"name":"Duro De Matar 2"},{"id":126,"name":"Louca Obsessão"},{"id":127,"name":"007 - Permissão para Matar"},{"id":128,"name":"Edward Mãos De Tesoura"},{"id":129,"name":"Indiana Jones e a Última Cruzada"},{"id":130,"name":"A História Sem Fim 2"},{"id":131,"name":"Lua de Cristal"},{"id":132,"name":"Batman: O Retorno"},{"id":133,"name":"Top Gang - Ases Muito Louco"},{"id":134,"name":"Os Deuses Devem Estar Loucos 3"},{"id":135,"name":"Operação Condor: Um Kickboxer Muito Louco"},{"id":136,"name":"A Morte Lhe Cai Bem"},{"id":137,"name":"Os Caça-Fantasmas"},{"id":138,"name":"Duplo Impacto"},{"id":139,"name":"Comando Imbatível"},{"id":140,"name":"Uma Linda Mulher"},{"id":141,"name":"Mudança De Hábito"},{"id":142,"name":"Os Caça-Fantasmas 2"},{"id":143,"name":"Caçadores De Emoção"},{"id":144,"name":"Se Meu Fusca Falasse"},{"id":145,"name":"O Pai Da Noiva"},{"id":146,"name":"A Família Buscapé"},{"id":147,"name":"Olha Quem Está Falando Agora"},{"id":148,"name":"A Lista De Schindler"},{"id":149,"name":"Robocop 3"},{"id":150,"name":"O Fugitivo"},{"id":151,"name":"A Família Addams"},{"id":152,"name":"As Tartarugas Ninja 2"},{"id":153,"name":"Abracadabra"},{"id":154,"name":"Mudança De Hábito 2"},{"id":155,"name":"Um Dia De Fúria"},{"id":156,"name":"Dennis, O Pimentinha"},{"id":157,"name":"Kickboxer 2"},{"id":158,"name":"Questão de honra"},{"id":159,"name":"A Firma"},{"id":160,"name":"Jamaica Abaixo De Zero"},{"id":161,"name":"O Anjo Malvado"},{"id":162,"name":"Querida estiquei o bebê"},{"id":163,"name":"Top Gang 2! A Missão"},{"id":164,"name":"O Alvo"},{"id":165,"name":"Uma babá quase perfeita"},{"id":166,"name":"Risco Total"},{"id":167,"name":"Jurassic Park O Parque Dos Dinossauros"},{"id":168,"name":"O Homem Sem Face"},{"id":169,"name":"O Demolidor"},{"id":170,"name":"Um Morto Muito Louco 2"},{"id":171,"name":"Feitiço do Tempo"},{"id":172,"name":"Meu Primeiro Amor"},{"id":173,"name":"Rocketeer"},{"id":174,"name":"Os Imperdoáveis"},{"id":175,"name":"Soldado Universal"},{"id":176,"name":"Corra Que A Polícia Vem Aí 2 ½"},{"id":177,"name":"Hook - A Volta do Capitão Gancho"},{"id":178,"name":"Highlander 2"},{"id":179,"name":"De Volta à Lagoa Azul"},{"id":180,"name":"Mundo Proibido"},{"id":181,"name":"Manequim"},{"id":182,"name":"Ninguém Segura Este Bebê"},{"id":183,"name":"A Fuga"},{"id":184,"name":"As Tartarugas Ninja 3"},{"id":185,"name":"O Pestinha 2"},{"id":186,"name":"Um Visto para o Céu"},{"id":187,"name":"Um Tira No Jardim De Infância"},{"id":188,"name":"Kickboxer 3"},{"id":189,"name":"Máquina Mortífera 3"},{"id":190,"name":"Thelma & Louise"},{"id":191,"name":"O Exterminador Do Futuro 2"},{"id":192,"name":"Velocidade Máxima"},{"id":193,"name":"Forrest Gump O Contador De Histórias"},{"id":194,"name":"Gasparzinho"},{"id":195,"name":"Junior"},{"id":196,"name":"A Família Addams 2"},{"id":197,"name":"Assassinos"},{"id":198,"name":"Kickboxer 4"},{"id":199,"name":"Um Tira Da Pesada 3"},{"id":200,"name":"A Ilha Da Garganta Cortada"},{"id":201,"name":"007 - Contra Goldeneye"},{"id":202,"name":"Corra Que A Polícia Vem Aí! 33⅓"},{"id":203,"name":"Os Batutinhas"},{"id":204,"name":"Cheque Em Branco"},{"id":205,"name":"Street Fighter"},{"id":206,"name":"Riquinho"},{"id":207,"name":"True Lies"},{"id":208,"name":"Pulp Fiction"},{"id":209,"name":"Karatê Kid 4"},{"id":210,"name":"O Máskara"},{"id":211,"name":"Highlander 3"},{"id":212,"name":"O Juiz"},{"id":213,"name":"Beleza Negra"},{"id":214,"name":"Debi & Loide"},{"id":215,"name":"A História Sem Fim 3"},{"id":216,"name":"Ace Ventura"},{"id":217,"name":"Double Dragon"},{"id":218,"name":"MacGyver"},{"id":219,"name":"Projeto Alf"},{"id":220,"name":"Coração De Dragão"},{"id":221,"name":"A Rocha"},{"id":222,"name":"Waterworld"},{"id":223,"name":"Mortal Kombat"},{"id":224,"name":"A Rede"},{"id":225,"name":"Queima De Arquivo"},{"id":226,"name":"Lolita"},{"id":227,"name":"Ace Ventura 2"},{"id":228,"name":"Batman Eternamente"},{"id":229,"name":"Jack"},{"id":230,"name":"Twister"},{"id":231,"name":"Um Herói De Brinquedo"},{"id":232,"name":"Querida Encolhi A Gente"},{"id":233,"name":"Mortal Kombat - Aniquilação"},{"id":234,"name":"O Pestinha 3"},{"id":235,"name":"Arrebentando Em Nova York"},{"id":236,"name":"Joe e as baratas"},{"id":237,"name":"Ameaça Subterrânea"},{"id":238,"name":"Kickboxer 5"},{"id":239,"name":"Apollo 13"},{"id":240,"name":"Striptease"},{"id":241,"name":"O Preço De Um Resgate"},{"id":242,"name":"Daylight"},{"id":243,"name":"O Pentelho"},{"id":244,"name":"Anaconda"},{"id":245,"name":"Space Jam"},{"id":246,"name":"Missão Impossível"},{"id":247,"name":"Flubber"},{"id":248,"name":"O Jogo De Geri"},{"id":249,"name":"Eu, Minha Mulher e Minhas Cópias"},{"id":250,"name":"Os Bad Boys"},{"id":251,"name":"O Pacificador"},{"id":252,"name":"O Último Matador"},{"id":253,"name":"Advogado Do Diabo"},{"id":254,"name":"O Professor Aloprado"},{"id":255,"name":"Jumanji"},{"id":256,"name":"Tombstone"},{"id":257,"name":"Morte Súbita"},{"id":258,"name":"Drácula - Morto, Mas Feliz"},{"id":259,"name":"Los Angeles - Cidade Proibida"},{"id":260,"name":"MIB - Homens De Preto"},{"id":261,"name":"Tudo por Dinheiro"},{"id":262,"name":"007 - O Amanhã Nunca Morre"},{"id":263,"name":"A Colônia"},{"id":264,"name":"Teoria da Conspiração"},{"id":265,"name":"Tropas Estelares"},{"id":266,"name":"O mensageiro"},{"id":267,"name":"Kazaam"},{"id":268,"name":"O Mentiroso"},{"id":269,"name":"Quem Vai Ficar Com Mary"},{"id":270,"name":"Pânico"},{"id":271,"name":"O Show De Truman"},{"id":272,"name":"Perdidos No Espaço"},{"id":273,"name":"A Hora Do Rush"},{"id":274,"name":"A Outra Face"},{"id":275,"name":"A vida é bela"},{"id":276,"name":"Marte Ataca"},{"id":277,"name":"A Máscara Do Zorro"},{"id":278,"name":"Con Air - A Rota Da Fuga"},{"id":279,"name":"Mr. Bean - O Filme"},{"id":280,"name":"Independence Day"},{"id":281,"name":"007 - O Mundo Não é O Bastante"},{"id":282,"name":"Pânico 2"},{"id":283,"name":"O Mundo Perdido - Jurassic Park"},{"id":284,"name":"O Fantasma"},{"id":285,"name":"Cidade dos Anjos"},{"id":286,"name":"Código para o Inferno"},{"id":287,"name":"Arquivo X"},{"id":288,"name":"Titanic"},{"id":289,"name":"U.S. Marshals - Os Federais"},{"id":290,"name":"Gladiador"},{"id":291,"name":"60 Segundos"},{"id":292,"name":"Missão Impossível 2"},{"id":293,"name":"Endiabrado"},{"id":294,"name":"O 6º Dia"},{"id":295,"name":"Eu, Eu Mesmo e Irene"},{"id":296,"name":"O Troco"},{"id":297,"name":"Asterix e Obelix Contra César"},{"id":298,"name":"O Legionário"},{"id":299,"name":"Blade, O Caçador De Vampiros"},{"id":300,"name":"Missão Marte"},{"id":301,"name":"Pânico 3"},{"id":302,"name":"Os Flintstones Em Viva Rock Vegas"},{"id":303,"name":"O Homem Bicentenário"},{"id":304,"name":"O Auto da Compadecida"},{"id":305,"name":"Duelo de titãs"},{"id":306,"name":"Mauá - O Imperador e o Rei"},{"id":307,"name":"Matrix"},{"id":308,"name":"A Caçada ao Outubro Vermelho"},{"id":309,"name":"O Que é Isso Companheiro"},{"id":310,"name":"O Grinch"},{"id":311,"name":"Homens De Honra"},{"id":312,"name":"Fim Dos Dias"},{"id":313,"name":"A Múmia"},{"id":314,"name":"Vovó... Zona"},{"id":315,"name":"American Pie"},{"id":316,"name":"À Espera de um Milagre"},{"id":317,"name":"Entrando Numa Fria"},{"id":318,"name":"Do Que As Mulheres Gostam"},{"id":319,"name":"O Sexto Sentido"},{"id":320,"name":"As Loucas Aventuras De James West"},{"id":321,"name":"Bater Ou Correr"},{"id":322,"name":"Beleza Americana"},{"id":323,"name":"Professor Aloprado 2"},{"id":324,"name":"Náufrago"},{"id":325,"name":"Máquina Mortífera 4"},{"id":326,"name":"Inimigo Do Estado"},{"id":327,"name":"O Talentoso Ripley"},{"id":328,"name":"Inspetor Bugiganga"},{"id":329,"name":"As Panteras"},{"id":330,"name":"Miss Simpatia"},{"id":331,"name":"O Conde de Monte Cristo"}];
-        const PROGRAMMING_MODE = "playlist";
-        const TOTAL_PROGRAMS = 0;
+        const TV_PLAYLIST = [{"id":0,"name":"O Trapalhão Na Ilha do Tesouro","url":"PTVX::liweTMKmDFFQsyf3vLCnbK499JuH6U849jorlR36yBEOxsInW15AI1QoPxRiKcQo/oR1XIMsdqsMa+RvPt4HlkaGYoCGgUVrXE2cUpRh7hMMfF0KLraL"},{"id":1,"name":"Trovão Azul","url":"PTVX::0qWZyZ4fEITnGlrq6bC4gdHEh3i47VvcW54AIr3D+68juwFrwxd+UNdXKmJG1b/iC/wIEM/bosK7WNbXGvepJoFkPYqfzzo+T3u5BU+7byj6PH0EuOo1"},{"id":2,"name":"Indiana Jones E Os Caçadores Da Arca Perdida","url":"PTVX::ptF94QrUzQKIIp4+Yj0N6MbGBtgLVuehLQe5Bp1DbSdZXlrwH1foN5bJm8FiC+h0ZCnz4US1PiaqIgOgE4kr3F/KCrph5VL6Z11fvrZYH+L5Am0vre4u"},{"id":3,"name":"A História Sem Fim","url":"PTVX::U1hiAdWwzB/58NhK1ytbOk5qWnF7xp8gyXefgSigLHUDBgKU6VfMDM7NYdWiL0ETn0A2N5Bm5OzZ4844X7B6+jNC4TtuXsaXvgijW3kqufRaYSsmn2Mp"},{"id":4,"name":"O Corcel Negro","url":"PTVX::19x0kuyHWDgZuzB0pYnmHliBFTncFUPF2waCwQuAltul6mIbLKQcbBgR8D+ZxxjEcPD6jPOjOqcrp92hHVeP0G+TAsVzYX6HaMqw3/i0B9TZ1nwuF50C"},{"id":5,"name":"Conan O Bárbaro","url":"PTVX::SNQiHO7v87ySb1XAryM00N1+XxWxELDzfdOptl72SUTGugl5JOJKOOBRQy9ckUxOxIGTikEBTEtZMuugMtAp6ACSkuCHclPo3FwYK7FSACrPrey1a5E7"},{"id":6,"name":"E.T. O Extraterrestre","url":"PTVX::cu22z/OatsyNUqve3R17Sk+VC6uucXyYS1MG20qE/2u4gEhJ49/NBHADmQznYc0rZ4TkzL8KBIDc1eeyn/dGFRol+SkV95v0i/1SBIoK/wCRi0aV3Jgs"},{"id":7,"name":"Contatos Imediatos Do Terceiro Grau","url":"PTVX::TYn893cElZDir5IiHVBEtCT9Z5WxE8I5+FuPjPX4mVjiY2hgY2GV8zpO40sOl1auU6KjinCqhHAR8yiBGsrHp0Evop2NiQjeoQ9ptOYl0RqdKwZF6BBe"},{"id":8,"name":"Trocando As Bolas","url":"PTVX::URVS/WGb653dTsiL8BAGz7LH8pAXasld0GeKdBrYeW+2eO0oYLElXdusLhhR0UrTGGfHfBTclTm2jbSgQk+1I7IXrzjYsQJvnKbUu+QX7IaLo+yYSBHV"},{"id":9,"name":"Popeye","url":"PTVX::o2yp/fUs2OgWeMtVK69hy4OBEJDHo40JSiOWMH3KTRogRhLa9N+ClYswN9NS87Gr13F0G/iGe/w506nTpI19nZnwpEvm/oXWMP3DBLInynpR7mNn7jx0"},{"id":10,"name":"A Fantástica Fábrica De Chocolates","url":"PTVX::LatKhxSqdk5wgx4QzCurQFhxCoucUtDHlKN5UYXb9FC1c9eI8KsIgE767PiiMBNrCtISZsoYWN6m8njygmiD7S7wFlqRHBImBhfxQC75TcCjp07qg9DB"},{"id":11,"name":"A Vida De Brian","url":"PTVX::v4yBl2SZ1yp9EcgUqRpKu6PfMfzymwPg+BrOziFG6WUUQEUyZVc0u0+molX1D3eFfY2a6Kx7VXAu5Uc5aDeVjpNxRpcn9WHSteRuWSUcbIdt7pi/HEty"},{"id":12,"name":"Rocky, Um Lutador","url":"PTVX::ZR2nOAEVb/J1vIBl2kVp3yZlhf7DkOG8B4dKDzkZahQGlZY8NQFt+QsJCt09IT71oyleWA7AS+sC155nn/+5Uor5aF3cyDQ2gVA5Tu9gbYWrVy5zDjwV"},{"id":13,"name":"Mad Max","url":"PTVX::ksdioMJuLSU8oUYi0UHQ7Igr7Nv8beyLn1lJ5yHxUOE2P+L4nAeoKfHHTMCGkwB0RYT7SgbWd4sE5UCo3eVGLctS0q50aNDhLU1qkOC+pYrXIBAxhlQx"},{"id":14,"name":"Os Trapalhões No Planeta Dos Macacos","url":"PTVX::tJGhCyztFjg8fE8nmCibztLZBxCkfvZmMHxq86x9TcoSqk9oQ/9ybb4kTPAX5EGVVZ2mYrRFmqMZYt06wr/zITADo/rbQAho9w6+EEV6NBgGZR6ObwCg"},{"id":15,"name":"Recrutas Da Pesada","url":"PTVX::vL0dJH+gzghtgZPWtoAo6hBj05SvBBCs1zbCXc1lftrc5SjbqZJCEVsGzoGDPNxFfazbG2W7yg4vv0XuUyTznMzelALLGn+tZk3qbdd8IDmRbYlHdTzf"},{"id":16,"name":"Os Deuses Devem Estar Loucos","url":"PTVX::SIOgoVfcE6jjwjASa60MdwA9LtZixxkuGqq/A2XmHuvuy6QVvYnRQetXEo8FF7fzAjEsvSyIzNRdf7DZf9X1q98FsI6kLmcw6jBmeTeH5foWO3HnzzuS"},{"id":17,"name":"Simbad, O Marujo Trapalhão ","url":"PTVX::Gys62bmAKtZvl+o0lykGCKaq2CRwq1mNPDUQM5kKruAnVJ8pdlMv6lYOPoq4cQJEOuYRhLLpln7L4FotoPM48d82iDU4Qt9PcSzt8qJSAl0WEMbF5cU5"},{"id":18,"name":"Superman","url":"PTVX::J1GRcRopZr72FXGiU7n4Sirdto58rutlQubiAH2EfzcqF6raIyYKCrnDQe4FojS149Fg+DZ8BL2or1j8PWMSAXeQSYT+qO1ZsDScPd7sK9XbrrnVLQUq"},{"id":19,"name":"Saltimbancos Trapalhões","url":"PTVX::emRJRAAGWIE2wI5X+uILmUkte4NR77YJOQQdpIAn2VFQeRS7+YeoeuZRAhCxpFTVEc5pmGGdNUCi9dfclZHDr6vK6xMobRR3Qy5cnaas/jHdSx58yRhu"},{"id":20,"name":"Apertem Os Cintos... O Piloto Sumiu!","url":"PTVX::iS23YgbQgtxps5SVPtUl4w+JUWV402H4d34CjCKvEUIZxYJwhfjZZGRkIVDHNfnMUyXizr6L3xU1CbqVlfgjOTe3Vmi4xU9jlOYxB757E71C4HrdATUM"},{"id":21,"name":"Ninja, A Máquina Assassina","url":"PTVX::0V3lVNmaAdoXRarwG4gBgLilJVJ3ZuvywQthB6l/Ch/lzf920Q2TPAApU6uY1M0fefeDbvkgK1zLJmmUL/gHaB6lfU/eKet2dbEUAeDkAgL3ZV07pTQM"},{"id":22,"name":"A Lagoa Azul","url":"PTVX::4WgdtCYUU77K2iWyHVIGskmEDStotAY10ZXMCOHUO+OGnGrZpvTZMB/CgfhnN7DHyumGC8TQ2E/1ST+j9Ev1iDvVYtfzVKAQMBQLkK7mZHZxAgCEiXFW"},{"id":23,"name":"007 - Somente Para Seus Olhos","url":"PTVX::KKXxzpqfiIpZQWtsOj/GxkBHzQc8Sqg4gJov0aS4rPWKJNbi5xQLPmyUNU3w+v12snA1vA25RrKbEt6AvdM+VGhoPb9yFeTrcOon98vp959e0r8glSTV"},{"id":24,"name":"Os Trapalhões Nas Minas Do Rei Salomão","url":"PTVX::7oNywErgossQ2/Q0cuR1bmS+Eqy6QO1pbAF3LIMy3KFoeh0/W5l1YHmZM8loBpa9bzeIwP5ZFnKAPxdOLvljWvMADMVXMh11hjXG/8i6yhvhCQq6fY/v"},{"id":25,"name":"Rambo: Programado Para Matar","url":"PTVX::xxxYStVc3APRrmgm9++20v77oPBAsYyMwdpFbaEPZE6tufwRkTwiTOEmhXGbkNGK/O+bPKwUhicGze9PR6DGuUjehdu8p0oy/ryE0pvZ/vTw8a9XHGR+"},{"id":26,"name":"Karatê Kid - A Hora Da Verdade","url":"PTVX::kLLemHw2m7VTmKdkfycna6U5zINGUtNu3qKZymZ96FCURODcHsdyF3dR2XwIO8OsF5B0eBExxUhv+KYKvG6cYTZEzPgWi/cZJbuzFXokbjp5Nx+9ujc6"},{"id":27,"name":"Loucademia De Polícia","url":"PTVX::VoaZ8zZThu2tiQO0Muw1dn2g5ASe8cefxSV9k4E/YOsFDl0TXpCS81ZDpQsOpRJ3jYkMMSQSH5v03uwj6RHGGdpkvSxIAzJh8fciv44MlyilGZBLDMS8"},{"id":28,"name":"Os Trapalhões Na Guerra Dos Planetas","url":"PTVX::9Ozb1sCqqr86Shd8zmx0sWqQOLk5kHmAmsMJHVg1KUPktbIvptovYfJ7r5J3Zlt2yBu2fG4Q/OxikGZz6r7SnjDoSMiVU61r5EKI8UCv5oqBlyKG3uQN"},{"id":29,"name":"Comando Para Matar","url":"PTVX::9MlDQ4DFhP4BN8u/lvAxOJXFL7zJL/CxyQA61/1BHE0sNetStsEIaiy2fqhD3EqRhxwUWZwRM8qDsIO8BnOa7zmPuhzQ20Wu0ZTz61M/vx4ISZZESAow"},{"id":30,"name":"Braddock","url":"PTVX::WwA1TGkCLcE8E+EdQsT8yQ9bCfcb4hqBT9yxCF/ybKvaZJs2ljGh93KW1u0fqvEydU9/QD6ODcE3fssdWDkFO+atemcDMNq3gJRdZ3GK78IQdSaubRh7"},{"id":31,"name":"Um Conto De Natal","url":"PTVX::qBsmYsipOuIf3Py+nU+YXXzW6POW+L0QkjbbxpHuu7a/zVHmzdGfweF/XzU6//J+wGqrJT3CtTI1Yson+/A07PZjqZANYzuOlo00FPg2DtnD7PZKg7KL"},{"id":32,"name":"De Volta Para O Futuro","url":"PTVX::luMlRVx5f87e+vnt7jN+1ffdhTd2Eh0NF9eGyj2L8A0vh2Ffg4F96lSRzjz5sljlIlGuR9la0+l8wd0kC0AcpBVLU71yjqPRJkTK8efCb/MdVkrY3lHA"},{"id":33,"name":"O Exterminador Do Futuro","url":"PTVX::7EmOYa1YHFbHQdMgorsb58mReYHVNyG/9Gz5hnzXCuxLARZf3o4m4uZNADrqMRLFQ02AW7+aLBCFBxfGf424tfzlnMZCJLXlc9y+E9MW6p+S4jNh5Ut1"},{"id":34,"name":"Duna","url":"PTVX::koZmO45Nu9dKXcIOJ9FZwtXSoNTBTi9kmuOZeaNHjO5S0nztE0ZSFgu/zyXZ3rTJwdxaNW+48DCT6WWY5rLM9XUhmHv4l4bMSTfXgSPI0qLRkEA2ENc1"},{"id":35,"name":"Superman 2","url":"PTVX::VhmhGIxEMORQolYAx2iK4eiksW2OJEW0v8d4U2yBKWI5DuAvBVxWCZGsJBzMtvvdBvExw7T9gRFNu0SPEiWdeffttWxjOZ54xpSElocrbik3ViL7riHN"},{"id":36,"name":"Rocky II","url":"PTVX::gLtkniVVWeZGMqZ7q79E38oIHK/iLlumXo43VS2xYlVBmtjLHOZVjJH1DiZY3oDyeZcO3qzH3n5ldhFqpgqaJO5u7eULPgljQeEbXikjxi8NUssxa8cK"},{"id":37,"name":"007 contra Octopussy","url":"PTVX::s/qLo0k7nSd1uc37eVj9aIY1s31jPvSJCxbogF9XsrjzgCTFasyVxWtb13XcMjDB/xyNOPMzLj/BjtlXJZcQKcQhJyzsYYJxGdQ6brY/JRv/uSYm9iSH"},{"id":38,"name":"Indiana Jones E O Templo da Perdição","url":"PTVX::8/PHywPEbX+GB7yPRl90MsutY+zZGpLtsuSNBSzTekKgmzPxWsBAfp4ZMIy5OU6/5rKIN3iBVytaEUiuzRoeZmRm9u2sxauSbgpZ6JllPls4WvF9DLdT"},{"id":39,"name":"Thriller","url":"PTVX::uENS6OH48Pg3zDyXnQcFJHBmkKwNz/eWe3wEfOlj3voueZqRUqJYpt89Ugv19OXACdHQzWN7OosCMvqsjQEq5huT1nJVAUW+sXse472vFVjrM7OfOgn8"},{"id":40,"name":"Gremlins - O Pequeno Monstro","url":"PTVX::ExQWoKZRIgUHrIAtc8htNv2taa7uFrIoXR7FbY4ApG4q+AwaZ4Iu+JH71djApty/MOwVWYYwAggqzF7vksox0qsDB3twQrPEo/m6JDuzCAayScWEam6W"},{"id":41,"name":"Conan, o destruidor","url":"PTVX::nrb/TTGMbskhvYhjDxN28Hpakc9d6CDdB0rW5f3GCvwUMmfU4327mAseve6vlAqFtUm5ET3E3tutiS9Cvyb91DeBdBw0bx932qs9f8O67immRgVU1wpo"},{"id":42,"name":"007 - Na Mira Dos Assassinos","url":"PTVX::bGnogxtHZbsFl+8OQJy0ruLbZErEfEItknQ3NFkgbReWZBfoVEBtHZE8ZR+u5OsU8FN8YncC4wmj3q+/qzbWi9XQTYaB3FUmmiCS+Dwdg9VbyF9SYQGy"},{"id":43,"name":"Rocky III","url":"PTVX::Cv2d482mGRkvXODY7lr4cSbISMZ1/7vufpy87HROr3hvHm53YHdpekOh0UEfN4tByvyH4S/kgS1h+QIWkr4srVVTLLweJnK2DbEPfLz9lslvFqPogNa3"},{"id":44,"name":"Superman 3","url":"PTVX::nvkDNPJ8Ld6koVc/a07Jn6RYtBKSFP861+JE7ypjYaSYSYqfbU+3H4V4I2ZCFiu/EepOZnf0jONW0DkabfIkwaGT8NyhYzjxwHewb2gDVwPARwOoF1Nt"},{"id":45,"name":"Splash - Uma Sereia Em Minha Vida","url":"PTVX::GbB6VQPVnB4FROUZoYaF+Js+0/6+LfIPeL/JLrJM86suXUjigVHKBg35PGJjCflkRstiFI2IXEKZoOOhLUzbUAbEO4/tzBzk9PQIUh18NORygI3N3jtU"},{"id":46,"name":"A Pequena Loja Dos Horrores","url":"PTVX::YvXrD8QIiUZAwvMoayDX6aRtxoQ+fLhviG1GWxQG+h5uvEUMpkRdaZecsVYAkcYLT3a8zRL95s5FVxE3pSXTVD8Z7Yqvl0p611m63En5YgrKSbhntx9e"},{"id":47,"name":"Tudo Por Uma Esmeralda","url":"PTVX::WsSSik9beBTgbU3UlTmrVbOuX7FiL8YIJuA4liewCTJp5IOaePG2ahHP6TcEa2vNDH6PCDYVZB39ODL+vTrWdvN61tle4EA96XoKhK3xLP+GisuHjiPD"},{"id":48,"name":"Supergirl","url":"PTVX::5jdDX+C7tzfMB/xp72yxKesR1ksjt5THAFwjqiZUyJzhHId5pG5rMOBISCC9Fv68Bt3cfqjF5PgmBFZYhGw8tEA4kxrWKWw7a3PCcygPd8Qr6dbiMdll"},{"id":49,"name":"Águia de Aço","url":"PTVX::kWHtCLDelbMc70iNvcEH8vLVylRqDGEh7sspfBBfC6KXWVbkkJY0xFlxRwJ8H8ASBBlHrJg4jSy28vNrUaI8h9QmreyMsM/dOfyyGAoAArb5dwJpyc/Q"},{"id":50,"name":"As Minas Do Rei Salomão","url":"PTVX::NCNKKdNiKcvxLkWSEM9x+ib8EtviudCo812T/2FkB+wnVaZBlIDIs+o42uXW8gGtiR+H6ZXoGkGkS1al4NyqYmtd9i+2LjZOGSbVzz8RaRu5G4W3U3lM"},{"id":51,"name":"Aventureiros Do Fogo","url":"PTVX::nM7rtpsMDkO/JDPqEDHJ50NbmXZG0a0RLZL7OsRabiDgzRODYxSp6yZGuttvurmpIYnwWnaBb6PI2ReXNbtdkjoPhTE1Ko0DKK9myBoiXFC5vUCD5y9l"},{"id":52,"name":"Braddock 2","url":"PTVX::6cYu0gaqPy0iJ56hPN1T6AR7sPpo2Pa8ZqpZe2P8eIEZiNFkxRBrf9xbvwF2y8Qe+ud/S06N0kLa/BtsB2RpM+njjORU3zRxoRi3s5gSGilBSfhsUyje"},{"id":53,"name":"Brazil: O Filme","url":"PTVX::7wq6UZTYEkRtvCFsD1NvkgDa8PZSfl+BMGQxHbdwpDhUSsulWnHSEUrvadQEyPmqmU9NoOLEeHeCUKaYKyDP8YLKMNBrlWBGrrUhbEXGV+QnwojNkYxZ"},{"id":54,"name":"Clube Dos Cinco","url":"PTVX::BnQgnRLeRVFfI0DEmR8sgaIlHyYaWKYPZ0deLV4qgVM/56UODrKhoN1JJ6CqYTP4+U2A5VjrCueqYVldFyNrYpGOwDy9ej3alhfkcU2RAh8FGygJGs+1"},{"id":55,"name":"Comando Delta","url":"PTVX::+5KGkY64GtrWfkrD6BaJNwfh0hGa7SWerAH4nNqlnXm0tEmgmCjKyREUWxYKSbSsbxjjD1JADBjQnRDuwZcl7hoBk8P4lcwIFSsrJ+Yb44+cC3STfIGA"},{"id":56,"name":"Conta Comigo","url":"PTVX::OoJDfuW/88XiUwMb7bB2g0U6sJ9dtAD8Vsh8KCcUr6+92rU5WUfZ23w7m13NDUrusTJfso5yi86vKUhZ0UPB7s/3RPbQS8vVj5dk6svaDTjNSKEoHi1g"},{"id":57,"name":"Crocodilo Dundee","url":"PTVX::FfWniP+QYMVBstt/ajNq9wi06DTg3b9klr8jE+y/M9z086hdXsVqhGBtq3HSNhuDjtFKTqzpOGtm6a770KgC2r3Xy+14Z8aHy9olr1TRqZd6eWwXYxa/"},{"id":58,"name":"Curtindo A Vida Adoidado","url":"PTVX::h7/atQ1E2aKpI0m25Pl8fbOrIER3zIIksZzWGjtqSQRSe2DPazHbAxKgvtO2o1n8iDT6mAJ95Y/piLDALWqT7mu8nvBUlpqMiEQJtQfgB0XWbjOLQpP6"},{"id":59,"name":"Highlander, O Guerreiro Imortal","url":"PTVX::EPW0dEuE1HLchnVY+P+Hb6t7qWeuuf1L0hzZb765LavYepebtKLTK3Ap74xWNniDBnkvNbc689ZWg77/0u+nawsZyt0j1DMrKnLKyyLUlgY5fyMEqfLf"},{"id":60,"name":"Loucademia De Policia 2","url":"PTVX::X9cQINa8Gl/8vn+YiScXghETwjv/KitwS4OYv+RuwKLLYkGkmhVOQe7rtt0D6DfBIduFIaBgh3XKXDzw3O7NM8bBX9dlWB8BILQK13abGv3KXVHFQw8a"},{"id":61,"name":"Mad Max: Além Da Cúpula Do Trovão","url":"PTVX::w/3stRoeGoq8rudkGmOXMUzskt19NBifWL9U/xPRT21Y2VkDyBhT2m807RUhcFubMHts6OZ0N/e93vSAcYl1AvjGpxWUWhN+3nXUjVnZTamPlY4+lM0B"},{"id":62,"name":"O Predador","url":"PTVX::/CXOXUWZH1L4i7x4DlXmeFk2oKhEKpOPoU339mlj0I7x63C4KUOP3xEfWxhwwA8X0o2iyeUwWvH5S+nY/7Bn4+Ahu6nYbZ9cHmJX4upY9g4TlBD9JP4p"},{"id":63,"name":"O Sobrevivente","url":"PTVX::181mmKECjgoN296Anus8QQp7OY0WIDE2ooiirgYZ++ntbJ9/iH+O2zzAMx1BRqGLLcw56gmXz6H7QQqPgU5SDmNPm3FXRUdhl4YxONwI6bxGbzEx24SC"},{"id":64,"name":"Os Goonies","url":"PTVX::7rRoYh1avNF8lgBVULXCAYxWYPOJYyQMfSlwyObdJf6b+4jp0ay99xZHyzfbrnLqKjThE2EmbMGf3SDk1e/cmP8baG0WG1JWzyIn9kCaNPC82q6kB54M"},{"id":65,"name":"Rambo II","url":"PTVX::gg4RVrMqsNsk253IqUcGd7gCawWnXKIZ/OXWDVHEo+Lm8qy88iDCbh3DndhB12YfCPSbJESKSyEFAcobGiw0aHs+YvaGnsek/2cBWh5gAjwgnVnuW501"},{"id":66,"name":"Robocop - O Policial Do Futuro","url":"PTVX::gSIP1h7+CPJyk6X0BGeAXCXYc0pudff20QZJhNn1nonx5wT/qSAduuw79g249EXOQoD3SjXrS251Vhom4Z2BNdsOp88niknGHEyBZBzt1ZhEI/PjHq22"},{"id":67,"name":"Rocky IV","url":"PTVX::RNPbMrjSk5MOEh0yknnR2pE+9Fp63jRW2sD5V47Vj0zbpPTHGtbPegQd5PqT5hrxIsgGVAYYtXcvTudYQLzwpUo7JCN1/FLBGeQJkIopY69YewoaQ/6F"},{"id":68,"name":"Silverado","url":"PTVX::Awu9SVOo2oZDy14QpctpSiu+AQPJtDyoC1aw8cB8H5Zlbcu66luU5N9fHfoYlM7skXiTNQmWL9jprnzoFNmv5psiJlX1jS9rbiEU4B5AShOG+4VW+/Zg"},{"id":69,"name":"Stallone Cobra","url":"PTVX::AjzFZiZYKtPO7nnHc+87px3KZTtFZAhKV1Z+kmIfhgTmYbWNxHg5KG6gyfyp/uAeArPpk52rRMSUbAJlIBSRRuflnFWCiE3g+QsYDVIAlDSvHB8glj9I"},{"id":70,"name":"Te Pego Lá Fora","url":"PTVX::oUK0EZVaPTNoBasQWTI48i+Zf8H/As0ietgGlZCJSgr1cSn52DTRDOZjhifj4tJmQ0a7SlmzCY4YiCjCzmKpjbdJ23QfmUe0ItKoAntOrNAmbMRHZZSq"},{"id":71,"name":"Top Gun - Ases Indomáveis","url":"PTVX::uCeb0SF8KELkdUQh6XLtMXRDCiQyIPYYhc58WkXHE4LUho0ZRT3E734lFfTVU9LZbwyTy/Sft3RxYasGOy7bt5rXzNQ0fprf2L8NF/SsiWBIkXPRCZPJ"},{"id":72,"name":"Um Dia A Casa Cai","url":"PTVX::jqCpvDBefdkYlNlVaWDCEy+oChzo+TkQ4f39BS3S6DmmklhMh2WyYS612u6FVl9V+ShLb4om6qG8O+w4RIa73lsYTY2A724YkTD+Z5OSGZOEtOCC3MNc"},{"id":73,"name":"Short Circuit: O Incrível Robô","url":"PTVX::GykPm2bfkCq9/DTjBzcdGelRSmbghdOw/QzXBD87bh/o7+ACV0fxwg0la1/JnzQfufQHY6DE0yFk2C/cezRpTxBpHIrvGRexqWikl10atfcbPCdxapoa"},{"id":74,"name":"Um Tira Da Pesada","url":"PTVX::XHJBvSGp/97sEc/HdeV7lLetgD9CIDo8QhqrsdzatJAhx8PbMZAxnquC/lg/CABxw0lLwvfhVXINFYmLPlu+EW+drSm513E+ULIpa17i6Gj0c21W5lr0"},{"id":75,"name":"007 - Marcado Para Morte","url":"PTVX::IQlXTKjxoXJksh64B2zKfN3EqqI34Jy9U6j7ncGD9ImtS9LsffCoEyOHN7tJpLZLQd9EV9p7Yut+BJKnaMPkA8X3jERrjsUr1S9JqKh1Y4M7Kzmg6msb"},{"id":76,"name":"Batman","url":"PTVX::Xo8bKrfH5/l8nJAMk+p19Ka3lJszUWvAg7cdJtlPTgWfsxkUHEZ9ZDHfm4MNgpJkR/Q5m4xWmLbdCjNmqYBorNbOmWgl6IBK1ywwb97jrxiyJ8O3elue"},{"id":77,"name":"Corra Que A Polícia Vem Aí","url":"PTVX::3pn5SKrTYVZ7gQamMboHo/RzM+8YvAB374uwfm0ibB6PO6XaeJOa4tdpNlnFpkgl8Lpw5mUROFKYB9+0FnJr/tikOPHmEr7q7E9j1j3lzIJVtGEhbK+Z"},{"id":78,"name":"Crocodilo Dundee 2","url":"PTVX::iwDiD/wcQWVb9mt4JvSua57D0ZJN5MxT4KBTobCfnZdP0efPRiONJDO29uyVALnQJiVagyVi6rDagMVRoBNXxpmGiqg7bUWqYJzk6EKCkEzOS+eQ6gL9"},{"id":79,"name":"Falcão, o Campeão dos Campeões","url":"PTVX::OU8TKSI2lqMHDnMkLqUVtDWq/L/TjUGL4aVCnIh1/uVycj2fK587tpylm5+wc1hM566xckPlmUsPesSRBFjsgcYFvfsweKAOWcMw2jEn1Sc9BAsJoido"},{"id":80,"name":"Irmãos Gêmeos","url":"PTVX::iRX2noF15FYK+ME54E8Vg7Ybu0kJBIvW8+bhud0MrUrqe4ZCZM8E6xGSDkvBbwSV76Rvdqtf157LNFYgcAtm0Do6Rzv8cbwVZojQmL43NRFX3j/sWhal"},{"id":81,"name":"Um Robô em Curto-circuito 2","url":"PTVX::qnStEwi6zbqS6VJdcRxtcM2+EgnlkIb4EGB/bujBA9rE/UX3QQJquBvl/vo0g+zfGmYGtpjbun1VgEZY8QKbBEX6CgSyJh/+AB1kSG9YOyQHSADV+OhX"},{"id":82,"name":"Karatê Kid 2","url":"PTVX::LSOURvadvwIMPyBZ95rp92hdO0n9DOCW29deENAnNVKIMQrmGDsQm9VY6n2WCZxmVO5iQI51Z7+bW3ZfbQExrYTY0uxblwZtrcqOpPoHXEvzPmOqkZM7"},{"id":83,"name":"Um Tira Da Pesada 2","url":"PTVX::BFokDflfzpFD1ppoJoOAtCBLV+vShx4hnhuMvJ3OyofR64mHFjhzVoDQ0XHmXPRvJfaCUrDa1Cl2965EY+gW46Wo2CJhj3ucOi6/yeJcA4+Vc7e5QDG3"},{"id":84,"name":"Loucademia De Polícia 3","url":"PTVX::9M1xbRLN/KwOR/VgKxqwZLuoq+UFSOHTgmmCXbMTgYorors5IXijLooJZHM9rQZT/WtH+gVtsya+TPybXe/g4b2RPAdE0acGibWgWNUxtHFH1XJaVw12"},{"id":85,"name":"O Grande Dragão Branco","url":"PTVX::Uo/Tn4D6TWGBkPUy1RR7GQ3kyb0Gyd076IC5nKyG5wCPQvNRnLT6P/G1NxBQDlV+fu2AZJ+uo/KFy8vGUGV6bdryOhpVL7tegj2zWD6c5pa6uycQsgEu"},{"id":86,"name":"Olha Quem Está Falando","url":"PTVX::5kPYx+u0O2jtr9xJbZVz0CLcNXS8SaD58hvuilIAaQAZSX7VN8S+Acw300K7ryYHFTjQhoA/iD/GDKdCE9unp5to8ktTJcONJc7x2ytJNgdAsLL2hQDg"},{"id":87,"name":"Quero Ser Grande","url":"PTVX::WEwUtUoj2OxwcG+so00rOgcwpOjm7Mwe7mC36iSLYXD3ZqLtTjPFMb0pTjy2LZLaVOEogSjnMR/o+u2wSXwt4ob3r3t1cWPtP9K491xDyz1dBNGe7Tpr"},{"id":88,"name":"Um Príncipe Em Nova York","url":"PTVX::84hGXGRYnVq7k+NrjOpTbkTmb3zAEMzLBmNEA4840EcMLCvZN29T10g/ML0iSNRF4AbGBNXOanJMrsWNuOfRXmJPCqxRHidhCaSzdtrsLYJhw8eXj4WD"},{"id":89,"name":"Cegos, Surdos E Loucos","url":"PTVX::igC/6ytnqGZFzCs0AXpfjyXUBiyuVyWjsPD7TmYTfmjDXn6iqk/e0hhCY4UaHNdVyyCCK+37JM/4u2b5epkUMzAd2N1ZYFAOHvvtucnnuJ0WvvnrCA/q"},{"id":90,"name":"Duro De Matar","url":"PTVX::UMWxP+d4TXLq46+EPVTBf1TPm1oTfIN2xsD6NXQShpGGlkN9/uOHF3mzOvPrZjnuMz73drP87n6JLsIdYHdveyAVkhG/A9A68hiKS/E8k1y5PcVSjKwk"},{"id":91,"name":"Superman 4","url":"PTVX::ZFpC8/3wCdVVF7BUNWJ8wrBTZFvgOX5z0DFhaFIYbBsI6//orSwyYcvhVBJX2mwC749avHfxFMHGgf1G0U/2KTx/eYqvXCEmuf15uvoMGpZtIsQTtHBt"},{"id":92,"name":"Rambo 3","url":"PTVX::0mt7uXrw4dA3AOLsy2wcdMa9wzSLdZOW2ABj5LtDrZdtPn5UNiK/ydzXN0C+Fl0BLOjE9O+uMZrw6M12aWraa5+MKXEZIuIFoJ44DOdO73P+JvclNxUI"},{"id":93,"name":"Os Deuses Devem Estar Loucos 2","url":"PTVX::m6EUy14LEjjxOUhoDXc5K1trNOwVgXZuqEyTXKKdCcckQi5HtY3eh/g7tOlUSuFynSQI/L+SnjCrW8Xh0au9gKNYuOUTxRC4ryWDo5CaHFi0+BhD2nKq"},{"id":94,"name":"De Volta Para O Futuro 2","url":"PTVX::t1y5WFhd9TGBkZLC6jk8PpmOUnK3aeKhrEmXiyuS3lc2pArMQvYaFlRdamNX2F4gR3uFH6JjEOhFRtOxJIIyPx7lgKWtSz2XVLrfZ0yss4kVCPtPcZ8q"},{"id":95,"name":"K-9","url":"PTVX::cGEHZHk5UzR5dJyGhhZfjG6/vonbwCYnNrxDSrDbCByXzfDYPO4r7gycYs+mul1so3xs3IihA32vs2BfeNl6fUvAdKLoNDSsXChlXMxL140BamOgMYGi"},{"id":96,"name":"Inferno Vermelho","url":"PTVX::k7S8a+2+OedzJTbl2zgJjflvjhUo/R45nwt+m7B7zSCflx6p+5sqL4Tnxmz8fKWku5G2RmdDYbU2+BKkUZaHWLqHXD3HSLGwAvTSbU3FtJtt2TZxGiVC"},{"id":97,"name":"Máquina Mortífera","url":"PTVX::WZXTvmHE61jtZYu61Q/r4/xH+zKbK3Kfq8QGwO0KgyQpyVGCRyy5N0xlOm20nK3Zp/6zCRoNPJVgogTukcV3AdVY1C/sKF++9WX5oAT0tJDDmA95Mo7j"},{"id":98,"name":"Bom dia, Vietnã!","url":"PTVX::4xvFdUp6+UJHXlWGzql3F+Rx7ugB1HVtVLL5w/ThneZ89OjWw7sb2PaWnI0aZ0dy1knVDASdMXmkjrc84557K3TlB4oXgJWkFuA33dm190qOKolntcp/"},{"id":99,"name":"Os Fantasmas Se Divertem","url":"PTVX::nuLjTzenz88g2B/Kh5y1f/fsAmvP3r5J4gm62eDWcgsCZu5+tY1Bhv4dJYDcYK6mCqTKX/dkQ+mkSZzdb6GQ3AHmH/kox2/WvXmwh5DyatUhb2TwTBX+"},{"id":100,"name":"Querida Encolhi As Crianças","url":"PTVX::FYJYJmts2CinRXM2CvO6un2vBMDX9XnituoW6Cdmhplyhb8WlLCDEqLloFWfHBaJLAyH67eFYTcC8Wt8OyGEKu+WYpSoSU9ObtzeXnuau6pMvGVSTVvu"},{"id":101,"name":"Karatê Kid 3","url":"PTVX::JxcISg7LKjWEM/sqJI6UWxf7bibsZXkVr6JM5HaZ6TI5xwlRW5WkGo97Fxd9pmEInET62OSCws+Qa9fW11euj/DVqzfxRNe038bLkGsjacAL9s96KpKq"},{"id":102,"name":"Kickboxer: O Desafio Do Dragão","url":"PTVX::LdoogX5NKBtcbo+qnJqJ6QK9Jr/wWMIpFhKkHu6bVINcTpxUHq28xbhkrjbP4nwptSbb0MoWAUghcI/4l9c5VLn7Hqj2GvDtRJoytQXtX1rYMgbG9fV/"},{"id":103,"name":"Braddock 3","url":"PTVX::d/H4D/GZIEQ4/Da0aaoyHHUVOU4oM68ns3+2KMJuyb7agrgdYicwVyHhFxTfZZ/7RNIBffgwWwuT5PgvVJBvjY03l/5ISG0YQH1f+hepJZKlUerWj1pG"},{"id":104,"name":"Máquina Mortífera 2","url":"PTVX::fRF268x/A1WSQ2qj0lRTyURCwwWVMjbhV0MylRfp3br8bJVpB2M2paXY05Mkfl5T5Ay4qGfoDpz0Yr26kduSeofDWFUSeDwc8Dkvl9miOKpeAs8UQYS5"},{"id":105,"name":"Uma Cilada Para Roger Rabbit","url":"PTVX::u+GjHaGge7c8fX9Jog9I22IkHXgUE2bOErLJ4aQPly5EQ+RlBY8+hjr6EQO6z0Wdn0QgKGdGd2Qo2mBVz9LXPTKbDXb9snFLy6k+NA8GIeGfRj6mIyEG"},{"id":106,"name":"Namorada De Aluguel","url":"PTVX::m1UOok1MJsiGDZdT104Ms1qcVvuMf4bD23NtxclF8w/Ku7TNAzIAu7nwKGFzWRsoVt0O+BkUxSswGBOL2kMbCliCGZ//m1YmE1u7O8DhT255bp41aiU+"},{"id":107,"name":"Um Morto Muito Louco","url":"PTVX::o9LtXWvOkznExzWxIeJ8N/8+dIevWPpJZzXjEeUUDGFUB01NjkT9ByDGknr96/4J8YOeklQW7Y1xQTjIjQ3U6Dh7taGljLVpW0rSBRIOKSeh1S7ZfKj0"},{"id":108,"name":"Moonwalker","url":"PTVX::1Xdj/4BghD1/1yXXWDFW8J4NQm5Mo3I0zbF4Qo5ULYRqR2+rL1SO+ykMMYryr0pcvtvTiG+LB3XcD5Hu20Z1/txUnFY0rJ947BvalggirsFEeY6vkF9S"},{"id":109,"name":"Dick Tracy","url":"PTVX::hEC+nyzYzJi4iXO4H/OEKmWv9Ylz/bwxMLB6ngWMLxgr4lAAnMNH5/VO/YdlLohT0m7rYQUsiHC8oRcI+K44YG6lPwLfQmMXZEKVQBjftG0z0v8i1GeP"},{"id":110,"name":"Um Tira no Jardim de Infância","url":"PTVX::OcF3UJfyHd5I6Rrd+vu6mkXsbw1+jzRTLUMcFCEFpEjTzbFMiJ7ILmWlQo3s9TvWFlvpMbBjW0ue8ayCAkcS6kU8gCJpIzxi4X+TZvEtX6W3BmCmahZx"},{"id":111,"name":"O Pestinha","url":"PTVX::H+Lq1udEBgl3j8NzgO4HbDvm5+Vf4JMoVMwUcQtbTE1WK2X2ddtlmA6kYPiSaPzsScZ3WE3KNrHA7UPOovLR2bVU3ZXHG72UTD5W4l/x2wU0tHvXlnwM"},{"id":112,"name":"Gremlins 2","url":"PTVX::siYkudg9FikjGl1pfeuKLHxeZsQ3NUhWwBNmyA9DIPh2j7Bt2pBPTeT3BXeuji+VQwagvRFNZspNWhNSO96DvaxsE6QopT8nsLIYMjzvS83m87ZXTCEb"},{"id":113,"name":"Uma Dupla Quase Perfeita","url":"PTVX::A1hc0Tjerl3yka4NfRtZgi4ctIjfjAxd0X/YjzfV+Yn7nkP9FcWow6okM908MI021HqenDbZM2QIL4CPyvcdYuORKtSfOAjh2lFJm7CCvlyePXBcqktf"},{"id":114,"name":"Rocky V","url":"PTVX::sGcmoGjOBpV6+ODmLeRxfBgle/8+hnn32jYOl4MLBtDU85ZqVydgXRnptlcWR3VCDYIbbHaNbuQaYOBb0J/Eg8a1m5fBpXCE+KVmkJE97S6HILWqgWYC"},{"id":115,"name":"O Predador 2","url":"PTVX::Bex80EEaLIdnYtan8y5mVUQMzjDyQA3eUQeVVl0xowFaG5mOLQawqlBiy0NJJxpjeAVWo63Eygde0SCTVrg4baHniOxnvfnbQdqu/CNfbvBXsqaz5r15"},{"id":116,"name":"O Vingador do Futuro","url":"PTVX::mRvSO2rOA9OTLQl1vy1KnxuYMju4wIQGX0dZYTLySpY7LT0+PNsYrpj4/xplc3UFB/Xy/oqJPDzDdCYTyVclLuwZuHl7P1lGYN43y929bNIY2tzM7Bpo"},{"id":117,"name":"Robocop 2","url":"PTVX::UMHe2XPjU9d05u7NDr9wkwLjPhipgELJFOuQ86Nf7RQNSimVGTTntfkhfdtIw+//CrvkPXh4nu332FnCLnXI9LXLOADS1N9PHOJIFtxxqy+Zzjzcni3A"},{"id":118,"name":"Ela é o Diabo","url":"PTVX::88uAYVg9V+kh7Ej/kx1n5+muiK/GmjNK/JcXHr5iVjW+EJet0bDVouFkencSlvFxWKe518l0YS3yClkElvAH2SADFTNmTYwJj19Oy+kVoOSGpKdTPO6X"},{"id":119,"name":"De Volta para o Futuro III","url":"PTVX::bMvfWfFi8ppmDcfiPN7MO0qX1A7o48Rpxr56MEo8f6MTKEDtYYGAC875xja//yl13Z1CWWeqyDYg6P9nNVywmzDDlvj3x9p7RurCnIopn5ExlRhDJ7Kb"},{"id":120,"name":"Esqueceram De Mim","url":"PTVX::CKV4ge4Hz2L/eFyvU6Jo90QSuYg5WV/Oj/qBLfhN8IXMZ4cYJ7ACSRJ3m308w79vjd8rUaBxKb7CIJJJ20IF5xbLRwKWbLp5RKYVj+kCfedNmqHQ4n5J"},{"id":121,"name":"Leão Branco: O Lutador Sem Lei","url":"PTVX::gic/2MMW3av4ob+4YrDkJ5h5/SZu7iC2O+yUoRgf6sCmboN7wD7aqbdZyr+A/cbwqinb1a++9lkIYts4FyoFlga8ttn3fxfqHOVM1bTm178R5LGRxC64"},{"id":122,"name":"As Tartarugas Ninjas","url":"PTVX::Et4tb6n+SklpBVROhGT5Rfoq9fErtbIVyo4pncWjZCIENXVFz+aKFsTV4hPXmUI3GViwNuUkB+L4fJZwGT5rowW5+3IfzqbPLNkMkWrmFWztNzLUPLXp"},{"id":123,"name":"Condenação Brutal","url":"PTVX::uQWuYBGDk9Af/N3i7J9+/2a1BrGekf0BVtIHYC/LOMbM3Duvq2NzRSH753Q5AnmzOo254tLy5ivnJg3ocRFl6H+JKuwTAcUw/s8t1Kw/CpixKeopYZA2"},{"id":124,"name":"Ghost - Do Outro Lado da Vida","url":"PTVX::8DIAgZ8nGMzSYkfUSOFEjL+Um8RopQytqAFn6Dz/+HU/DAr4Tc2y4V/MB2Pwz63EeQDR2NVS328lOgz1JQfYRJmZy7HIPY+tzoBUamhpVJteIzvCFR2y"},{"id":125,"name":"Duro De Matar 2","url":"PTVX::JKVcHpUIdbOUKfTSvMSiCPkakJlXhvcBAALUHOsTwbWn+H64xKL4of7EBeSEYht6qOM2eShBQwhfb72rKPVP8B6j1k1KVCtcp/RIpX844s/pr6AsgXMg"},{"id":126,"name":"Louca Obsessão","url":"PTVX::IpOt3L44tw25r1DNBcrbyQnD4xQocFEb+QMpM2zWgBl+BkSyzkEWteHq1dkHiqPAdyOVBBoRBRh4aToQKAb1fLx9J3X211RmjrPNHtYNMpVq4zClrgNc"},{"id":127,"name":"007 - Permissão para Matar","url":"PTVX::NL3pb8//CMSoWGtkRtRMJXzLC7H6IcwYyiJFlJT2c8IQxcZ0OGjaLAl5veZT9Z5Cv1uzjbTSS/CpS/0Ne0WIs07n2C5bxgg08G3Qv9GuFPJcuDKdxnX6"},{"id":128,"name":"Edward Mãos De Tesoura","url":"PTVX::b1M4429EXp5KTXSRYtVlVtJ9zojUpsPjDAm42m/Z8GCiKJl2CuD69iUALQBWewJv17VtDpMkUw98fXWg5Zif2IJGH4aBuJfySQWkcUBkqBMkS0Lnpj8+"},{"id":129,"name":"Indiana Jones e a Última Cruzada","url":"PTVX::au/qpm6rBouY/CtNlAvnN6AbGjCc7rVrO2qbpk+6UXc4grvSypd/osdWqEYJpol7ICvGC8/SJqVDUQPbdUehHv/RQ0nG75MLu95rvSLiww6ZS2OIio/3"},{"id":130,"name":"A História Sem Fim 2","url":"PTVX::Q7QODdhcPrqEiFx3lH+HAY2bMLRmiin/f17ZhVw3kULVIaUOzrVWsRQu1gXXSkHerjquBsodgkok/GlKuYxgXKac91UizniGXmUnLJdqGQVNivH1W8jV"},{"id":131,"name":"Lua de Cristal","url":"PTVX::j91Kesa5nS/VqgqhlURSEEmZe6Ort8KpG4QJmCeQJja0KupWdjV97ivbLkw9KR7uRMq/kYM2qnneLbNrI125mAzwcxveJLTrSqVPVil1+OmHs6y5tlfB"},{"id":132,"name":"Batman: O Retorno","url":"PTVX::qFdl8RlKD4i+aG963P4ZAyOsxjpRNDSSFJkvPYx1pvWQqKuO9oUFbI+z/WaZH5P3jm7cvv8XUq6FvD1Luk/PxDAl2kMkjUkLH/qq/E5N0l5ZcYMCsIgj"},{"id":133,"name":"Top Gang - Ases Muito Louco","url":"PTVX::0Wj+xMWhAyEY2dkqcA325PHE5pX8wpYMG6RHIbjSt6tb0voi541MBLinvChWFZxeHDJLCc/aYcvP6CkvDMA6F5oA2K2xlxLwrmj5pc0v6LJcpWVWgNF3"},{"id":134,"name":"Os Deuses Devem Estar Loucos 3","url":"PTVX::/V8oHrOR+5z1fIGZgCOqQhA/WdwyxVGLIOXLmbE9sguMw10LEKik2avIiPtxmJGVkjNVUojxwslEtMWkbLGk+SXiWxuZiQz8nK1Mikyv7qTbroHLac53"},{"id":135,"name":"Operação Condor: Um Kickboxer Muito Louco","url":"PTVX::itwLFmmH8W0x7DKRNKmKHUoqgtLDPLL6YpSV9p+zbUoSvGIGFOL2BxwzLssrr1nO8GpbYjTjNL17bz8agK1yLL8IXNpenbibmDzRd+JgKfYPee2pHR2n"},{"id":136,"name":"A Morte Lhe Cai Bem","url":"PTVX::+9MyKP4pV6REgOK/aGsHoWDkmuLjqZ9s2pGX1f92OKmzOZms3SVrJAI+1KkiyQaL+PkkZ5dD9+U9YJK6e7iwfK0Qx111FX97E+2d5klDvc3gz2L0W3TR"},{"id":137,"name":"Os Caça-Fantasmas","url":"PTVX::ImB/aPTTTtjP9+t7SVau03QyDjlJUBhcW+s8O9ODA8yJKwcTGWXjpeUgq8n/jJN9udNUcWFxaDiKtl6FT4vdmEUgMoSOSlDgU9PKTGLeEPo0nUaf9CCegQKvpP6RHzVjFlK+S1jZNL4BZIdV81pxQA=="},{"id":138,"name":"Duplo Impacto","url":"PTVX::gEZ9a8NnlAEG6SogJ0gNv9Lhy9LKRn/0PFV16v7Sr0T2MJmGoaI/5uVqlmUz2lkwCAaZY+T/N4qSfUjmrq+hAUJrZlRGCDqNcx3ZWNL6wnbuX8vw4WwG"},{"id":139,"name":"Comando Imbatível","url":"PTVX::owcqEZSc2tuA4wVKyD4jquuNk8Cfg44tbV1+erZpe30HZj9AqLBLle9j+PAe8cS0MRJ+Akkgun0Gk6puu2+wzu5nH6VgcOkH39nXOXeY81BgD0N74xQq"},{"id":140,"name":"Uma Linda Mulher","url":"PTVX::S9U2V3+vgZVj5xVqIllA1+Rk8PdMZyy3pYAdWR1uo/FbEUTmN4Fam9H5wa42dbTiIPdfKFRbm8WsJFpzj/3tCR6KhhYjHdpN9g699SOBoLK3Yo3/vMqo"},{"id":141,"name":"Mudança De Hábito","url":"PTVX::US5hMR5+iTI/0bJVxlkUa/pX5ssKifFL131G0rXrNvyXwc39+RDf84J/U9i5RN6AM8UjDgUyCCcVz8Y3UqaoKqbaqv4iv7Ww2iBwGB4QUBpKKZyjqUbH"},{"id":142,"name":"Os Caça-Fantasmas 2","url":"PTVX::etx59780+m3Lf9OZbCxhVHJstJhyqhuJxhIXPANaaA9Y0KS8EdpfbUQzOYPN+25s1sASplQC9s9oJ4tWPzJ+9F4fw+IDAlVyQohzbNSgX9xEQ4iJz0Dh"},{"id":143,"name":"Caçadores De Emoção","url":"PTVX::TieYjE9g6vpOxYkmOXB+MT1zr/a4IIMzMuex1+J+NNfyfp/N88K+uhoQxeHZpxEBmLfYKjzCRnno1x9Q5Recs9Nsv67susxlarqFzIUW0lwPz7EnaPGp"},{"id":144,"name":"Se Meu Fusca Falasse","url":"PTVX::diQkLtWQedgD+rhOhivMg8dvCGhF6QE4OOzkXZI8JF6uGEth8ZIl1laYZz+3RzgAPQyJ9i+fuUFroJRJzUzF7JOwDZQeemLGINklRL100wOMSQlikHvR"},{"id":145,"name":"O Pai Da Noiva","url":"PTVX::VKMsig4D1r66hQwdvtKoys2Rx2Sm+eFAU98tu2y7BdMMlTHl3Za0EjSQcEAi29ya/i5/zU1ZUD65d1z5kV2ATjLWFV4iA+nT+W1jqecBY5uFEKf+/H6i"},{"id":146,"name":"A Família Buscapé","url":"PTVX::dsaZhqHdkHyr+18A2lbqmxxv40G056Utg2AGhwNnWFPiiCq9ZECrTAosglA6HSCJxRT+vibbgwsRkUyCgLoWm6KG9l3hP7ZLStPWngjYYG029kM/OwGN"},{"id":147,"name":"Olha Quem Está Falando Agora","url":"PTVX::iJSzJkZTqbUhlIbNln0Q+ZOTKEdpj0cSwFfK1DwluUdiC9dwbLlF/usJ8yF6UM0i5mOYqOeWZ1xx8EZOxArduLsUm/rZ77S2wKfNh8poV2bfwGwDCTaW"},{"id":148,"name":"A Lista De Schindler","url":"PTVX::VbLdp1bz+gRgpmbXgxRwmNjtckTIvhwHZpL7MGnd4kpuhXoDhtI6w+MVIKGCkF/zF1AlbZdpCpfhJsCVHgBpIRtK5aOy4H6xx4HR42emiBf/6LYS7VId"},{"id":149,"name":"Robocop 3","url":"PTVX::ttrVV7CFDrm7GQhp8y0L0Y/OjpSULKo5qFP0bHSPVwSCIjMCHgHu67UGUw+X402qm+0oONK7y2Pdfzl0fxcIpylxdgOU2UL5Sc8sIB0744cwfS+GRFpD"},{"id":150,"name":"O Fugitivo","url":"PTVX::bYpuH8Ygidj25JIjRvKeVZgDVpvFq2v5XFosu1WnfyDIgB0ethMUzvgxbScWoEt23WiUsUwMP2Fz72Oz5AGGFEmVMpz9MAiYRUzVoquTyfk6/5uJbjb7"},{"id":151,"name":"A Família Addams","url":"PTVX::uzo6Eqqfv6jlP59mGDJ6PlKqAEgmCQGDfNZdUCtVqLpgmaTbMbeo7ETaaC/gWc2tSsXxomq07IdrzG8Houv1ST/J4bGH/Pk8Sw8bauhi4hSjW1HoqgPb"},{"id":152,"name":"As Tartarugas Ninja 2","url":"PTVX::LG8tnY2hDxd1u9tHUZl6hTBN9Cv2B/mvr7Qr3QygtPtdOk04WJ5BbF2+RMUQ5FfnTjQIuD8+O3OsA0iNMDF+B1OixJ4Bi9biw11Yq+GgLsCdLVR8RjzE"},{"id":153,"name":"Abracadabra","url":"PTVX::c1HcJYq+nYVW5xbyu6EG5tZyojVptOj8iEEU9EhnNz3k0DpkIfmH4QhDP2M8L/bimWUrahYH2xXWGMhZkLwuyu5h1V4QqZbzAFL9sHLUTWuOwFpDRdEc"},{"id":154,"name":"Mudança De Hábito 2","url":"PTVX::We/pkQ1Obr5J961lVywHy9dU0xQBxMCGtjUGyk5eu1tRhQCSqsLxatGERhp+CiFqeM6mJu3/A/kYMX72GaQ+q7nv8r+peO76NJ3R/2E8jetlQrFyrwJf"},{"id":155,"name":"Um Dia De Fúria","url":"PTVX::lamj7KHPgtJsIdf17yOBIeOASIwQ1oJzuex0oLIEuL1OljxzVrcq1mCuogsKkHRiNgYCErdytvsYR4/EAKi5OUODjJhrAfBCSqJ/c7V48asmr3BcS2ZW"},{"id":156,"name":"Dennis, O Pimentinha","url":"PTVX::Tfk5bWfY3TH1cxfHNzIHY+w/IrkHJgjOVatAQ46fPl1J+4pL6yXRvqZE8+g1NRcY24AtaF4Y5Si9rCOMOTl0zlm3nJ0nZmRGDeYJRg8Hhk81BCA/eBsM"},{"id":157,"name":"Kickboxer 2","url":"PTVX::5nF3mm7fks/w2tEXDfcfnXEqHvNSwlOYHE6v2izIws2lJTjK5XM79owg4epjgH7lVcMaL836PDvmNOGxeuApkTjyibDVh38VceLfhRPwLYWbrRBJcKYb"},{"id":158,"name":"Questão de honra","url":"PTVX::C+wt/L6h3fOKwCJUokr7K72dXF5KyF287d0pt2H0A4lBgkdCrg1z+WpTJc/A2r/ZEJ9JmhAUiW9hsC23CuWUiH4Oh+N2CsY63s7Yq218Fs6E6p920nRQ"},{"id":159,"name":"A Firma","url":"PTVX::vvBQtA84DwtfPM23mpoUkCv2ciVRFyP1RMymFAARzLeewBP0G9VdwnH5cfMuUZH4t0LLRlBsGQG9ObpJ0EQWEGZLyaWKzKt+F/CWJ47PDm2XZKIUNeXP"},{"id":160,"name":"Jamaica Abaixo De Zero","url":"PTVX::lxvASZvpisThtDg8mAPDqQmGQ7ew83qNcfntz/YmUbt35bBDJA1MY0uujIYHMURUZVYM+jQS+XPvDmwSvtr9O9gFvWpfkHov2frlp4q8zYUrKogaFldO"},{"id":161,"name":"O Anjo Malvado","url":"PTVX::F88HWcvO+BZu11MCHTbF4gFDxeZq6y96TXAHLy+xngvxRtrp/nyXbSC54Bm2pGimOEz+JqzdydFeB/7SMUjjaJHjWGqyBCI7N0z31ClP+w4OO/Z+NY3v"},{"id":162,"name":"Querida estiquei o bebê","url":"PTVX::8wAS+bFvrmLaCGieNeCSFTIFmy8WGEYLTJetjchrFfgg+3wN5Qv+qchX1am2Y7379BjB7N8jo5qIynhx8H/PyVALu6BMjXLnXX9/UKvtHHfi0kDkEod/"},{"id":163,"name":"Top Gang 2! A Missão","url":"PTVX::9bTchASZbhvFyA0a0jp0cE2+I0Atgng5ZZgUNObgnq1cY2RiCs/rx4mtAlf+CpGnReSdTDPom1aF6/7rdSMEBjw+NEU4p0EMkumNLcHmdFkrQEBfY4dg"},{"id":164,"name":"O Alvo","url":"PTVX::ByFfSeZeUVhlw+0kwKzZiYglKMK/c+k7w8RzvvmCHAyPGtO0Qv19FXOpQjlpon/hbnd8gVlBwxJ4Eaww4C8DMyGJS7KnsPB4O9jfDAduVLV87HswwE/4"},{"id":165,"name":"Uma babá quase perfeita","url":"PTVX::03sZqqzgLMM/SqJ8DjDK3el4wIBgFWneHd7Pg8UwvrKIxppRULy7LFh5IBqvWrJh2Sr1rQ/h69qdelE5zr+Jn6xb1NhP6sKtLcQUspOTYFKnXV/YM2b4"},{"id":166,"name":"Risco Total","url":"PTVX::+8+tXZhwXKrcehZxtmSh3WYBnKWYF+TWBYq1vv2Kunes5QwhxXGmP2yaOGMeKyNB+e/hJq4pXpay2umqicvIwjDAVJnUvKS9Fzu5F7J729vSEA5dckEZ"},{"id":167,"name":"Jurassic Park O Parque Dos Dinossauros","url":"PTVX::DllPzwo5VKZLsVWK5vxzlKzMqCwmkHHqpApOQfU9ZtE1XHXtE9TowHnPFMwrlMtvWbKZxRNWc22IC6c3gEfq3suwyYlwZt4NJyiI9F6m6TK7L8tvMwIG"},{"id":168,"name":"O Homem Sem Face","url":"PTVX::XKKPNfNFpeYmXtgT/0fPU2umSeBkg2mapqdQLy/FSCViyhTAuuqhGlx/wogI7+a90hrWyaJ3wtNNkh5VNTLEN/ZT1FQ01KDExk4n+KgSLURFZslxncp3"},{"id":169,"name":"O Demolidor","url":"PTVX::XDVf24zSMOfMcM+hBNW1xgMLeHEgMziKvHJzhomHOtBQKZF3HYUKk0cbGyIvUc9LxJLO4vNBGQq6G2/aV5h/cR3klXZMJycAKDrIyxgE9BsZqWtq0YU2"},{"id":170,"name":"Um Morto Muito Louco 2","url":"PTVX::HcCOgRY9CMPGeoWMgsYaLwgTjWuo0GO/jD/6VFYMcxGJ5alLlBurT+2qkLCDdYU4AyemXVU3Gtrop960fYU48lO6wjN9Dhd+/WZbU/ldPuD91I+VDsOj"},{"id":171,"name":"Feitiço do Tempo","url":"PTVX::dq50z5Tpt2KYrjNuoimxU7O7Ili7NXWf1quczXL2UEy7VY6e/KeB1++3UXIPKiTI6qr+5ptgz1x8ha2eOC4IEog25U0tbs/GreL3h4Fc8OPfJ+K1LuTp"},{"id":172,"name":"Meu Primeiro Amor","url":"PTVX::wxRvx7PtpFTwMk4xUQUoC+cCvab0vEty+BsPxd92TD9f+DZ3nsyMgtEBC31aFeIfPlNAgD/h9dWVkiQEr5eoGVprqKynlSthjTzLEo+awkvxElkPb9BV"},{"id":173,"name":"Rocketeer","url":"PTVX::8TPIqbYQ7tOM3TdyWJdteHcdi0v1LqGlCmS0iSoNzhmLRlwEXK/MrAJaZ+MDBTiQeyo5O38r3dbirRtLDnaz3DxfFOoNMeVvkkMX8/Gb9dLDOQXoFw3M"},{"id":174,"name":"Os Imperdoáveis","url":"PTVX::pgyvY7sl67C5myLDbPMzMtRtyEvqMRzn07rbxInGELu11ZxoP5CkTCx05EkSCcwhxJA5ue2e3HcDHyurriskAOiwYlH9SCJPCfdflqsGEPa5KhYFdCVF"},{"id":175,"name":"Soldado Universal","url":"PTVX::s37Lf+ZW9TVklXTIcbjzJ9XCtAYghGvpCYTe74jMR4n0TLC6WXkkmlbk0S5RdKhpU8zAtSTvGq+5PTQ6hGEH3/fFs+EU5N0O3hEbT7PQsRP7F/b1Bnvu"},{"id":176,"name":"Corra Que A Polícia Vem Aí 2 ½","url":"PTVX::qXgoxiV+LR4OEMTC7UIbipgDeKodCrJex4lWJvhRlDgqxvO4WeHKxD1s1QelvQUhDLK7owThdImMLh8x3pe/2TOS1CrOFwsiVcLdXceXQoflDQWn6yVI"},{"id":177,"name":"Hook - A Volta do Capitão Gancho","url":"PTVX::UJWNr+QsR5ZqudE47uf+EMsoDAlDDT3MpsXMdvsa1xzoTwSIHSUi85xn2cn87m3e1UDGk0j8C1JMWHCrJC8grKxKccHKozA5zxUzsBXRiOchF7EqIaUT"},{"id":178,"name":"Highlander 2","url":"PTVX::Fpi3T212tYrsZijEnd+it7rh9ky1SlpHzFrGGnYOJkKPIiKbhpwSsKVoPzZvPxLaErZgh+WesBkVObAXItEoLLaZ8Kyo880Y0eCWvr9C0oR5k4O3FwSr"},{"id":179,"name":"De Volta à Lagoa Azul","url":"PTVX::rFNngqMKVmtfIUIQOtaN9GKGyZASiUwWniTI/uohm/C1zH/k6XYcZcTUfUKupj1XBa/hAV+xSvt4gR5g/KMPc06T3TIDHdeNNuzzl1BogRLYucdC+jMA"},{"id":180,"name":"Mundo Proibido","url":"PTVX::mM2zmDWtwndMMuP1wiwMFf9aWV3ndVrSrxfXYsDZZR8R0t6HfQfW7zDyqtzl+FTMIUW0v+d5cgUOIeQkqNRGHVa9O2UXOBjGY0rcjm1YDU6r2G1lKNLB"},{"id":181,"name":"Manequim","url":"PTVX::D57I1zp61L10S86/W+EYceRzvRq5HMWT/Y+O0EgQciF0PGohFe910Zt9vkJ8h6+ZTg5oRw4TKVsYujgBmhB941EVdqCuoa/Q68wadUh51Wh0ujXysJ32"},{"id":182,"name":"Ninguém Segura Este Bebê","url":"PTVX::OkRXHsrObUQoCUoHstGlrptx8tE+v/hEYB8CCZYiq0e8Q04mGSBRSyFAMMmNP7tuuweLUJ1VU8juYKL+VJhs3EtoUhslNAVvh5ueOXmqKUmLxKtQ+Tg0"},{"id":183,"name":"A Fuga","url":"PTVX::xwEbJAo8LkOJnnf5A6rMYYGvAVB7xraiAc3/CdjxjZHfBisMMrlD1FjiICL4XoGaL5DV2P3a5sKHq6Lo1vCeFCUqlUfAuiMm6RXMtSrUyQMJLs5F2QLe"},{"id":184,"name":"As Tartarugas Ninja 3","url":"PTVX::weslmG8EvbJ7kgwDvE4r4VSYLEOhZMDlBs33mu+34hDSQyx7z13/JaDZv7AvI9+2WoXf0uv96m2biZ/4dmXHhICUDJj+GVTt2cpiN24BjSb53aIIsXri"},{"id":185,"name":"O Pestinha 2","url":"PTVX::3wG9emH5bG7ElZy8qztcbQWArJhCjDV6tb18EuZcTHl7W8mrjfY/EX2XhbB1z0F3bZI2ecgrXeU/mjWNu9Qux8QqoFvm2zy2FoelsJN8nNb1obJEgHje"},{"id":186,"name":"Um Visto para o Céu","url":"PTVX::QZ9zKKatn6mKhhR55m4aqE66RKga2dFOSG7oycTdYtYfwQKyIfJLI1W5V0/TN/1H9Pe9SmM37M+BlhsCaeyJCBZJZo3KhvXOyZZgSRCJpAzaoZBa8f4y"},{"id":187,"name":"Um Tira No Jardim De Infância","url":"PTVX::B6l3QatV9FrG1WlpFxMWLqJW1EILNnhmRDq08BksTGMOsrjz6/DULNsZK21tf08fxoBOou1i0MchwllcEwe2FtiDFY/+agNEX8UUqKhuJj6PxZQ7+Mvi"},{"id":188,"name":"Kickboxer 3","url":"PTVX::45+D0WNSbscFLqazOMujfmOy4K9HVKIA/+IVCUz901b1vZBYICLV5p8Z7KQOIYEj6wF7npTIXWKfUfgl4cRkPvcISnQ5hloO9c40qGIHGdhaAeC1eqgh"},{"id":189,"name":"Máquina Mortífera 3","url":"PTVX::sym6M2Nk1JLgwW4NDEEr++gs6nWj6sSMZ9qvZmq+ttYCpVShbQgxh+D4N216gHzpIdOEtgq0eOLzS9C7UchMF7zU4LWUjDEQKG7tneTfLuYUwKE3qXh2"},{"id":190,"name":"Thelma & Louise","url":"PTVX::S/RO8/OvsQEhIKuq2e+ncw8FLsZOdYQBc4wA3hgnEln+bI8+q0oGCZWTSCFuoCxnJYX9oSv8LddGJcyWD5XQAflGIUQ1VLtA67c5mqfvh3cfGGr0jY1J"},{"id":191,"name":"O Exterminador Do Futuro 2","url":"PTVX::Ifi5kS5+rhcrV6Dt69CubzwQo3AY3DCtJ+DpdYYf5CVHiFG4EMsoDw6Zidsre+dnSEAWPrQ08fGjvHaoy7IaleXbGFyni2vMiTdirPzlOpm8qTLwl37j"},{"id":192,"name":"Velocidade Máxima","url":"PTVX::YTTSVj12eiYaOBWHBhDNCntlEII7vOi46c0eRVCd/i6c1s5iQakEdl29JUU6oQutCnJwRxZhsr6evKuR6Sl2ZCTu20Mq2heFMoMtkQ5R6Q9QSqRYub/f"},{"id":193,"name":"Forrest Gump O Contador De Histórias","url":"PTVX::mCu3f3YZKcGpERysIZJRdrislQKnrP45gdNIviokQcmetNr6YpwUw/vHPuAiNR7ydhvN5I8LinLy5HUhot3JFoF9a9mkGiTD6oQc6bZCkXSVAdSvt7mj"},{"id":194,"name":"Gasparzinho","url":"PTVX::hwALhf4gXdgSfxIAPGSQs58AUu+Zt5G5FRPbFUzLdDcyn4kf3+2LyKRXJ6gvP0HDpVBQ059Sfbnv43ZuVpL6Bk9EzD4q914AtzDdc9gRoKhVTHzU8AD/"},{"id":195,"name":"Junior","url":"PTVX::WrH76Zq1L2r5HDryKA3MAc8F2CAVlBsZYjg1ULGq50HCMQxpcdw7FhKmQi97egjMnOEA5AXaDJXydlNf4MuSemcCDxN8ZZgSV2HMMFKAcGvyYnxQj+oe"},{"id":196,"name":"A Família Addams 2","url":"PTVX::taG4KWW/Ki9kGJ+R3X9AprOT4YA+yKb0VcVQifuj8zkZxJd7yyUkffT5gzvKkB9DiS8y31X/VAag38Wj5JgzB8W7qYihSQouk9HRUrOSQimcJhygfJRt"},{"id":197,"name":"Assassinos","url":"PTVX::noo49sPhCRmF79lPVOrxPTVgpP/+9ia5hg6UF6MRe/D1v8Da29UhABvD8D7pzLnL2lNaQ8+gr+9upxkA14IL+opAbaHw3hhfJkqUrmTDoXg7nR/anFfV"},{"id":198,"name":"Kickboxer 4","url":"PTVX::ptTqZLFAtM4wbybq1cVJgeNvn8+DE7nZ2l0GO+ezsZG9WTkB8HCeg0uO8UtkO/JVHDZvQxQV2bhrkrjIGNCjCqCa6YemRxXoPFuO3g+n+Q2g0pUSlMXU"},{"id":199,"name":"Um Tira Da Pesada 3","url":"PTVX::+i6kbBXBe20KRhYM54ONPe6ooSfcFjX15R9ojIZpObII93aYUa2uojgVQCSxthZuhflCyXNAhfFy4+zXOyLBe/wrnaImBzwMJkOcwPiakvguuecCd/m/"},{"id":200,"name":"A Ilha Da Garganta Cortada","url":"PTVX::5EdfIsWx5gKUzkrEzozDzRnfWQZx/aYs1x6bNVs1u08XUHu+NHhUERiVYo3m8WigPCBBE0c71GJ1y+s5GUVz19xvUlq9LCNVGPAbVFq9s19bNBnfIyyg"},{"id":201,"name":"007 - Contra Goldeneye","url":"PTVX::9Hh0jSrlZyVFV8lOMAYJiKN/XDKFaQdgkI3kyZrWc9xr/Lsgp/1NHpuGo2IF2QJRHtmoerSnlobyk7Orv7ugP/XqqoEkCKZQdRGhfDgzzpzSERDp6SK+"},{"id":202,"name":"Corra Que A Polícia Vem Aí! 33⅓","url":"PTVX::Z229h1DY5rYOBT3UOdZFi3pP8MkO3sDP4C2J5Ttv+qYG6cgHbYpq+FYyb94jQCocUQQ4DHk2e/N2klceSkYL9vhvWhsXfMQhYZi8KvHdc9e2SkyjN+Rm"},{"id":203,"name":"Os Batutinhas","url":"PTVX::jQt9Dpx/Yma52pOC09+jFgwiT7pnZndOybSsRKbMTcUzq+8TlAQLQz8NoxDX33B+2Z3IP8ycL43wgzbMYpfMwGYzz6WxMn3Q91QyPAnoaUhC/3OtGFB7"},{"id":204,"name":"Cheque Em Branco","url":"PTVX::eIyXQ9kY8rL2HkMYfqQfveYLV3AWMXMJUkITiSnDYBrNx78CdgaSZYrNF0FKCZc0q0oZ3u64ZhUYrVEx1coU218S74N6vO5TM87mWtNyjy+ucPVwDPYr"},{"id":205,"name":"Street Fighter","url":"PTVX::XQQPZK8IAOeWZdFO7E3qYCeL2IUp45HePICTMPOdnMlgiLmvPZCcL8CquMe5w6+7eDeCNeI1P0DFq3jguoz+EZDnLkV1xdldamYqNpn0K5D7gArIJruj"},{"id":206,"name":"Riquinho","url":"PTVX::p36hhGuzEZFnpb4weoc1iMdYoUpSWDBCyMh8OGP3vk3NegijuoTb74BJdCx5AbxwSuPPV7ip+PEUkleXN95R2lOkIwYzYFGWhHiU/gDbSnvSaCpLZu/X"},{"id":207,"name":"True Lies","url":"PTVX::8Xsz3g+GBh+YT16cON7RZSNATzQyODaEzZEsRMOZeIR6nD7fl4gEumxH6g2C5QdAKwYK7bik752H5c33uHU8VjcOkzgAtMy90nLidHOZvenq+DVNd243"},{"id":208,"name":"Pulp Fiction","url":"PTVX::Qnl2ki3Dm3s4CkEHMnC/2QHebNWNZU0N3oyy/SUfvZeu8DV0820vmH5xmnSirB3fw+v+GZrGyuOI2ea33D77qFAdqlmdRrEzBPAPSkA7DYnpCFxiqEMx"},{"id":209,"name":"Karatê Kid 4","url":"PTVX::eYyby3fDqL56qSrLfisgReqdWKPFE1Rufet5n+xhfgsueVPfyMADkNsPcaAp7AHpmF4Xi1cfcKtx3F4scCN334+8vs9MC+qJQwxSwBZyAI1YpUuAZNUG"},{"id":210,"name":"O Máskara","url":"PTVX::ReyUOvsaOStCq7jp5kEoYq9w2C3+3RCP+skWCmL75Zmurtb2JZPpwA0yHRJ32N+19VRuNgE4QoTf0cvYDPhYiPJQ4HBXAyS9R0LO0uquxqP4bmRgP9ND"},{"id":211,"name":"Highlander 3","url":"PTVX::0wqbpoparXO+P5Kb1jcePF1I/CDzn434yxUIgTjKIr1IpoVDvS0DGSLxNKigoOfSV1zaymn47xBTMwF/SpA/AiTneNGaZp22O8/7unPCnu3/L6dW7itt"},{"id":212,"name":"O Juiz","url":"PTVX::yK29fMLOcEL3V0NiuRHHZg2H2upYPChxl23r4dz4+VzpdPafbFL6Fr8AHiL1VewCL4zvqrkDuG0WhVgqcKbwMr4lhjNxXh4a7qS01PPyx2jwaFhiiur9"},{"id":213,"name":"Beleza Negra","url":"PTVX::1s93JtyNbs29Jnwot6SCoqoOU9zwtX0O4KFBIszzaqaEV+/Tix37qvM3k5JKVEGNs8dIYhE7i0YXXwknIBIyxINMCNK9jakNce6JYD64NNxzpwtsEXoe"},{"id":214,"name":"Debi & Loide","url":"PTVX::mQVx8vNNZmzgpiis0mAy4XXb3KEZGfzwaep8lCQq+2ZN8+54XTWmCEuaXL29LMyj+uqQPBzfTNHmaWSSZFo/16rUfofBzXgynnQ9J07xOpXbdEH6/iXD"},{"id":215,"name":"A História Sem Fim 3","url":"PTVX::puT2k4PrFpTd0SCJYMnY5ZXfD84C8+atkGGMIWAAMtOHMn4qwJSxznSI9Eod8+PAZaoQasysszOxnPCpq9C6R/yMmfR1tz5KSif/d3klwTrha2pPAUdi"},{"id":216,"name":"Ace Ventura","url":"PTVX::Cc/uYmhw+9VQE4p1tGSezdUzK1BKh/eMfF4Oxjfdh7bo8rvG9Bo5px3P79IgDKe5hcQG4OhLgF3yPry9QGI9EMolWGyeqRNKV1oiQK3wePn9cs7eVzkU"},{"id":217,"name":"Double Dragon","url":"PTVX::QqFUM062ojrIV+Tn5f85/rgHg7fUFG0U6H+CC7z68Vu02BtZD0pfwgywe74Bc1LcGdLReldX429xsyA3AoQ/wftFzsmykY1xhP/BKQmuasAxAeSbrHe1"},{"id":218,"name":"MacGyver","url":"PTVX::yTIYLcMogMGpGfNGW79TzclEOEavrOABwco6EmiLBFw3buxXpORdn143Z2HQiBRuxYl5odRk5+Rj4GKxxdU6u7PiAIqFK4usHz6NcfwvDepi7mI4j53w"},{"id":219,"name":"Projeto Alf","url":"PTVX::xv2shsuyuqTCFweU9RjhoPu7yUNWU/9Nyz/QPWgT4Aoe9vmqQ9onzeJIpMnDeeYztNvfrUAe+KFNDuMLk1RH7+E4TEapn4ewHwif3kGztjW82OBZ5uel"},{"id":220,"name":"Coração De Dragão","url":"PTVX::2PVCRQQYzSjrtRGQu8IQv6iJYbQQC/jzbPFafRPG/kg/oRMGP0sIvwn3QqO4BIpo9EY8Cqk2tnXxFsMdgl8MC9aXTyW7kQBxzmUCZIEwdoJW1xc6E30S"},{"id":221,"name":"A Rocha","url":"PTVX::mjeP/cQ8ntbEn2qRVvA4H1zS7p+dN+Vs+DIQmhVZltJqXJGekMTOP08kCo3JpPtZVxPVS2s4poE4wUgAGfZvVviI+yY5NF/y8t8GaNEYEO0ijCk5GJ4o"},{"id":222,"name":"Waterworld","url":"PTVX::T8YO0mZyT7jdDXRdzFkihzAFxW67FpZqDYR6Gb+B9Y1ZLMjW6RRZQN116FV3N6FdKPGlKgZq0J3efVwDcYus8U+t19RZpqNc2ov1qTHjQmaYj1Cssf1G"},{"id":223,"name":"Mortal Kombat","url":"PTVX::E2tv65EBrZ5LZ5E6fvTsobv4ubl8G3ADo0xhwpgC6gGwJMDTEtF9HnUHC7y6tozmuTfENXriqMqZQ2ptOy54cH8DI8x74W2eaDqm7OEECyeajCSx4lro"},{"id":224,"name":"A Rede","url":"PTVX::8IgADKXyoAnfUP4wbTZEE+TWzmkiDamd6jp5UG5bqDkK3DdAkQ9vQR1wPvP3nWhouoyarfSD/brV2SwlFFa3lmbnH95rNKYFE9G+x4sJand7Fg0nzvvT"},{"id":225,"name":"Queima De Arquivo","url":"PTVX::GH/L+B5R0RGWOe0CjhwbNLJpoWIVNL89Kecz7sii+Rz5t+HB/yyoSKoKiTzD1MIZJHJNHXf4JlE3xPtul9JV8tuuLilJwoMoimXvXnh6MP9uoVu7/go/"},{"id":226,"name":"Lolita","url":"PTVX::ANaaPJtAiW8rrkS2+UJOmhRKY3Z1EkwC1r9MozpJhHFpODO2lz8T+QG/hUa5OQczhBmU7ANRhIz1WFYze4nkXus/XMcqdPuQoVvwaqEcKToGtU6F5zpY"},{"id":227,"name":"Ace Ventura 2","url":"PTVX::+383k55JnBXS8ALvyK9pdFtvQxFmPE/GSVUVrHlqLPiyRYfw2oUYA7yiAvoJhb0haXsqr3J1tlNXtYguaqKPNfLy7BkeCoQlpDU/3lXIooYB9BPj0uHb"},{"id":228,"name":"Batman Eternamente","url":"PTVX::Z8aH9eqQJoXgCgGKDd7YvtIo240Pa6NTbYf0w0DZtpZ/jgC7LVFdlNLdWxAp+4zmP+gyC+Tu085705RUBgWRoon0L7X4Uit/NMUZh500LIxLFyblvM9V"},{"id":229,"name":"Jack","url":"PTVX::qobZCWiRlp9PZsotYNbCp8TU0ZhlVaG2GsvNjn3h7diXJ41T6JtSlrTycvPpws8er4xn0t8kqy4HGgh148hsvYHGDYHo26Xf2WkkWKQBs1hYib4nIYsJ"},{"id":230,"name":"Twister","url":"PTVX::WA3p+W97atOCbq4gkxIlTASgukDxKSB9C1JKd3ZW0TDeOWHbB+ZB4RCD/dsqTRGVNPKNpjwGNv+9ni45rMMwr+g3JCmBrLfzgZ++ugkMMhZFFGrz3RaI"},{"id":231,"name":"Um Herói De Brinquedo","url":"PTVX::dX0xk+Vq9QBCWjRx6t3xmKd2BfCoiksfVl4Ov62FYZDvbxCM37V8xxS8/oXuiek/QpL+BWcPvTZ8LclDXQbDUq1tKSrMTwGX6h6hb/PKGw4IsR7/hTJ3"},{"id":232,"name":"Querida Encolhi A Gente","url":"PTVX::nE8vf7mRX0hmq6BdS4oozueWINV6uaXGLKeAaG2W+Su4QaTajWqBfJesE0NmYVZOeAEUNwZEarQDVOZHKtbRrnpjeDWAQah+qCZMfEYahpeubrXM6JGi"},{"id":233,"name":"Mortal Kombat - Aniquilação","url":"PTVX::QhjGE1GWKvQic3QrjZTAj0Ty2nGRSiraNp4n4r8zKo4Nnxvo//gjp4RkcEpkUMWHs6mszMtjiiGolZ+Kf6yDXyjBc3OfzVUrLlH8jHlKC1hqz6NdHuol"},{"id":234,"name":"O Pestinha 3","url":"PTVX::j8l268rQbB3zlPucE7oj2Kg2OeGpPBxlA14MskhjPVFMI/93xARC67JsFbGvYxmCK+QWyQrvI4QazT31ysS2NiZNhKp2HpEqF5BfBrriqkty1zq9E3z+"},{"id":235,"name":"Arrebentando Em Nova York","url":"PTVX::37dpSS1n/5eluPPgvBNRF4gDNobwR+fj6OVkTXqGqXd2YvoyTf7Q9NoYViHx7r7OiM2XyHW9WM2EbPS+Aiggzr4rqVPLyMXwi7oeYLUevZ+ovNM1feoB"},{"id":236,"name":"Joe e as baratas","url":"PTVX::+k5izR2MEVun5a+BhuFsCCW+TgVpINFSF5QqJzPTE9jVgiUBsXfNMr4wusTXNl9hWOpG1qgUBfkh6sovUvzuzlnRhaUuJizqNm3oDOQvfhiwMJjLuHrW"},{"id":237,"name":"Ameaça Subterrânea","url":"PTVX::DG2whSMlmgPjAVM/ZcqaVVtUHPVkCU/TChK0yK8pv1B5ciNqO4XdD25JtVlSNa6Y7d2viV3E4PXgTYnTx8rIjX4Wa0EfAgjCVUcQVTAWQfdqW74xQ/8t"},{"id":238,"name":"Kickboxer 5","url":"PTVX::yfJZQHe9ItOMnYuEvddCOuffVPt0oXJ0euXmVGHMqNZEg4xKf1PI4FNjxaehrqEP1rDQvBwP81s7JgX5q3tXmgqN6intSjK8T61b+pkP+SroWHBWmGNp"},{"id":239,"name":"Apollo 13","url":"PTVX::cMBJJLZZOp+0wqsvRRSG32r6wzik6/euqnclCG9mEOWwOvYqs27MY/LwaxVsxMhn/hoBhhkucBdl3TM+yF0ZV59UB7FlId6l/1rsSsM0CWYwhb7jAemp"},{"id":240,"name":"Striptease","url":"PTVX::hwvA+3Max9dWeeC66CgoCJQlKNPGct/jhtpKxJWUZ5bmj4rK4v97wCk7bVj53H1w+4CpcitgY/Q7xJQLpHQKuieWc55rXVcY4pBMvTVd4RlaseizMAgx"},{"id":241,"name":"O Preço De Um Resgate","url":"PTVX::qZ7SSLNxKXDm9A4bA5FPMciz6ZpvY7pksZTugtM8Qk2mFi4vYuNQmuQzvlfOMS5xwmbXEJpaYUA12n0wYUZrS6HBG6rTMauRK/t1jfHPmeNGNSvQyhWN"},{"id":242,"name":"Daylight","url":"PTVX::ll387vdlXdNhAZSDij5oUu5CrJJAwsWDBlcbX/YNV3fLmzTFsc5VTXE16PybLFw2sR6DjrV78IN2WF+hu143nGjPABIfxcaM0iTkXVN4Y2QIoEcAgdsJ"},{"id":243,"name":"O Pentelho","url":"PTVX::FitJVzJ0Fbhkr0I7wgFlw9U5x7hLLPV+ke8Yqfbw8k/3ha9ZaD18yEsiOiDzMAo/uC8WUcrV1fDfGFgx+/hUo7tI7wpA8JCTNF5VYbvaHWht44Bz2RJM"},{"id":244,"name":"Anaconda","url":"PTVX::ejW+SYcTD2TpGok42J8x9b2CO4aT1RnLv3MXPRyLzD65w2B8zoDLhbKX/FBZj/CqS2RNwBcK8lPynEBgzstakcA2Acx7DvNOrqUo/lTVyc82YIsA7f+n"},{"id":245,"name":"Space Jam","url":"PTVX::ohoNZ5yKKH5EDGZaM71ebflnBldrpyC0cgy8dAfOvcKnVaB5OHYim3og81+8uicrsLcajNe4Ao5e0z3bb4Szg33hV1SFifc5jzcyexdr4T9bOCi/Mdki"},{"id":246,"name":"Missão Impossível","url":"PTVX::aDrZaamXmdS0Pm4HKlpF25wvZliPE5grm95NSZsz5M9FqfgYBtoHWIXpncxeI+iQPbRvEbhXon9EFPfhUDs8KoBSVdHI0Xsccm7DTSUTGso3+gI6H16Y"},{"id":247,"name":"Flubber","url":"PTVX::cR7xNSlOdUjB23/3U2tnDearbXPWwFbugCpDKGZ5Mh6kq/w8tG248+88vWcJgAcytuU0XnNxNAWoVRjzpDT/Jorm1OA2wfz5NAD3LfNDcBfBMoS41h9t"},{"id":248,"name":"O Jogo De Geri","url":"PTVX::WC7nnr0/2Ygc4pv3XQN+K7QtXnMnhU1YFd+UXNJBBaGVVNk4Fuou9VwGF0PGzbqdRWwuZEHOqbncnTEAwIeFRw6OeI2B1DUV+Fw0Ej2jCJWBCeAiTywX"},{"id":249,"name":"Eu, Minha Mulher e Minhas Cópias","url":"PTVX::wjvo557pKJYg9Q+4J7T/CQx14SwhtQ2qN0wzLEN7ylaOaHJxOibAj1OVhy6WWUsa8Xs0WdXbX3fhWJVBfCd7WIKbrvgyb1JrqDHDXx3UtegIOcj68Zyt"},{"id":250,"name":"Os Bad Boys","url":"PTVX::sKNttW8DKw8XgLgXRRUqJ2EbWFrzN1KHSntb8IagrgABK0hM2CpYo+W6eXMwrDOuS/4wkVRaEgv8PzVO66WFC+G91wRpaVdIEc3MYrXemCPEjcGMrGxh"},{"id":251,"name":"O Pacificador","url":"PTVX::EQQLNSaMUQ2/ZsgU7iW5nDCgHcVvx1IcKrVW5WRqR4KBbsfCmZ1kw0vN72sIvjlFdQczCarurnGXI1jdtjSji6jMyxS+j5KN92vXF2ca9QZgsLNf5tlr"},{"id":252,"name":"O Último Matador","url":"PTVX::Sk5+XqVwr+/zGHHEZgOyAPVl8Xd0fDCtCg/oH9fIfake3mehIF5dmlpb3IM9x2eEjuOIBbOErblCkqSQgB1jyTeZgOUMFIGsIIKytKpaUeZylmpwC7sZ"},{"id":253,"name":"Advogado Do Diabo","url":"PTVX::kQhJm0B6prct+hclgzOCwmbbzW/w6sZ8WSlw2N1OvssMBQSYEG1igGUfVG5z6iMl8eoP4DgcV1FAOAVfWqHxjT3vsh1qRdSBr2MnrQqAZJ8d9T++O1cr"},{"id":254,"name":"O Professor Aloprado","url":"PTVX::j4y1oORMf77lucbusQPEB4pfXJbscxe6k2/gOXoSTHp6vHaLt5hQBZym6u8IGYODpNSWBPUADcLbZTCT1lMy4TPI+87TWwiZwE4z+RqpxMY7Gj8eCspW"},{"id":255,"name":"Jumanji","url":"PTVX::Z/8FMcWl1m1lu/d/Ia68czyHUrEN8te2OSDzUw4yk+jOdnnu1nT/8fuOdXd1kLOjUg3d4CtwuiN/3Xt08QDvVY5MtAUh6RFoXZ22RJa2b19dVYFZpVTL"},{"id":256,"name":"Tombstone","url":"PTVX::hXpOpyjtCRbKtLo1K5oqZj+yDW9YdpIvSh+ruCye2LooFbFYaxixF77GaBxp1O8vCLLRjrfd9+17n2BbiPXDuNRI+paZ9QU8q0VaQzKB1qoFEU7E98RS"},{"id":257,"name":"Morte Súbita","url":"PTVX::FRO3Mc7csJtb0rsXIJQnjaWgPa/HjUsPMx4pxUs5kXiDpufz6valTMLhcp1v/lh457fQSQG/ot3TTDrPSySO67sB7wIImjggsRtB7PJ4BIOrJDMvF6uD"},{"id":258,"name":"Drácula - Morto, Mas Feliz","url":"PTVX::lA4X7ERQDT5znDUUDcYXAA2S7yHxlKLAEQ8E/0waadeaOVwuCJ3LJ9ek/l27BDL2n5XOMaKhJyyNah7MsQMe1XZSrmt0ZCLQTv044Wr7MNQVsZ8g4nuB"},{"id":259,"name":"Los Angeles - Cidade Proibida","url":"PTVX::j/anOIPjZd+Bn41Bd7g8Ui+8y6dxoFNuBlPVJgzlwQjI+OOTfbNy3nd7WF2fwEOi6DS3kbHj2mM4olYqmRCU8DP042s7WroSm+bHy0KSs7pacGMhQGWe"},{"id":260,"name":"MIB - Homens De Preto","url":"PTVX::xV/nADM4jyCrxy8LC2Emsr3YA5osUmb0EGB9e8DG08XR01tJHXMdUt+65YqhsaRa+SMApuqL7IHPvx7uzjmU5T6amVMUkS5F1dGWgzXckJNv/3gUdrjo"},{"id":261,"name":"Tudo por Dinheiro","url":"PTVX::67LRpnGaJFCHrR1v0ZLAhB53iOTp+0ZWp12qbotRTlBBJ7Av+MnCk4t/mLYQkeRJDJsV/ZipBnDh1JkdJxO1k16ReXvqvkxw/S2i6yjGaEKDHuLBtlV3"},{"id":262,"name":"007 - O Amanhã Nunca Morre","url":"PTVX::wDyLlduKlSJ8IoDCNCvT3UHVYpm/RduQxW4P2BU/+SPkYY9CPVRWFTei6bBiyQxZkM9IT5s7WluHr7VoD2Mrvgr+BP9RtfYG0FpMz2+caw7h2R/cf5OW"},{"id":263,"name":"A Colônia","url":"PTVX::nZNkp4AOh0WCRHy+7yk4hlPtGNkifbm0nVzgNlRFNzQWoZb8S50qzvRTvhgrexsAHJSjRYW+i+M1aEaBhND23nGf2CbNh2BSaA++pmWrU0pzxbGqSSYS"},{"id":264,"name":"Teoria da Conspiração","url":"PTVX::kM8pLwE+eXMF2asaSZ2IQfsUBK4DhQlszOGx4c1ZMWuQn3fc3oOmWG00Bx41UWoAaApSEZ71Wwz1eldvVgR89GfzU+7g9+9EsdswZ8t2umbht26MNgl+"},{"id":265,"name":"Tropas Estelares","url":"PTVX::EXOq4h291AANGzZRhSO4v3LUOQV85e6iCv3R3b3JHeH8ytS548FI3MkRI7h5G3dk9KggMIIRbGIzRBd+juJSAxo9SiOiGEWvrTYVQbejmaUXewbNw4rQ"},{"id":266,"name":"O mensageiro","url":"PTVX::5bl+rFA1XUkhExpS3yIMfh4OAsNiYc1xUe8U4rdEGXyTHoRMJbL1R8V6bz1AK7ylop8u5tChUSlP4cr5VA9nPdOOfLluUXxfhnJlKwhEhqPKjekyy57h"},{"id":267,"name":"Kazaam","url":"PTVX::YQVgccUUn31MD5wQquz6rqOAyKJjg+IQVWZU1WjTvjg0tXatugn0HDYbXKnksQf5c7nuOIXvB2ILaEpz0jhsnqvAtKDTlUwFan9OT3DCZQoqw7UbX1oH"},{"id":268,"name":"O Mentiroso","url":"PTVX::mosxzdFo5dq3PDCi2LuP+SKO4/a7RN39Fbn8nOU7PpWtfImIId1z5VCbCMaeFG4zPsm8t+07vIGDgvIs5UrNe7txnTc3NPnj2Lg8LpH/a3nvJ5L5g5Et"},{"id":269,"name":"Quem Vai Ficar Com Mary","url":"PTVX::6VDWrtfdIp5V+o0TM0h/lT0pitV4uh2ZiTqGVH2hCUOlJiRwWxeCBTsPAwOGBG5n0UlsIWonXtxtZeDw+d/QreAq6Y+I2/7Z622kDSnYwwrAx90+9tNS"},{"id":270,"name":"Pânico","url":"PTVX::69omTF4uNvpEZ8hHGcrRWqTUv8nUdw9rpXwJsjMs7hTI27CCNkkXXHXPz4zRhNqJ+036WVALP9Z9eaovPa/HpmPTl06rJRDeSxpV/2dOGQp4Q6j3zJ5Te20="},{"id":271,"name":"O Show De Truman","url":"PTVX::9VdvlYopjMwPdfOKlLUwVkwQcJbbtkToWTEIpfHFeNATciafb/JnRIKsAw250PAbEgSROawY9PnY46BS5j/UbedPQEew0CGrNBl3KKrJRYyfY14FY8gI"},{"id":272,"name":"Perdidos No Espaço","url":"PTVX::OYdNXBwqsrDKNKJF7tQEYXhgUGV6EvNpZbKPZap8m6jpFGGs7N6kcYn1oTdGxd0rcha9Lb/3PHg6LtZX/v7P88v21lj9lnkZZr/Sn0+lAX1vD4rnTJb7"},{"id":273,"name":"A Hora Do Rush","url":"PTVX::nQJTI2k+48CBRT8Z8bge1mMghTlnmfVe5K5HpjBAHEZtwvwdsOeQOEVQ9lQNDcHkq8ek9XzGwSsbp4Mq+jhNQ8WJWmyarjbVXDq+77mM30yfM24NDgTj"},{"id":274,"name":"A Outra Face","url":"PTVX::Az4McjhF8M/3DqakiCGg/KF2BjOKGefaSuaXzdt/KrC9k7WR/kx57OwFX+k09zYw1Gw3q9m2O6tjZYZbeXN+tti/pBW2359eTRTAfLjMZkcgg5gidPaJ"},{"id":275,"name":"A vida é bela","url":"PTVX::Lc2MXdukLahKdS+ELjrcNYPvcXJxsgvz4XwJbO44fKxeU3JyygoRv61NKJjWi1bN3+nJOQCyVkUAHMM6gV5EjpruY/+vHciLCPubVQqLnubRmK9cI6VS"},{"id":276,"name":"Marte Ataca","url":"PTVX::BZibG71cePrSP4C4bzyLTw7GB3JOk2dUdu7fKEhyg3WVDEKkc0b6cDA/pQE+47gvGKDTU7mvQlwMILF4FTACLdImnt+iksXZOouPv9Gi123Py8QtJBOx"},{"id":277,"name":"A Máscara Do Zorro","url":"PTVX::taWsImEi+H+y2DJjWIz2t/bayRM2Mpj/a5b2HOxBtXYBlwJu8SYawfBEFyjE3awt0PcE7OdJwVCAlp//9KTi5jf81pS/PebulOU50vUgeMg1r/djrQmf"},{"id":278,"name":"Con Air - A Rota Da Fuga","url":"PTVX::Mzn/yi/yrFXjkSwJuZ+JV4MYIccJZVoXt7jjvokce9BsucL14wPYwDusQL70aX9StWGwcX9GE8zBwJxd//sJ2w5BbTeRxVk1aIumP1Jg1lp/54qeo9vn"},{"id":279,"name":"Mr. Bean - O Filme","url":"PTVX::6gaZQhPZjRoQSNLjGaRpm+eoPJEG4MvCa6vzui2cR1/t6fKR2tg2ZVRTdVi3Ln6KiXDSKP3EJETBrGH/HUFtyJPasoOyTeYCpVP4MIF+YS1GWtGx+G8E"},{"id":280,"name":"Independence Day","url":"PTVX::oRucCfgGTfIw392GQHOOpX71XvQQvLrnexgyOHI+pQySwFx7kXJp/jz5u3dAeMap4dTTgChj7imn8ud2HeMYCNVmqX78HA7pyFXB9GgHsajx4gNtPvTB"},{"id":281,"name":"007 - O Mundo Não é O Bastante","url":"PTVX::YjGR2YfsPcnXLKYogBOFbP9RWe3h0oKwlz4fPsTaePofIsyPW0vzzmSpL1+gYWwEbFV1kALRWgBeuqiNmc0ISGpP5COoqopcOVJOOLywk6Sf89At8nVw"},{"id":282,"name":"Pânico 2","url":"PTVX::W0FGCMUlxmRrChP+khuudER6wZjuOLceEke7zEdECxJ3rJ137ihkcLPC7+YrYQX4nFS3LnqZUz1gkqsF2lYi3aihV9nGxuhe1C24awj3mJxMsAOXMGmV"},{"id":283,"name":"O Mundo Perdido - Jurassic Park","url":"PTVX::9W9e59pzBlhfj33st/TWZEKIWbgcz5egr75khd9cZgbBOKFc8hcli7iUR+59FffeWxAPfQn9hHJIeXmeky3Uf0TUNgSXzK9YgJoldJi7vnFVeYl754DF"},{"id":284,"name":"O Fantasma","url":"PTVX::KsIlZTSG0GOgdsfb7Qik+5b2h5o9WH3Zf1OIbUii5OJvGwJQkBizDFl3KNFrLfTjoNNtlgx5EKvHUfqzK1Xpsf2B23XcnVSbFPHY3beAjeljM3gsLIEO"},{"id":285,"name":"Cidade dos Anjos","url":"PTVX::c7xL6iuh3E0liRvSXvXvpjhTEr9jcfk6WllBglrlFwLsERJJ+u9JtlGPQutIdOBIHQM12xlnWpkwiv9x4w6hR4HBqXqDKTAwncPZ5JiXk1IpfSe66Q1g"},{"id":286,"name":"Código para o Inferno","url":"PTVX::8Lw4vk3B546g8wSyCH9UeUSzJWFnAEwefefrHIcq7/ez0SpKwozxlKGCS534ZeB9dwufF+gal8vVnXA91I+Qvp00e8Nk93vDtsfOOGJOU+Iu72xRQXO6"},{"id":287,"name":"Arquivo X","url":"PTVX::T141MY0v29+xNJbjLpYJ+vCjV6V62Ifi7UE9mPeTZKmpNAkoK9gPaLawVMiA7XECUKfyKzvdxGxcu/7H8hU9HK8bH9CukCFPv1dfby8DogQtluTPmStS"},{"id":288,"name":"Titanic","url":"PTVX::uPTrFEey0OsviyRsv69FdHH1OG2qdDYFUx1TZschkKylAKjrJ1y+0nyLJ8Cgjxe5/ak8NHdsCBxC5xknbpn4ArWmf5iOSLdh2yJvDLRsnGtbyQRNqDzn"},{"id":289,"name":"U.S. Marshals - Os Federais","url":"PTVX::QJ6CVJCzfAl0TWHVhexvl4sxyaL5WNiwfjv8vx2I4HXQRD0TPb07s8RAeM+veTIanDfwjitZOmvwnAbwKPjXbHENvo4NpzSLp9TrQNqtYrJGG2La7TLb"},{"id":290,"name":"Gladiador","url":"PTVX::UF68gYU7mI5soY1cyl0P8WGQvYieUOvi9h5ps4OdO5VWTEUJ7CWXcoiyBrWsp48DW9B156wRIQuUN7n198Di7rDU9RX9CXKY28RGpLvvok5SVZn0OJ21"},{"id":291,"name":"60 Segundos","url":"PTVX::l8b6kqAhnGewmEnjgtoc5cyEyxghJ+zR366h6qdxSloBd7wV9l5dYEscehtCsN5mrzTgJkjVtGXL9apId665aucEztKjvL7asnVPD8AyjYo7qVTdvD+0"},{"id":292,"name":"Missão Impossível 2","url":"PTVX::Het1bqbdkM1ud+4TelNyYortuSYCczL2sCC0Q+jfnFcgY3IuxpfMINwNOrjHBpcM/4NqyvtnLQDf+PmNDiAsqDE3yQu7cv3tzXAa3ZEepTMC2ACDTvF5"},{"id":293,"name":"Endiabrado","url":"PTVX::x8+9t/uKykz2psB3kXGz+RIK1dtr095nTHlgkjbqKUI7lxptKr9rAO+wucAtmTO0cdYDwxiVlzA2NRCMYw7zvPBPT6iQGcCQHKhIoLp7VfffWdRkl3JH"},{"id":294,"name":"O 6º Dia","url":"PTVX::SrBVC60lOa1yFrStHogn4RnuVLqIevkyZzOcsjsMmMTQJ1qhSzFyDNd53WXVUMkV+BqwRfVhDHvPa/yYC5Q7+u8SUCsV7f9SAfqsg8ZrvenWQDqvgqa9"},{"id":295,"name":"Eu, Eu Mesmo e Irene","url":"PTVX::duz1Jt+bJLJr8waKT2Qivt9J6Ey2LHz0tk4qFlra/Q+yguOEgervf7uiF8khtbYpIExPbfca5xLhc3yLtDymtCbo8zQSDiQt+SJZ7rwG6Z4Jgl5/05oq"},{"id":296,"name":"O Troco","url":"PTVX::bYexpNUCQP7mL8Vmv+L8EQ59G1mRbiOZ1GuPNGdVPgPvzb6JqB6QYGsI9fFQ8bgtYkjyiXL2rxynXzDK/JPuqwFk/C0/wKIw3uJlGGZ1LJGOIKuSVt+v"},{"id":297,"name":"Asterix e Obelix Contra César","url":"PTVX::ntyi+lQ2LnzMERob6ZJVoyvte4mh+L4nM0aQlfw7+lYPnGfD7U4rd4qMwuaA+AtcQ1lwzt1qbspKtMX5yg2o+qhw13D28qebrj8KdADiXz7s+ns4sLNu"},{"id":298,"name":"O Legionário","url":"PTVX::nizDzQUFEzZ4DrFLxzLySGtcL8RMjawKd/a8mFt5vMegtjuVCm7EQcRmRHwGk/3UYttEC+tLVyh4/RUy5g11BOzh6IAslTYwiKWQ7xWlcfsLFToqrtWY"},{"id":299,"name":"Blade, O Caçador De Vampiros","url":"PTVX::i8+JpBzVzA0TlZrLfIZqbFws8e/8cZsaDNYStnHn+Ssj260vo5LDxRuJX+G68MGCnm/VC5URfj1DSGvjYzi3oWQopFQnmiE6KVmLtR8nVn9hHYcjoodO"},{"id":300,"name":"Missão Marte","url":"PTVX::oiLo7APIhtqnWU4hIorzUrTk3EvKnoFLizjgj4dzr5g3OIpI240xtFg9DEMEmME2sh71KsObuShgjBIuDAGvafHGgjADJn09IrskE/lA+5mdGYCteHcP"},{"id":301,"name":"Pânico 3","url":"PTVX::881RtezumLXW0qKtGeP1nwWxGUe5s84I9LLW1IeosWHsvXmjBtCr2hc3miAOuqNMRfdji9UU4HMXxBTptXTsJS3S84OgtXpU39Syvb+4rzVD8B8U62Wk"},{"id":302,"name":"Os Flintstones Em Viva Rock Vegas","url":"PTVX::NsmRshbpgmDlabaTCs3exeLikwR7AUYZv58sqzdC12mKGttOwEKQJhwJRAj+tQ73k6Qx1raeiuTd/fDSdqoO9eOXHRtrYvRuFYnoByK89at6cYLZoCUj"},{"id":303,"name":"O Homem Bicentenário","url":"PTVX::3sPZMaS8QV5Wl6A0Fs7Mk5sPQA3mpz6oSFXQ7aRUb6qOZOG3PIr/luB/j+YaQmwbGYiY59PaKX+FS5zTcNUMjd1XtJPy9Szz8IxCNnu/119lDGXveLYx"},{"id":304,"name":"O Auto da Compadecida","url":"PTVX::PXam3R07GMrP7BVbSXDBcF3A2u0SQeinLw41+mpsYhyNCU7Uuul7bPZkCxiLG4qMaXwnplnBY7N66Y519nojvrqGFFnHNb3fr3rvxMsW4Z6is1n91ohC"},{"id":305,"name":"Duelo de titãs","url":"PTVX::qFG8FgBHYLUbuhtafoHzT8PP3cYu3+sC6ZktRQAnYidN1iMVh0n7Xg82/5BTrPQRVVu2y//A78M6o2S6NVj10Kyil8lLCyQKciH+7SMyeaxycn3dv6QE"},{"id":306,"name":"Mauá - O Imperador e o Rei","url":"PTVX::Q75DlOM/D2U15rl1H15QmKF6ybOGXtLHTsab51mtkGTtpT5SMq35pX3kfAHMI3qF5rtnLs0d8UQYSRB/S/QTKV8p9mOl0qUjuc8OxfyybOrapTCquUuG"},{"id":307,"name":"Matrix","url":"PTVX::muCFtBJtg5rlcODuH1gs9XI9/b/0GcWrhhqYGtTnJwrqbXAcf07wMQIpz7XSyltE7xy8A4j9rVWVKWvhGuKhyDUl0ZfIRigTo0qWY4vRh2vPYBln3y63"},{"id":308,"name":"A Caçada ao Outubro Vermelho","url":"PTVX::hecZHjMn1SaLMMGSMcXRa7LWPEeCHHUqjGNBRDB96doyO7rKn9v/XxneQJGDGzE0MVgpnOY1sFf7qXYZrlRPnbg/ALPZd/ay2+ykTgWDm37/ihDQ69JH"},{"id":309,"name":"O Que é Isso Companheiro","url":"PTVX::Yvb7b+Sb2GFgt8IZUAVG/Kml1NTnnPVQJG52eMcXTPlIjdRfJELhhv7js/yexaGg+AWXSsjoGsAZ5rVCv1EvdSlp+1Ib8OHT+EZK7jkI8D1tpluSt1pp"},{"id":310,"name":"O Grinch","url":"PTVX::46TLrSt3j4mB3GjbgB2tkHbs2XopUdhzxki3Zc++EFB5WKaZF29OjnmVwS+DhLArt81XGlUMBzr8ekBckQrkV6DyDmPQriaPdOSH6qdXkIRUc/K3fjtV"},{"id":311,"name":"Homens De Honra","url":"PTVX::cPymXs3Iy1EufKA/U65xGnwL4kW9HM6uKHJJSGDW2BWnOIm+NXwQ12YxqsBPEAmj7jsfMsiI/gyByD5IGZnsgVaz2Gq78x0q5279r217/pOG/4W0d3a2"},{"id":312,"name":"Fim Dos Dias","url":"PTVX::4qYsehkFINb4Tt5n1Egvfzmgms28LlsycB/krAhbJl9FstCSic492HBingTKofhuK4rwzlVc6js3wk3GqEgmsVJxA0cZLQ9psL/l6qBR6bsUHSQ6rrZd"},{"id":313,"name":"A Múmia","url":"PTVX::SLk5v1Nngk86J1ZtC4Z3qi2WCOS6svQ9gwh4qENzUbD6xs+nH+RfhZFfSgoG++OiaGkJRMY3FZs0G50ftLBch5vFEWZMxvGz0WHz3Q4VK90mlmG8dG49"},{"id":314,"name":"Vovó... Zona","url":"PTVX::/E7ZuTZuXG9LkdDGR6ygCX5Yr9kM3MprSWXw4+S3n/zQeuXaaqLuFHfHIEsOZ3AEm/rg+bnbQZ/41SXysXVvc4agvmP0ceVeToLXQvs0ldgRLewqOaQV"},{"id":315,"name":"American Pie","url":"PTVX::y43U6Dku1rRSMKOti7XpJL91lYr2g6OQFIPsTH2LbXYIHM3Wep3EJigujvHqXrHu7WVyssbMdwVf/MzI8i/oQzkaRa8YO1DWSnvAxHZ+fhaeEs1lF+ow"},{"id":316,"name":"À Espera de um Milagre","url":"PTVX::AS02oiG1qPevjh9C6FtyUzlIyFXCdSCetT2wZChhnpnjQ8Atxqlwg9zdxYBtd6k1pjRizc054ASwjSQh/ZfcwdREAfHI7G+J51Z8kyhLIowEOzz3UXjO"},{"id":317,"name":"Entrando Numa Fria","url":"PTVX::yNwG4uCxAL4OHMNi0+601QDtKQTgQ+V6YiGrypIxyh/7sIoVNOy7nnjvlODnXmGVLZkyJiOvdp1H5mHn6x5/zeOPDrcY8tdwR+6MAFB2Ql24LP0uyfV6"},{"id":318,"name":"Do Que As Mulheres Gostam","url":"PTVX::U3f+zxX0CJR2fgMMjw6f6wT16+HeXu13iuGmV3klEtc8oyj96CKGZZ1sWUOovnhl3wnE9XjWvLDBi9/mcMKKGC4xEHRzXkvXIwy8B9hhSrZOqi4MDIqK"},{"id":319,"name":"O Sexto Sentido","url":"PTVX::K/kas9gmZs1ZLX+uJvdTl2iKEWojsIi1reM4NkrcRGbLuplzMs/czNKVAFc1zgxRFnaSaTQ1wPNKa0pLQ7VRAjU+yUIT76QYKXj4CchVxWGEe0p6RwZx"},{"id":320,"name":"As Loucas Aventuras De James West","url":"PTVX::FBbEvCz1NYmwJyDEMsmBlkEEFWZ7sJsvl2g3iI6NeLWQiTz3hOcdD3pXo5m8lfDP7yhvqQOJQbFJfz1oUf0d1dA/aoCvD04iO105h42KaT5Iq7213cse"},{"id":321,"name":"Bater Ou Correr","url":"PTVX::ALCK2TWOM/35E6aXxgnS6gGtDOfk8s3rXgVnmb5gzbo64uEHpVsUcJ4PHOHC4Wld8D8YYg5gxO07vZSN2n80CIRXmDXIBoDqlyPR4fXH2kD3dqa8NcD+"},{"id":322,"name":"Beleza Americana","url":"PTVX::DdSBJppIrMNfsBLOJFPDl+QQFcTkkgojDPJAC2WZrJKQXP4Q0gFnEYOTxl+7p7qJPxyiFmX6tM1jhWY1cEbxB5WkXv8vUP1Zez6zRnFWhEls4qgWZau7"},{"id":323,"name":"Professor Aloprado 2","url":"PTVX::gGG9NdP1Oq7X6sjegCXVuncTR0hzw74FE/b11uf1pNseyTT0L+9Yx+hKZq+FT6PDv0G2O1YiveOMJv4mhnfKjsqihOQl1QW6CR9ksAt1LX9bra2fwXdT"},{"id":324,"name":"Náufrago","url":"PTVX::W76wtfkRoemoYmwLXqzZqsE+5jGjFuTqisWAPfUdj9JaCEjy7aLnKUsU9uFe5MPFrwQccON2DVIl/EjHKv0OAczYAmJ4eN2I57JS/OQ9UWEsAug9FrSp"},{"id":325,"name":"Máquina Mortífera 4","url":"PTVX::GMUBRBlu3Olm1UxDkS8qgeIXw3k+ZDHGdcfHjh7oMhHk4L3FLDuhEfse0K/FQbvN2EZpymP2K+rq+q29orohccjCgBNVjqZYvXVuBcxKaP5pIOvABNy3"},{"id":326,"name":"Inimigo Do Estado","url":"PTVX::wCteBZsz3deOEcN3cQNKYXKOrRIDrPcfIgUJ/74aJ2cNwq9ltC1RCwD9oqU09Jx3FWyWz0r0kIwiS5EltIVzChl7L2JU7GbjVC+c03GGxQXTHP5kNeCF"},{"id":327,"name":"O Talentoso Ripley","url":"PTVX::4cdMK5B1cMm4lHSZBORdiZswCRj7iAiJmzUylqeCFNP4Zi0wn0THgVlcPOn9oWfynJ+o973KlyygyybA97jBThkSi4RXjOz0X2dqn+5/f5LnL76MYzqR"},{"id":328,"name":"Inspetor Bugiganga","url":"PTVX::p7Gm6+bb0o5EzF6P83BkTQT3N2wdLciIkOoSfNKuyYhb6W/aO46Aft3WJQlW0i2s3SgexuHu0kdJwW6HVS/0x1pxDqGyVdBCiTn8LDqhC3SQuSWhp2aT"},{"id":329,"name":"As Panteras","url":"PTVX::FgURAqYKneKWlpTG3Nf+i0En+rfy4pR7OUIKSTH8m0lpd777vwGXlUly2HR4kSIy3WsCGgMjwFPNib0AXUWGq6ih9Wbc/CEgleqPdYv9Q1XkNUz/HF4y"},{"id":330,"name":"Miss Simpatia","url":"PTVX::nRdrBwdbR4pw0vLTXciLxm8OTHEAMDhvhecCqwcVYHdDgcnQhzOalP2jMkeLLYmB5BnGwJqceZrDQKXnxHPjT8Q5pfMQeCRkDIwXUJdTm1S/1EERCTd2"},{"id":331,"name":"O Conde de Monte Cristo","url":"PTVX::i62wMCMHYNYc9wnudvCFxZEVi0leCqtJvHXFWetoK6GvUi4TaSBZz+/YaW5DzJfWiJRMc9YNlwCoiF9O9W2fftwfjbZJxaeh+as5j1t46gAOTOSeF866hPdvaHAyKK28fS7gJppOQ9D4a5zXaQ=="}];
+        const PROGRAMMING_MODE = "playlist";const TOTAL_PROGRAMS = 0;
         const TOTAL_PLAYLIST_VIDEOS = 332;
+        const PROGRAM_VIDEO_COUNTS = [];
         const TV_COMMERCIALS = ["https://content.jwplatform.com/videos/KjuhOR1y-QOMvb1pf.mp4","https://content.jwplatform.com/videos/kXL0yqQo-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/G6R6mwOA-QOMvb1pf.mp4","https://content.jwplatform.com/videos/XT9JRhH5-QOMvb1pf.mp4","https://content.jwplatform.com/videos/mS5KSrCD-QOMvb1pf.mp4","https://content.jwplatform.com/videos/ufgXfdnU-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/EaecoAEa-AA4yyFWW.mp4","https://content.jwplatform.com/videos/Sm8vyPQ9-AA4yyFWW.mp4","https://cdn.jwplayer.com/videos/eZKGUPml-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/1OG19c8v-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/sQ0rt8ke-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/fudtkJ2a-KFbcw7fC.mp4","https://content.jwplatform.com/videos/r19qNpFB-QOMvb1pf.mp4","https://content.jwplatform.com/videos/jAAOKovU-AA4yyFWW.mp4","https://content.jwplatform.com/videos/vwAPEV9y-AA4yyFWW.mp4","https://content.jwplatform.com/videos/z9e4nLic-AA4yyFWW.mp4","https://content.jwplatform.com/videos/flZfENpo-AA4yyFWW.mp4","https://content.jwplatform.com/videos/4JQFOd2j-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/MBOepY3w-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/pPJbpgfQ-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/U98zDv2o-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/PtIKKUqT-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/dtrzgMwL-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/QnEHdE7R-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/5c09CIr5-bzWrVHxQ.mp4","https://content.jwplatform.com/videos/mcROTxfq-bzWrVHxQ.mp4"];
         const ENABLE_COMMERCIALS = true;
         const COMMERCIALS_PER_BREAK = 5;
@@ -2360,72 +2335,90 @@ function calculateExpectedTime(duration) {
         const ENABLE_LIVE = true;
         const ENABLE_DEBUG = true;
         const IS_ADULT_CONTENT = false;
+        
         const RELEASE_DATE = "2025-07-17";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.1.3";
-                
-
-         // ==================== VARIÁVEIS GLOBAIS DO CANAL ====================
-        let currentState = 'program';
-        let currentPlayingSlot = 1;
-        let isInPaidCommercialBreak = false;
-        let paidCommercialsList = [];
-
-
+        const CHANNEL_VERSION = "1.0.1.4";
+        const CHANNEL_ID = "VZypAHSSgoJCtoDhnIPN";
+        
         // ==================== CONFIGURAÇÃO DO FIREBASE ====================
-        // 🔥 INICIALIZAÇÃO DIRETA DO FIREBASE
-        document.addEventListener('DOMContentLoaded', function() {
-            if (typeof firebase === 'undefined') {
-                console.log('⚠️ Firebase SDK não carregado');
-                return;
+        const firebaseConfig = {
+            apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
+            authDomain: "playtronic-tv.firebaseapp.com",
+            projectId: "playtronic-tv",
+            storageBucket: "playtronic-tv.firebasestorage.app",
+            messagingSenderId: "272337341020",
+            appId: "1:272337341020:web:a30d949985fd614b5c7499",
+            measurementId: "G-1QRKY0NN0W",
+            databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        
+        const auth = firebase.auth();
+        const database = firebase.database();
+        
+        // ─── LIVE SYNC + MODO EXCLUSIVO DE COMERCIAIS ───
+        var CHANNEL_COMMERCIALS_LIVE = [];
+        var CHANNEL_PAID_MODE = false;
+        var CHANNEL_COMMERCIALS_SYNCED = false;
+        var LAST_KNOWN_COMMERCIALS = [];
+        
+        function aplicarFiltroComerciais() {
+            var now = Date.now();
+            var paid = [];
+            var owner = [];
+            
+            LAST_KNOWN_COMMERCIALS.forEach(function(c) {
+                if (c.isPaid) {
+                    if (!c.expiresAt || c.expiresAt > now) paid.push(c);
+                } else {
+                    owner.push(c);
+                }
+            });
+            
+            var antes = CHANNEL_COMMERCIALS_LIVE.length;
+            var modoAntes = CHANNEL_PAID_MODE;
+            
+            if (paid.length > 0) {
+                CHANNEL_PAID_MODE = true;
+                CHANNEL_COMMERCIALS_LIVE = paid.map(function(c) { return c.url; });
+            } else {
+                CHANNEL_PAID_MODE = false;
+                CHANNEL_COMMERCIALS_LIVE = owner.map(function(c) { return c.url; });
             }
             
-            try {
-                const firebaseConfig = {
-                    apiKey: "AIzaSyAfD0QOlAVb50612u6siwCxzfZfGmgEB2E",
-                    authDomain: "playtronic-tv.firebasestorage.app",
-                    projectId: "playtronic-tv",
-                    storageBucket: "playtronic-tv.firebasestorage.app",
-                    messagingSenderId: "272337341020",
-                    appId: "1:272337341020:web:a30d949985fd614b5c7499",
-                    databaseURL: "https://playtronic-tv-default-rtdb.firebaseio.com"
-                };
-                
-                if (!firebase.apps.length) {
-                    firebase.initializeApp(firebaseConfig);
-                    console.log('✅ Firebase inicializado no canal');
-                }
-                
-            } catch (error) {
-                console.error('❌ Erro ao inicializar Firebase:', error);
+            if (modoAntes !== CHANNEL_PAID_MODE || antes !== CHANNEL_COMMERCIALS_LIVE.length) {
+                currentCommercialIndex = 0;
+                availableCommercials = [];
+                console.log('[LIVE] ' + (CHANNEL_PAID_MODE ? 'MODO PAGO' : 'MODO NORMAL') + ' - ' + CHANNEL_COMMERCIALS_LIVE.length + ' comercial(is)');
             }
-        });
-
-
- // 🔥 DÁ 2 SEGUNDOS PARA O SDK CARREGAR
-        
-        // 🔥 VARIÁVEIS QUE SERÃO USADAS NO CANAL
-        let auth = null;
-        let database = null;
-        
-        // Função para pegar referências seguras
-        function getFirebaseRefs() {
-            if (typeof firebase !== 'undefined') {
-                try {
-                    auth = firebase.auth();
-                    database = firebase.database();
-                    console.log('✅ Referências Firebase obtidas');
-                } catch (e) {
-                    console.log('⚠️ Firebase ainda não pronto, tentando novamente...');
-                    setTimeout(getFirebaseRefs, 1000);
-                }
-            } else {
-                setTimeout(getFirebaseRefs, 1000);
+            
+            var el = document.getElementById('commercialModeDisplay');
+            if (el) {
+                el.textContent = CHANNEL_PAID_MODE ? ('Pagos (' + paid.length + ')') : ('Do dono (' + owner.length + ')');
+                el.style.color = CHANNEL_PAID_MODE ? '#2ecc71' : '#fdbb2d';
             }
         }
         
-        // Chama a função após o Firebase inicializar
-        setTimeout(getFirebaseRefs, 3000);
+        (function setupLiveCommercials() {
+            if (!CHANNEL_ID || typeof firebase === 'undefined' || !firebase.firestore) return;
+            try {
+                var ref = firebase.firestore().collection('channels').doc(CHANNEL_ID);
+                ref.onSnapshot(function(doc) {
+                    if (!doc.exists) return;
+                    var data = doc.data();
+                    LAST_KNOWN_COMMERCIALS = Array.isArray(data.commercials) ? data.commercials : [];
+                    CHANNEL_COMMERCIALS_SYNCED = true;
+                    aplicarFiltroComerciais();
+                });
+                setInterval(aplicarFiltroComerciais, 60000);
+            } catch (e) {
+                console.warn('[LIVE] falha ao sincronizar comerciais:', e);
+            }
+        })();
         
         // VARIÁVEIS DE ESTADO
         let currentState = 'program';
@@ -2436,7 +2429,7 @@ function calculateExpectedTime(duration) {
         let isFirstLoad = true;
         let userStartedPlayback = false;
         
-        let currentPlayingSlot = 1;  // Alterado de 0 para 1
+        let currentPlayingSlot = 0;
         let currentProgramIndex = 0;
         let currentVideoIndex = 0;
         let currentDay = 0;
@@ -2444,10 +2437,8 @@ function calculateExpectedTime(duration) {
         let controlsTimer = null;
         const CONTROLS_HIDE_DELAY = 3000;
         let isLoadingVideo = false;
-        
-        // 🔥 VARIÁVEIS DO SISTEMA DE COMERCIAIS PAGOS
-        let isInPaidCommercialBreak = false;
-        let paidCommercialsList = [];
+        var userVolume = 1.0;
+        var userMuted = false;
         
         // VARIÁVEIS PARA CONTAGEM DE ESPECTADORES
         let viewerSessionId = null;
@@ -2462,12 +2453,6 @@ function calculateExpectedTime(duration) {
         let youtubePlayer = null;
         let isYoutubeVideo = false;
         let playerReady = false;
-
-        // 🔥 VARIÁVEIS PARA CONTROLE DE VIDEOS AO VIVO
-        let isLiveStream = false;
-        let liveStreamCommercialTimer = null;
-        let liveStreamPlayTime = 0;
-       
         
         // ELEMENTOS DO PLAYER
         let videoElement = null;
@@ -2623,7 +2608,19 @@ function calculateExpectedTime(duration) {
             });
         }
         
-
+        // Observador de autenticação
+        function setupAuthStateObserver() {
+            auth.onAuthStateChanged((user) => {
+                currentUserChannel = user;
+                updateAuthUIChannel();
+                
+                if (user) {
+                    console.log('Usuário autenticado no canal:', user.email);
+                } else {
+                    console.log('Usuário não autenticado no canal');
+                }
+            });
+        }
         
         // Inicializar autenticação
         function inicializarAutenticacao() {
@@ -2728,89 +2725,67 @@ function calculateExpectedTime(duration) {
   
 
         // Calcular percentual decorrido do slot atual (COM LOGS) - VERSÃO EM SEGUNDOS
-        function calcularPercentualSlot() {
-            const agora = new Date();
-            
-            if (PROGRAMMING_MODE === 'grade') {
-                const horas = agora.getHours();
-                const minutos = agora.getMinutes();
-                const segundos = agora.getSeconds();
-                
-                // Determinar hora base (6h da manhã do dia atual ou anterior)
-                let horaBase;
-                if (horas < 6) {
-                    // Se for antes das 6h, usar 6h do dia anterior
-                    const dataOntem = new Date(agora);
-                    dataOntem.setDate(dataOntem.getDate() - 1);
-                    horaBase = new Date(dataOntem);
-                    horaBase.setHours(6, 0, 0, 0);
-                } else {
-                    // Se for 6h ou mais, usar 6h do dia atual
-                    horaBase = new Date(agora);
-                    horaBase.setHours(6, 0, 0, 0);
-                }
-                
-                // Calcular diferença em segundos desde as 6h
-                const diferencaMs = agora.getTime() - horaBase.getTime();
-                const segundosDesde6h = diferencaMs / 1000; // em segundos com fração
-                
-                // Calcular segundos dentro do slot atual (cada slot tem 25 minutos = 1500 segundos)
-                const segundosNoSlotAtual = segundosDesde6h % (SLOT_DURATION * 60);
-                const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
-                
-                console.log('Grade - Percentual slot:', (percentual*100).toFixed(1) + '%', 
-                           'Segundos desde 6h:', segundosDesde6h.toFixed(0), 's',
-                           'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
-                
-                return percentual;
-            } else {
-                // Modo Playlist: cálculo baseado no tempo desde a estreia
-                const dataEstreia = new Date(RELEASE_DATE + 'T06:00:00');
-                const diferencaMs = agora.getTime() - dataEstreia.getTime();
-                const segundosDesdeEstreia = diferencaMs / 1000; // em segundos com fração
-                
-                // Se for negativo, ainda não começou
-                if (segundosDesdeEstreia < 0) {
-                    return 0;
-                }
-                
-                const segundosNoSlotAtual = segundosDesdeEstreia % (SLOT_DURATION * 60);
-                const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
-                
-                console.log('Playlist - Percentual slot:', (percentual*100).toFixed(1) + '%', 
-                           'Segundos desde estreia:', segundosDesdeEstreia.toFixed(0), 's',
-                           'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
-                
-                return percentual;
-            }
+function calcularPercentualSlot() {
+    const agora = new Date();
+    
+    if (PROGRAMMING_MODE === 'grade') {
+        const horas = agora.getHours();
+        const minutos = agora.getMinutes();
+        const segundos = agora.getSeconds();
+        
+        // Determinar hora base (6h da manhã do dia atual ou anterior)
+        let horaBase;
+        if (horas < 6) {
+            // Se for antes das 6h, usar 6h do dia anterior
+            const dataOntem = new Date(agora);
+            dataOntem.setDate(dataOntem.getDate() - 1);
+            horaBase = new Date(dataOntem);
+            horaBase.setHours(6, 0, 0, 0);
+        } else {
+            // Se for 6h ou mais, usar 6h do dia atual
+            horaBase = new Date(agora);
+            horaBase.setHours(6, 0, 0, 0);
         }
-
-// 🔥 NOVA FUNÇÃO: Detectar se é um vídeo ao vivo do YouTube
-function detectarVideoAoVivoYouTube(videoUrl) {
-    // Extrair ID do vídeo
-    let videoId = '';
-    if (videoUrl.includes('v=')) {
-        videoId = videoUrl.split('v=')[1].split('&')[0];
-    } else if (videoUrl.includes('youtu.be/')) {
-        videoId = videoUrl.split('youtu.be/')[1].split('?')[0];
-    } else if (videoUrl.includes('youtube.com/embed/')) {
-        videoId = videoUrl.split('embed/')[1].split('?')[0];
+        
+        // Calcular diferença em segundos desde as 6h
+        const diferencaMs = agora.getTime() - horaBase.getTime();
+        const segundosDesde6h = diferencaMs / 1000; // em segundos com fração
+        
+        // Calcular segundos dentro do slot atual (cada slot tem 25 minutos = 1500 segundos)
+        const segundosNoSlotAtual = segundosDesde6h % (SLOT_DURATION * 60);
+        const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
+        
+        console.log('Grade - Percentual slot:', (percentual*100).toFixed(1) + '%', 
+                   'Segundos desde 6h:', segundosDesde6h.toFixed(0), 's',
+                   'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
+        
+        return percentual;
+    } else {
+        // Modo Playlist: cálculo baseado no tempo desde a estreia
+        const dataEstreia = new Date(RELEASE_DATE + 'T06:00:00');
+        const diferencaMs = agora.getTime() - dataEstreia.getTime();
+        const segundosDesdeEstreia = diferencaMs / 1000; // em segundos com fração
+        
+        // Se for negativo, ainda não começou
+        if (segundosDesdeEstreia < 0) {
+            return 0;
+        }
+        
+        const segundosNoSlotAtual = segundosDesdeEstreia % (SLOT_DURATION * 60);
+        const percentual = segundosNoSlotAtual / (SLOT_DURATION * 60);
+        
+        console.log('Playlist - Percentual slot:', (percentual*100).toFixed(1) + '%', 
+                   'Segundos desde estreia:', segundosDesdeEstreia.toFixed(0), 's',
+                   'Segundos no slot:', segundosNoSlotAtual.toFixed(0), 's');
+        
+        return percentual;
     }
-    
-    if (!videoId) return Promise.resolve(false);
-    
-    // Verificar padrões comuns de URLs de live
-    const isLiveUrl = videoUrl.includes('/live/') || 
-                     videoUrl.includes('&live=1') || 
-                     videoUrl.includes('youtube.com/live/');
-    
-    if (isLiveUrl) {
-        return Promise.resolve(true);
-    }
-    
-    // Se não conseguir determinar pela URL, assume que não é live
-    return Promise.resolve(false);
 }
+
+        
+        // NOTA: As funções calcularSlotAtualGrade(), calcularSlotAtualPlaylist(), 
+        // calcularSlotAtual(), e obterVideoParaSlot() agora estão definidas
+        // no script global (diasScript) acima
 
 // ==================== YOUTUBE API FUNCTIONS ====================
 
@@ -2895,21 +2870,10 @@ function onYouTubePlayerStateChange(event) {
     
     // 0 = ENDED, 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
     if (event.data === 0) { // ENDED
-        console.log('YouTube video terminou');
-        
-        if (!isLiveStream) {
-            verificarFimDoVideo();
-        } else {
-            console.log('Video ao vivo terminou (transmissao encerrada)');
-            pararSistemaComerciaisAoVivo();
-        }
+        console.log('YouTube vídeo terminou');
+        verificarFimDoVideo();
     } else if (event.data === 1) { // PLAYING
-        console.log('YouTube esta tocando');
-        
-        if (isLiveStream && !isInPaidCommercialBreak) {
-            console.log('Video ao vivo iniciado - ativando sistema de comerciais por tempo');
-            iniciarSistemaComerciaisAoVivo();
-        }
+        console.log('YouTube está tocando');
     } else if (event.data === 2) { // PAUSED
         console.log('YouTube pausado');
     } else if (event.data === 3) { // BUFFERING
@@ -3055,46 +3019,91 @@ function atualizarIconeVolume(volume) {
     }
 }
 
-function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true, isCommercial = false) {
+        // 🔓 [PROTEÇÃO] Helpers de decrypt AES-GCM (injetados automaticamente)
+        const _CHANNEL_PROTECTION_TAG = 'PTVX::';
+        
+        function _channelGetMasterKey() {
+            const parts = [
+                String.fromCharCode(0x50, 0x4c, 0x34, 0x59, 0x54, 0x52, 0x30, 0x4e),
+                String.fromCharCode(0x31, 0x43, 0x5f, 0x53, 0x33, 0x43, 0x52, 0x33),
+                String.fromCharCode(0x54, 0x5f, 0x4b, 0x33, 0x59, 0x5f, 0x56, 0x31),
+                String.fromCharCode(0x5f, 0x32, 0x30, 0x32, 0x35, 0x5f, 0x53, 0x54)
+            ];
+            return parts.join('');
+        }
+        
+        async function _decryptUrl(encrypted) {
+            if (!encrypted || typeof encrypted !== 'string') return encrypted;
+            if (encrypted.indexOf(_CHANNEL_PROTECTION_TAG) !== 0) return encrypted;
+            
+            try {
+                const b64 = encrypted.substring(_CHANNEL_PROTECTION_TAG.length);
+                const raw = atob(b64);
+                const combined = new Uint8Array(raw.length);
+                for (let i = 0; i < raw.length; i++) combined[i] = raw.charCodeAt(i);
+                
+                const iv = combined.slice(0, 12);
+                const data = combined.slice(12);
+                
+                const keyStr = _channelGetMasterKey();
+                const keyBuf = await crypto.subtle.importKey(
+                    'raw', new TextEncoder().encode(keyStr),
+                    { name: 'AES-GCM' }, false, ['decrypt']
+                );
+                const plain = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: iv }, keyBuf, data
+                );
+                return new TextDecoder().decode(plain);
+            } catch(e) {
+                console.error('❌ [_decryptUrl] falha:', e);
+                return null;
+            }
+        }
+        
+        async function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true) {
+    // 🔓 [DECRYPT AES-GCM] Detecta URL cifrada e decodifica
+    if (url && typeof url === 'string' && url.indexOf('PTVX::') === 0) {
+        try {
+            console.log('🔓 [PROTEÇÃO] URL cifrada, decodificando...');
+            const dec = await _decryptUrl(url);
+            if (!dec || typeof dec !== 'string') {
+                console.error('❌ [PROTEÇÃO] Decrypt retornou vazio');
+                return;
+            }
+            url = dec;
+            console.log('✅ [PROTEÇÃO] URL decifrada:', url.substring(0, 80));
+        } catch(e) {
+            console.error('❌ [PROTEÇÃO] Decrypt falhou:', e);
+            return;
+        }
+    }
+    
+    // 🔥 Cloud Function legacy (se ainda existir)
+    if (url && (url.indexOf('cloudfunctions.net') !== -1 || url.indexOf('getProtectedVideo') !== -1)) {
+        try {
+            const r = await fetch(url, { cache: 'no-store' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            if (!data.success || !data.url) throw new Error('CF sem URL');
+            url = data.url;
+        } catch(e) {
+            console.error('❌ Cloud Function falhou:', e);
+            return;
+        }
+    }
+    
+    // 🎥 YouTube delega
+    if (url && (url.indexOf('youtube.com') !== -1 || url.indexOf('youtu.be') !== -1)) {
+        return _carregarVideoYouTube_raw(url, iniciarNoPercentual, autoplay);
+    }
+    
+    // ▶️ HTML5 direto
+    return _carregarVideoHTML5_raw(url, iniciarNoPercentual, autoplay);
+}
+
+function _carregarVideoHTML5_raw(url, iniciarNoPercentual = 0, autoplay = true) {
     console.log('🚀 carregarVideoHTML5 chamada com URL:', url.substring(0, 80));
     
-    // 🔥🔥🔥 NOVO: LIMPEZA COMPLETA DO VÍDEO ANTERIOR
-    if (videoElement) {
-        console.log('🧹 Limpando video anterior...');
-        
-        // 1. PARAR completamente
-        videoElement.pause();
-        videoElement.src = '';
-        videoElement.load();
-        
-        // 2. REMOVER TODOS os event listeners (clone and replace)
-        const newVideoElement = videoElement.cloneNode(false);
-        videoElement.parentNode.replaceChild(newVideoElement, videoElement);
-        videoElement = newVideoElement;
-        videoElement.id = 'myVideo';
-        
-        // 3. Resetar propriedades
-        videoElement.currentTime = 0;
-        videoElement.volume = volumeSlider ? parseFloat(volumeSlider.value) : 1.0;
-        videoElement.muted = false;
-    }
-    
-    // 🔥 SE NAO FOR COMERCIAL, PARAR SISTEMA DE VIDEO AO VIVO
-    if (!isCommercial) {
-        pararSistemaComerciaisAoVivo();
-        isLiveStream = false;
-    }
-    
-    // Resetar flag IMEDIATAMENTE
-    isLoadingVideo = false;
-    
-    // 1. Esconder YouTube
-    if (youtubeContainer) {
-        youtubeContainer.style.display = 'none';
-    }
-    isYoutubeVideo = false;
-    
-
     // Resetar flag IMEDIATAMENTE
     isLoadingVideo = false;
     
@@ -3122,12 +3131,9 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true, isCom
     // 4. Configurar atributos ESSENCIAIS
     videoElement.playsInline = true;
     videoElement.preload = 'auto';
-    videoElement.crossOrigin = 'anonymous';
-    videoElement.setAttribute('playsinline', '');
+videoElement.setAttribute('playsinline', '');
     videoElement.setAttribute('webkit-playsinline', '');
-    videoElement.setAttribute('crossorigin', 'anonymous');
-    
-    // 5. MOSTRAR elemento
+// 5. MOSTRAR elemento
     videoElement.style.display = 'block';
     
     // 6. DEFINIR a URL (CRÍTICO: fazer ANTES dos event listeners)
@@ -3149,8 +3155,8 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true, isCom
             console.log('▶️ Tentando reproduzir...');
             
             // 🔥 CORREÇÃO: NUNCA INICIAR COM MUTE!
-            videoElement.muted = false;
-            videoElement.volume = 1.0;
+            videoElement.muted = userMuted;
+            videoElement.volume = userMuted ? 0 : (userVolume > 0 ? userVolume : 1.0);
             
             videoElement.play()
                 .then(() => {
@@ -3211,10 +3217,7 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true, isCom
     
     function handlePlaying() {
         console.log('▶️ playing - Vídeo começou a tocar');
-        // 🔥 CORREÇÃO: Garantir que áudio esteja ativo
-        if (videoElement.muted) {
-            videoElement.muted = false;
-        }
+        // 🔥 CORREÇÃO: Respeitar mute do usuário (não forçar áudio)
     }
     
     // Remover listeners antigos
@@ -3243,45 +3246,38 @@ function carregarVideoHTML5(url, iniciarNoPercentual = 0, autoplay = true, isCom
             src: videoElement.src?.substring(0, 100)
         });
         
-        // 🔥 CORREÇÃO: Forçar áudio ativo se ainda estiver mudo
-        if (videoElement.muted && userStartedPlayback) {
-            console.log('⚠️ Vídeo ainda está mudo após 3s. Ativando áudio...');
-            videoElement.muted = false;
-        }
+        // 🔥 CORREÇÃO: Respeitar mute do usuário (não forçar áudio)
     }, 3000);
 }
-function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true, isCommercial = false) {
+
+        async function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true) {
+    // 🔥 Se receber URL da Cloud Function, resolve primeiro
+    if (url && (url.indexOf('cloudfunctions.net') !== -1 || url.indexOf('getProtectedVideo') !== -1)) {
+        try {
+            console.log('🔎 Dispatcher YT: resolvendo Cloud Function...');
+            const r = await fetch(url, { cache: 'no-store' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            if (!data.success || !data.url) throw new Error('CF sem URL');
+            url = data.url;
+        } catch (e) {
+            console.error('❌ Dispatcher YT: erro:', e);
+            return;
+        }
+    }
+    if (url && url.indexOf('youtube') === -1 && url.indexOf('youtu.be') === -1) {
+        return _carregarVideoHTML5_raw(url, iniciarNoPercentual, autoplay);
+    }
+    return _carregarVideoYouTube_raw(url, iniciarNoPercentual, autoplay);
+}
+
+function _carregarVideoYouTube_raw(url, iniciarNoPercentual = 0, autoplay = true) {
     // Evitar múltiplos carregamentos
     if (isLoadingVideo) {
         console.log('Já está carregando vídeo (YouTube), ignorando chamada duplicada');
         return;
     }
     isLoadingVideo = true;
-    
-    // 🔥🔥🔥 NOVO: DESTRUIR PLAYER YOUTUBE ANTERIOR
-    if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
-        console.log('🗑️ Destruindo player YouTube anterior...');
-        try {
-            youtubePlayer.destroy();
-            youtubePlayer = null;
-            playerReady = false;
-        } catch (e) {
-            console.error('Erro ao destruir player YouTube:', e);
-        }
-    }
-    
-    // 🔥 NOVO: Detectar se é vídeo ao vivo
-    detectarVideoAoVivoYouTube(url).then(isLive => {
-        isLiveStream = isLive;
-        console.log('YouTube - É vídeo ao vivo?', isLiveStream);
-        
-        // 🔥 NOVO: Se for vídeo ao vivo, iniciar sistema de comerciais por tempo
-        if (isLiveStream && !isCommercial && !isInPaidCommercialBreak) {
-            iniciarSistemaComerciaisAoVivo();
-        }
-    }).catch(() => {
-        isLiveStream = false;
-    });
     
     // Esconder vídeo HTML5
     if (videoElement) {
@@ -3305,12 +3301,8 @@ function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true, isC
         isLoadingVideo = false;
         // Tentar próximo
         setTimeout(() => {
-            if (currentState === 'program') {
-                const proximoSlot = getNextSlot();
-                reproduzirPrograma(proximoSlot, 0);
-            } else if (currentState === 'commercial') {
-                handleCommercialEnd();
-            }
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
         }, 3000);
         return;
     }
@@ -3321,7 +3313,7 @@ function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true, isC
         startSeconds = Math.floor(300 * iniciarNoPercentual);
     }
     
-    console.log('Carregando YouTube:', videoId, 'start:', startSeconds, 'isCommercial:', isCommercial);
+    console.log('Carregando YouTube:', videoId, 'start:', startSeconds);
     
     // Criar player do YouTube
     criarPlayerYouTube(videoId, startSeconds, autoplay);
@@ -3335,20 +3327,18 @@ function carregarVideoYouTube(url, iniciarNoPercentual = 0, autoplay = true, isC
     }, 3000);
 }
 
+        
         function reproduzirPrograma(slotIndex, iniciarNoPercentual = 0) {
-    // 🔥 LIMPAR RECURSOS ANTES DE NOVO VIDEO
-    limparRecursosPlayer();
-    
-    const videoInfo = obterVideoParaSlot(slotIndex);
-    
-    if (!videoInfo) {
-        console.error('Nenhum vídeo encontrado para o slot', slotIndex);
-        setTimeout(() => {
-            const proximoSlot = (slotIndex + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
-            reproduzirPrograma(proximoSlot, 0);
-        }, 5000);
-        return;
-    }
+            const videoInfo = obterVideoParaSlot(slotIndex);
+            
+            if (!videoInfo) {
+                console.error('Nenhum vídeo encontrado para o slot', slotIndex);
+                setTimeout(() => {
+                    const proximoSlot = (slotIndex + 1) % (PROGRAMMING_MODE === 'grade' ? TOTAL_SLOTS : 999999);
+                    reproduzirPrograma(proximoSlot, 0);
+                }, 5000);
+                return;
+            }
             
             if (PROGRAMMING_MODE === 'grade') {
                 document.getElementById('currentProgram').textContent = `${videoInfo.programa.name}`;
@@ -3418,68 +3408,28 @@ if (ENABLE_DEBUG) {
                 customControls.classList.remove('commercial-controls');
             }
             
-            const cloudFunctionUrl = videoInfo.videoUrl;
+                        const videoUrl = videoInfo.videoUrl;
 
-if (!cloudFunctionUrl) {
-    console.error('URL da Cloud Function nao disponivel');
+if (!videoUrl) {
+    console.error('❌ URL do vídeo não disponível para slot', slotIndex);
+    setTimeout(() => {
+        const proximoSlot = getNextSlot();
+        reproduzirPrograma(proximoSlot, 0);
+    }, 3000);
     return;
 }
 
-console.log('🌩️ Buscando URL real da Cloud Function:', cloudFunctionUrl);
+console.log('🎬 Reproduzindo URL direta:', videoUrl.substring(0, 100));
 
-fetch(cloudFunctionUrl)
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('HTTP ' + response.status);
+// 🔥 CORREÇÃO: URL já é direta (não precisa passar por Cloud Function)
+if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+    carregarVideoYouTube(videoUrl, iniciarNoPercentual, true);
+} else {
+    carregarVideoHTML5(videoUrl, iniciarNoPercentual, true);
+}
+
+            currentState = 'program';
         }
-        return response.json();
-    })
-    .then(data => {
-        console.log('📦 Resposta da Cloud Function:', data);
-        
-        if (data.success && data.url && data.url.trim() !== '') {
-            console.log('✅ URL real do video:', data.url.substring(0, 80) + '...');
-            
-            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
-                detectarVideoAoVivoYouTube(data.url).then(isLive => {
-                    isLiveStream = isLive;
-                    console.log('E video ao vivo?', isLiveStream);
-                    
-                    if (isLiveStream) {
-                        console.log('⚠️ VIDEO AO VIVO DETECTADO - ATIVANDO SISTEMA ESPECIAL DE COMERCIAIS');
-                        
-                        if (paidCommercialsList.length > 0) {
-                            console.log('💰 COMERCIAIS PAGOS DISPONIVEIS PARA VIDEO AO VIVO');
-                            carregarVideoYouTube(data.url, iniciarNoPercentual, true, false);
-                        } else {
-                            console.log('⚠️ NENHUM COMERCIAL PAGO DISPONIVEL - REPRODUZINDO NORMALMENTE');
-                            carregarVideoYouTube(data.url, iniciarNoPercentual, true, false);
-                        }
-                    } else {
-                        carregarVideoYouTube(data.url, iniciarNoPercentual, true, false);
-                    }
-                }).catch(() => {
-                    isLiveStream = false;
-                    carregarVideoYouTube(data.url, iniciarNoPercentual, true, false);
-                });
-            } else {
-                carregarVideoHTML5(data.url, iniciarNoPercentual, true);
-            }
-        } else {
-            console.error('❌ Cloud Function nao retornou URL valida:', data);
-            setTimeout(() => {
-                const proximoSlot = getNextSlot();
-                reproduzirPrograma(proximoSlot, 0);
-            }, 3000);
-        }
-    })
-    .catch(error => {
-        console.error('❌ Erro ao buscar URL da Cloud Function:', error);
-        setTimeout(() => {
-            const proximoSlot = getNextSlot();
-            reproduzirPrograma(proximoSlot, 0);
-        }, 3000);
-    });
         
     // ==================== ATUALIZAÇÃO PERIÓDICA DO DEBUG ====================
     
@@ -3521,25 +3471,21 @@ fetch(cloudFunctionUrl)
     }
     // ==================== FIM ATUALIZAÇÃO DO DEBUG ====================
 
-
-function reproduzirComercial() {
-    // 🔥 LIMPAR RECURSOS ANTES DE COMERCIAL
-    limparRecursosPlayer();
-    
-    console.log('=== INICIANDO INTERVALO COMERCIAL ===');
-    console.log('CommercialBreakCount:', commercialBreakCount, 'COMMERCIALS_PER_BREAK:', COMMERCIALS_PER_BREAK);
-    
-    // REMOVER MENSAGEM "Carregando programação..." DURANTE COMERCIAIS
-    if (loadingMessage) {
-        loadingMessage.style.display = 'none';
-    }
-    
-    if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
-        console.log('Comerciais desativados ou sem comerciais, indo para próximo programa');
-        const proximoSlot = getNextSlot();
-        reproduzirPrograma(proximoSlot, 0);
-        return;
-    }
+    function reproduzirComercial() {
+        console.log('=== INICIANDO INTERVALO COMERCIAL ===');
+        console.log('CommercialBreakCount:', commercialBreakCount, 'COMMERCIALS_PER_BREAK:', COMMERCIALS_PER_BREAK);
+        
+        // REMOVER MENSAGEM "Carregando programação..." DURANTE COMERCIAIS
+        if (loadingMessage) {
+            loadingMessage.style.display = 'none';
+        }
+        
+        if (!ENABLE_COMMERCIALS || TV_COMMERCIALS.length === 0) {
+            console.log('Comerciais desativados ou sem comerciais, indo para próximo programa');
+            const proximoSlot = getNextSlot();
+            reproduzirPrograma(proximoSlot, 0);
+            return;
+        }
         
         // Configurações visuais do comercial
         if (commercialIndicator) commercialIndicator.style.display = 'block';
@@ -3569,12 +3515,12 @@ function reproduzirComercial() {
         // REMOVI a conversão forçada de HTTPS para HTTP (causa problemas)
         console.log('Reproduzindo comercial:', commercialUrl);
         
-    // Carregar o comercial
-    if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
-        carregarVideoYouTube(commercialUrl, 0, true, true);
-    } else {
-        carregarVideoHTML5(commercialUrl, 0, true, true);
-    }
+        // Carregar o comercial
+        if (commercialUrl.includes('youtube.com') || commercialUrl.includes('youtu.be')) {
+            carregarVideoYouTube(commercialUrl, 0, true);
+        } else {
+            carregarVideoHTML5(commercialUrl, 0, true);
+        }
         
         // Estado atual
         currentState = 'commercial';
@@ -3656,26 +3602,30 @@ function reproduzirComercial() {
 
 
     function obterProximoComercial() {
-        if (TV_COMMERCIALS.length === 0) {
+        var lista;
+        if (CHANNEL_COMMERCIALS_SYNCED) {
+            lista = CHANNEL_COMMERCIALS_LIVE;
+        } else {
+            lista = TV_COMMERCIALS;
+        }
+        
+        if (!lista || lista.length === 0) {
             return null;
         }
         
         if (COMMERCIALS_ORDER === 'sequential') {
-            const commercialIndex = currentCommercialIndex % TV_COMMERCIALS.length;
-            const commercialUrl = TV_COMMERCIALS[commercialIndex];
-            currentCommercialIndex = (currentCommercialIndex + 1) % TV_COMMERCIALS.length;
-            return commercialUrl;
+            var idx = currentCommercialIndex % lista.length;
+            var url = lista[idx];
+            currentCommercialIndex = (currentCommercialIndex + 1) % lista.length;
+            return url;
         } else {
             if (availableCommercials.length === 0) {
-                availableCommercials = [...TV_COMMERCIALS];
+                availableCommercials = lista.slice();
             }
-            
-            const randomIndex = Math.floor(Math.random() * availableCommercials.length);
-            const commercialUrl = availableCommercials[randomIndex];
-            
-            availableCommercials.splice(randomIndex, 1);
-            
-            return commercialUrl;
+            var r = Math.floor(Math.random() * availableCommercials.length);
+            var u = availableCommercials[r];
+            availableCommercials.splice(r, 1);
+            return u;
         }
     }
     
@@ -3760,40 +3710,33 @@ setInterval(ocultarControlesYouTube, 1000);
     // Configurar controles de volume
     if (volumeBtn && volumeSlider) {
         volumeSlider.addEventListener('input', function() {
+            var v = parseFloat(this.value);
+            userVolume = v;
+            userMuted = (v === 0);
             if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.setVolume(this.value * 100);
+                youtubePlayer.setVolume(v * 100);
+                if (v === 0) youtubePlayer.mute(); else youtubePlayer.unMute();
             } else if (videoElement) {
-                videoElement.volume = this.value;
+                videoElement.muted = userMuted;
+                videoElement.volume = v;
             }
-            atualizarIconeVolume(this.value);
+            atualizarIconeVolume(v);
             showControls();
             resetControlsTimer();
         });
         
         volumeBtn.addEventListener('click', function() {
-            let currentVolume = 1;
+            userMuted = !userMuted;
+            var v = userMuted ? 0 : (userVolume > 0 ? userVolume : 1.0);
             if (isYoutubeVideo && youtubePlayer && playerReady) {
-                currentVolume = youtubePlayer.getVolume() / 100;
+                if (userMuted) youtubePlayer.mute();
+                else { youtubePlayer.unMute(); youtubePlayer.setVolume(v * 100); }
             } else if (videoElement) {
-                currentVolume = videoElement.volume;
+                videoElement.muted = userMuted;
+                videoElement.volume = v;
             }
-            
-            if (currentVolume > 0) {
-                if (isYoutubeVideo && youtubePlayer && playerReady) {
-                    youtubePlayer.setVolume(0);
-                } else if (videoElement) {
-                    videoElement.volume = 0;
-                }
-                volumeSlider.value = 0;
-            } else {
-                if (isYoutubeVideo && youtubePlayer && playerReady) {
-                    youtubePlayer.setVolume(100);
-                } else if (videoElement) {
-                    videoElement.volume = 1;
-                }
-                volumeSlider.value = 1;
-            }
-            atualizarIconeVolume(volumeSlider.value);
+            volumeSlider.value = v;
+            atualizarIconeVolume(v);
             showControls();
             resetControlsTimer();
         });
@@ -4019,14 +3962,10 @@ function verificarFimDoVideo() {
             console.log('Sem comerciais. Indo para próximo programa...');
             reproduzirPrograma(currentPlayingSlot, 0);
         }
-        
-        // 🔥 LIMPAR RECURSOS APÓS TÉRMINO DO VÍDEO
-        setTimeout(() => {
-            limparRecursosPlayer();
-        }, 1000);
     }
     // NÃO FAZ NADA PARA COMERCIAIS - eles têm seu próprio handler
 }
+
                       function verificarMudancaDeDia() {
             if (PROGRAMMING_MODE === 'grade') {
                 const agora = new Date();
@@ -4205,7 +4144,7 @@ function verificarFimDoVideo() {
 }
 
 
-        document.addEventListener('DOMContentLoaded', function() {
+                document.addEventListener('DOMContentLoaded', function() {
     inicializarAutenticacao();
     
     if (!IS_OFFLINE) {
@@ -4552,536 +4491,7 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
     
-<script>
-    // 🔥 VARIÁVEIS DO SISTEMA DE COMERCIAIS PAGOS
-    let paidCommercialsList = [];
-    let usedPaidCommercialsInBreak = [];
-    let currentPaidCommercialIndex = 0;
-    let paidCommercialsInterval = null;
-    let paidCommercialsInitialized = false;
-    let isInPaidCommercialBreak = false;
-    let paidCommercialsBreakCount = 0;
-    let totalPaidCommercialsToShow = 0;
-
-    // Função para buscar comerciais pagos ativos do Firestore
-    async function fetchPaidCommercials() {
-        // 🔥 CORREÇÃO: Verificar se CHANNEL_ID está definido
-        if (typeof CHANNEL_ID === 'undefined' || !CHANNEL_ID) {
-            console.log('CHANNEL_ID não definido para buscar comerciais pagos');
-            return [];
-        }
-        
-        try {
-            // 🔥 CORREÇÃO: Verificar se Firebase está inicializado
-            if (typeof firebase === 'undefined' || !firebase.apps || firebase.apps.length === 0) {
-                console.log('Firebase não inicializado para comerciais pagos');
-                return [];
-            }
-            
-            const db = firebase.firestore();
-            const now = new Date();
-            
-            // Referência para a coleção de comerciais pagos do canal
-            const paidCommercialsRef = db.collection('paid_commercials')
-                .doc(CHANNEL_ID)
-                .collection('commercials');
-            
-            const snapshot = await paidCommercialsRef.get();
-            
-            if (snapshot.empty) {
-                console.log('Nenhum comercial pago ativo encontrado');
-                return [];
-            }
-            
-            const activeCommercials = [];
-            const expiredCommercials = [];
-            
-            // Processar cada comercial
-            snapshot.forEach(doc => {
-                const commercialData = doc.data();
-                
-                // Verificar se tem data de expiração
-                if (commercialData.expiresAt) {
-                    const expiresAt = commercialData.expiresAt.toDate();
-                    
-                    if (expiresAt > now) {
-                        // Comercial ainda ativo
-                        activeCommercials.push({
-                            id: doc.id,
-                            videoUrl: commercialData.videoUrl,
-                            expiresAt: expiresAt,
-                            createdAt: commercialData.createdAt?.toDate() || now
-                        });
-                    } else {
-                        // Comercial expirado - marcar para remoção
-                        expiredCommercials.push(doc.ref);
-                    }
-                }
-            });
-            
-            // Remover comerciais expirados
-            if (expiredCommercials.length > 0) {
-                console.log('Removendo', expiredCommercials.length, 'comerciais expirados');
-                expiredCommercials.forEach(async (ref) => {
-                    try {
-                        await ref.delete();
-                        console.log('Comercial expirado removido:', ref.id);
-                    } catch (error) {
-                        console.error('Erro ao remover comercial expirado:', error);
-                    }
-                });
-            }
-            
-            console.log('Comerciais pagos ativos encontrados:', activeCommercials.length);
-            return activeCommercials;
-            
-        } catch (error) {
-            console.error('Erro ao buscar comerciais pagos:', error);
-            return [];
-        }
-    }
-
-    // Função para verificar e atualizar visibilidade do botão "Inserir Comercial"
-    function updateInsertCommercialButton() {
-        const insertCommercialBtn = document.querySelector('a[href*="comercial.html"]');
-        if (insertCommercialBtn) {
-            if (paidCommercialsList.length >= 8) {
-                insertCommercialBtn.style.display = 'none';
-                console.log('Botão "Inserir comercial" ocultado (8+ comerciais ativos)');
-            } else {
-                insertCommercialBtn.style.display = 'inline-block';
-            }
-        }
-    }
-
-    // Função para inicializar o sistema de comerciais pagos
-    async function initializePaidCommercials() {
-        if (paidCommercialsInitialized) return;
-        
-        console.log('Inicializando sistema de comerciais pagos...');
-        paidCommercialsList = await fetchPaidCommercials();
-        paidCommercialsInitialized = true;
-        
-        // Atualizar botão "Inserir Comercial"
-        updateInsertCommercialButton();
-        
-        // Verificar se há comerciais pagos ativos
-        if (paidCommercialsList.length > 0) {
-            console.log('Comerciais pagos ativos detectados. Desativando comerciais normais.');
-            
-            // Desativar comerciais normais quando há comerciais pagos
-            if (typeof ENABLE_COMMERCIALS !== 'undefined') {
-                ENABLE_COMMERCIALS = false;
-            }
-            
-            // Embaralhar a lista de comerciais pagos
-            shufflePaidCommercials();
-            
-            // Definir número total a ser exibido (máximo 8 por intervalo)
-            totalPaidCommercialsToShow = Math.min(paidCommercialsList.length, 8);
-            
-            // Se estivermos em um intervalo comercial ao recarregar, garantir que continue
-            if (currentState === 'commercial' && !isInPaidCommercialBreak) {
-                startPaidCommercialBreak();
-            }
-        }
-    }
-
-    // Função para embaralhar comerciais pagos
-    function shufflePaidCommercials() {
-        for (let i = paidCommercialsList.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [paidCommercialsList[i], paidCommercialsList[j]] = [paidCommercialsList[j], paidCommercialsList[i]];
-        }
-        console.log('Comerciais pagos embaralhados');
-    }
-
-    // Função para obter próximo comercial pago
-    function getNextPaidCommercial() {
-        if (paidCommercialsList.length === 0) return null;
-        
-        // Se já usou todos os comerciais neste intervalo, reiniciar
-        if (usedPaidCommercialsInBreak.length >= totalPaidCommercialsToShow) {
-            console.log('Todos os comerciais pagos deste intervalo foram exibidos');
-            return null;
-        }
-        
-        // Encontrar um comercial ainda não usado neste intervalo
-        let commercial = null;
-        let attempts = 0;
-        const maxAttempts = paidCommercialsList.length * 2;
-        
-        while (!commercial && attempts < maxAttempts) {
-            const candidate = paidCommercialsList[currentPaidCommercialIndex];
-            currentPaidCommercialIndex = (currentPaidCommercialIndex + 1) % paidCommercialsList.length;
-            
-            if (!usedPaidCommercialsInBreak.includes(candidate.id)) {
-                commercial = candidate;
-                usedPaidCommercialsInBreak.push(candidate.id);
-            }
-            attempts++;
-        }
-        
-        return commercial;
-    }
-
-    // Função para iniciar intervalo de comerciais pagos
-    function startPaidCommercialBreak() {
-        console.log('=== INICIANDO INTERVALO DE COMERCIAIS PAGOS ===');
-        
-        // 🔥 SE FOR VIDEO AO VIVO, PARAR O SISTEMA DE TEMPO
-        if (isLiveStream) {
-            console.log('🔥 VIDEO AO VIVO - PAUSANDO TRANSMISSAO PARA COMERCIAIS');
-            pararSistemaComerciaisAoVivo();
-            
-            // Pausar o video ao vivo
-            if (youtubePlayer && youtubePlayer.pauseVideo) {
-                youtubePlayer.pauseVideo();
-            }
-        }
-        
-        if (paidCommercialsList.length === 0) {
-            console.log('Sem comerciais pagos ativos. Voltando à programação normal.');
-            handlePaidCommercialBreakEnd();
-            return;
-        }
-        
-        console.log('=== INICIANDO INTERVALO DE COMERCIAIS PAGOS ===');
-        isInPaidCommercialBreak = true;
-        paidCommercialsBreakCount = 0;
-        usedPaidCommercialsInBreak = [];
-        
-        // Reproduzir o primeiro comercial pago
-        playNextPaidCommercial();
-    }
-
-    // Função para reproduzir próximo comercial pago
-    function playNextPaidCommercial() {
-        if (!isInPaidCommercialBreak) return;
-        
-        const commercial = getNextPaidCommercial();
-        
-        if (!commercial) {
-            // Todos os comerciais deste intervalo foram exibidos
-            console.log('Fim do intervalo de comerciais pagos');
-            handlePaidCommercialBreakEnd();
-            return;
-        }
-        
-        console.log('Reproduzindo comercial pago:', commercial.id);
-        paidCommercialsBreakCount++;
-        
-        // Atualizar indicador
-        if (commercialIndicator) {
-            commercialIndicator.textContent = 'COMERCIAL PATROCINADO';
-            commercialIndicator.style.display = 'block';
-        }
-        
-        // Reproduzir o comercial
-        if (commercial.videoUrl.includes('youtube.com') || commercial.videoUrl.includes('youtu.be')) {
-            carregarVideoYouTube(commercial.videoUrl, 0, true);
-        } else {
-            carregarVideoHTML5(commercial.videoUrl, 0, true);
-        }
-        
-        // Configurar listener para fim do comercial
-        setupPaidCommercialEndListener(commercial);
-    }
-
-    // Configurar listener para fim do comercial pago
-    function setupPaidCommercialEndListener(commercial) {
-        const commercialEndHandler = function() {
-            console.log('Comercial pago terminado:', commercial.id);
-            
-            // Remover listeners
-            if (videoElement) {
-                videoElement.removeEventListener('ended', commercialEndHandler);
-                videoElement.removeEventListener('error', commercialErrorHandler);
-            }
-            
-            // Reproduzir próximo comercial após um pequeno delay
-            setTimeout(() => {
-                if (isInPaidCommercialBreak) {
-                    playNextPaidCommercial();
-                }
-            }, 500);
-        };
-        
-        const commercialErrorHandler = function() {
-            console.error('Erro no comercial pago:', commercial.id);
-            
-            // Remover listeners
-            if (videoElement) {
-                videoElement.removeEventListener('ended', commercialEndHandler);
-                videoElement.removeEventListener('error', commercialErrorHandler);
-            }
-            
-            // Tentar próximo comercial mesmo com erro
-            setTimeout(() => {
-                if (isInPaidCommercialBreak) {
-                    playNextPaidCommercial();
-                }
-            }, 1000);
-        };
-        
-        if (isYoutubeVideo && youtubePlayer) {
-            // Para YouTube, usar intervalo para verificar se terminou
-            const checkYouTubeEnd = setInterval(() => {
-                if (youtubePlayer && youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0) {
-                    clearInterval(checkYouTubeEnd);
-                    commercialEndHandler();
-                }
-            }, 1000);
-            
-            // Timeout de segurança
-            setTimeout(() => {
-                clearInterval(checkYouTubeEnd);
-                commercialEndHandler();
-            }, 30000);
-        } else if (videoElement) {
-            videoElement.addEventListener('ended', commercialEndHandler, { once: true });
-            videoElement.addEventListener('error', commercialErrorHandler, { once: true });
-        }
-    }
-
-    // Função para finalizar intervalo de comerciais pagos
-    function handlePaidCommercialBreakEnd() {
-        console.log('=== FIM DO INTERVALO DE COMERCIAIS PAGOS ===');
-        isInPaidCommercialBreak = false;
-        usedPaidCommercialsInBreak = [];
-        
-        if (commercialIndicator) {
-            commercialIndicator.style.display = 'none';
-        }
-        
-        // Retomar programação normal
-        const proximoSlot = getNextSlot();
-        reproduzirPrograma(proximoSlot, 0);
-    }
-
-    // 🔥 MODIFICAÇÃO: Substituir a função reproduzirComercial original
-    const originalReproduzirComercial = window.reproduzirComercial;
     
-    window.reproduzirComercial = function() {
-        console.log('=== VERIFICANDO COMERCIAIS PAGOS ANTES DO INTERVALO ===');
-        
-        // Se houver comerciais pagos ativos, usar eles
-        if (paidCommercialsList.length > 0) {
-            console.log('Usando comerciais pagos (ativos:', paidCommercialsList.length, ')');
-            startPaidCommercialBreak();
-            return;
-        }
-        
-        // Se não houver comerciais pagos, usar a função original
-        console.log('Usando comerciais normais (nenhum pago ativo)');
-        if (originalReproduzirComercial) {
-            originalReproduzirComercial();
-        }
-    };
-
-    // 🔥 MODIFICAÇÃO: Substituir a função verificarFimDoVideo
-    const originalVerificarFimDoVideo = window.verificarFimDoVideo;
-    
-    window.verificarFimDoVideo = function() {
-        console.log('=== FIM DO VÍDEO - VERIFICANDO COMERCIAIS PAGOS ===');
-        
-        // 🔥 CORREÇÃO: currentState já está definido como global
-        if (typeof currentState === 'undefined') {
-            console.log('⚠️ currentState não definido, definindo como "program"');
-            window.currentState = 'program';
-        }
-        
-        if (window.currentState === 'program') {
-            console.log('Programa terminou. Verificando comerciais...');
-            
-            // INCREMENTA O SLOT NO FINAL DO VÍDEO
-            if (typeof getNextSlot === 'function') {
-                window.currentPlayingSlot = getNextSlot();
-                console.log('Slot atual atualizado para:', window.currentPlayingSlot);
-            }
-            
-            // Se houver comerciais pagos, iniciar intervalo com eles
-            if (window.paidCommercialsList && window.paidCommercialsList.length > 0) {
-                console.log('Iniciando intervalo com comerciais pagos...');
-                if (typeof startPaidCommercialBreak === 'function') {
-                    startPaidCommercialBreak();
-                }
-            } else if (typeof ENABLE_COMMERCIALS !== 'undefined' && ENABLE_COMMERCIALS && 
-                       typeof TV_COMMERCIALS !== 'undefined' && TV_COMMERCIALS.length > 0) {
-                // Se não houver comerciais pagos, usar os normais
-                if (typeof commercialBreakCount !== 'undefined') {
-                    commercialBreakCount = 0;
-                }
-                console.log('Iniciando intervalo comercial normal...');
-                if (typeof reproduzirComercial === 'function') {
-                    reproduzirComercial();
-                }
-            } else {
-                console.log('Sem comerciais. Indo para próximo programa...');
-                if (typeof reproduzirPrograma === 'function' && typeof window.currentPlayingSlot !== 'undefined') {
-                    reproduzirPrograma(window.currentPlayingSlot, 0);
-                }
-            }
-        }
-    };
-
-    //Sistema de Comerciais para Vídeos Ao Vivo
-    let liveStreamCommercialTimer = null;
-    let liveStreamPlayTime = 0;
-    let isLiveStream = false;
-    // REMOVIDA DECLARAÇÃO DUPLICADA: let isInPaidCommercialBreak = false;
-
-    function iniciarSistemaComerciaisAoVivo() {
-        console.log('🔥 INICIANDO SISTEMA DE COMERCIAIS PARA VÍDEO AO VIVO');
-        
-        if (liveStreamCommercialTimer) {
-            clearInterval(liveStreamCommercialTimer);
-            liveStreamCommercialTimer = null;
-        }
-        
-        liveStreamPlayTime = 0;
-        
-        liveStreamCommercialTimer = setInterval(() => {
-            if (isYoutubeVideo && youtubePlayer && youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 1) {
-                liveStreamPlayTime += 1;
-                
-                console.log('⏱️ Vídeo ao vivo tocando há: ' + liveStreamPlayTime + ' segundos');
-                
-                if (liveStreamPlayTime >= 3600 && paidCommercialsList.length > 0) {
-                    console.log('⏰ 1 HORA DE TRANSMISSAO CONTÍNUA - INICIANDO INTERVALO COMERCIAL');
-                    
-                    if (youtubePlayer.pauseVideo) {
-                        youtubePlayer.pauseVideo();
-                    }
-                    
-                    liveStreamPlayTime = 0;
-                    startPaidCommercialBreak();
-                }
-            }
-        }, 1000);
-        
-        console.log('✅ Sistema de comerciais para vídeo ao vivo iniciado');
-    }
-
-    function pararSistemaComerciaisAoVivo() {
-        if (liveStreamCommercialTimer) {
-            clearInterval(liveStreamCommercialTimer);
-            liveStreamCommercialTimer = null;
-            console.log('🛑 Sistema de comerciais para vídeo ao vivo parado');
-        }
-        liveStreamPlayTime = 0;
-        isLiveStream = false;
-        isInPaidCommercialBreak = false;
-    }
-
-    function limparRecursosPlayer() {
-        console.log('🧹🧹🧹 LIMPEZA GERAL DE RECURSOS DO PLAYER 🧹🧹🧹');
-        
-        // 1. Limpar timers do sistema ao vivo
-        pararSistemaComerciaisAoVivo();
-        
-        // 2. Limpar sistema de sync
-        if (syncCheckInterval) {
-            clearInterval(syncCheckInterval);
-            syncCheckInterval = null;
-        }
-        
-        if (audioMonitorInterval) {
-            clearInterval(audioMonitorInterval);
-            audioMonitorInterval = null;
-        }
-        
-        // 3. Limpar controles
-        if (controlsTimer) {
-            clearTimeout(controlsTimer);
-            controlsTimer = null;
-        }
-        
-        // 4. Limpar vídeo HTML5
-        if (videoElement) {
-            videoElement.pause();
-            videoElement.src = '';
-            videoElement.load();
-        }
-        
-        // 5. Limpar YouTube
-        if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
-            try {
-                youtubePlayer.destroy();
-            } catch (e) {
-                // Ignorar erro
-            }
-            youtubePlayer = null;
-            playerReady = false;
-        }
-        
-        // 6. Resetar estados
-        isLoadingVideo = false;
-        isLiveStream = false;
-        isInPaidCommercialBreak = false;
-        
-        console.log('✅ Recursos do player limpos com sucesso');
-    }
-
-    window.handlePaidCommercialBreakEnd = function() {
-        console.log('=== FIM DO INTERVALO DE COMERCIAIS PAGOS ===');
-        isInPaidCommercialBreak = false;
-        
-        if (commercialIndicator) {
-            commercialIndicator.style.display = 'none';
-        }
-        
-        if (isLiveStream && isYoutubeVideo && youtubePlayer) {
-            console.log('🔥 RETOMANDO VÍDEO AO VIVO APÓS COMERCIAIS');
-            
-            if (youtubePlayer.playVideo) {
-                youtubePlayer.playVideo();
-            }
-            
-            iniciarSistemaComerciaisAoVivo();
-        } else {
-            console.log('Retomando programação normal (nao e ao vivo)');
-            const proximoSlot = getNextSlot();
-            reproduzirPrograma(proximoSlot, 0);
-        }
-    };
-
-    // 🔥 MODIFICAÇÃO: Garantir que ao recarregar durante comercial pago, continue
-    document.addEventListener('DOMContentLoaded', function() {
-        // Aguardar inicialização do player
-        setTimeout(async () => {
-            await initializePaidCommercials();
-            
-            // Se a página foi recarregada durante um intervalo comercial
-            // e há comerciais pagos ativos, forçar reinício do intervalo
-            if (currentState === 'commercial' && paidCommercialsList.length > 0) {
-                console.log('Recarregamento detectado durante intervalo comercial. Reiniciando comerciais pagos...');
-                startPaidCommercialBreak();
-            }
-            
-            // Verificar periodicamente por novos comerciais pagos
-            setInterval(async () => {
-                const oldCount = paidCommercialsList.length;
-                paidCommercialsList = await fetchPaidCommercials();
-                
-                if (oldCount !== paidCommercialsList.length) {
-                    console.log('Contagem de comerciais pagos atualizada:', paidCommercialsList.length);
-                    updateInsertCommercialButton();
-                    
-                    // Se agora temos comerciais pagos e estávamos em intervalo normal
-                    if (paidCommercialsList.length > 0 && currentState === 'commercial' && !isInPaidCommercialBreak) {
-                        console.log('Novos comerciais pagos detectados durante intervalo. Reiniciando...');
-                        startPaidCommercialBreak();
-                    }
-                }
-            }, 30000); // Verificar a cada 30 segundos
-        }, 2000);
-    });
-</script>
-
-
-    
-
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const smartlinkOverlay = document.getElementById('smartlinkOverlay');
@@ -5114,6 +4524,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     </script>
     
+
 
 
 </body>
