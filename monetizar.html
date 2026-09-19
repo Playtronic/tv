@@ -564,6 +564,28 @@
 .mp-blocked-hint.active { display: block; }
 /* ===== FIM MP CONNECT v4 ===== */
 </style>
+
+<style>
+/* ===== MP CONNECT v5 ===== */
+.mp-connect-box{background:linear-gradient(135deg,rgba(0,174,239,.15),rgba(0,174,239,.05));border:2px solid #00aeef;border-radius:10px;padding:16px;margin:15px 0;display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+.mp-connect-box .mp-status{display:flex;align-items:center;gap:10px;font-weight:bold;font-size:1rem;flex:1;min-width:200px}
+.mp-connect-box .mp-status .mp-dot{width:12px;height:12px;border-radius:50%;display:inline-block;flex-shrink:0}
+.mp-connect-box .mp-status.connected{color:#2ecc71}
+.mp-connect-box .mp-status.connected .mp-dot{background:#2ecc71;box-shadow:0 0 10px rgba(46,204,113,.6)}
+.mp-connect-box .mp-status.disconnected{color:#ffcc44}
+.mp-connect-box .mp-status.disconnected .mp-dot{background:#ffcc44;box-shadow:0 0 10px rgba(255,204,68,.6);animation:mpPulse 2s infinite}
+@keyframes mpPulse{0%,100%{opacity:1}50%{opacity:.4}}
+.mp-connect-btn{background:#00aeef;color:#fff;padding:12px 24px;font-size:15px;font-weight:bold;border-radius:8px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:all .3s}
+.mp-connect-btn:hover{background:#0095cc;transform:translateY(-1px)}
+.mp-connect-btn.mp-disconnect{background:#e74c3c}
+.mp-connect-btn.mp-disconnect:hover{background:#c0392b}
+.mp-required-warning{background:rgba(255,152,0,.12);border-left:4px solid #ff9800;border-radius:6px;padding:12px 15px;margin:15px 0;font-size:.92rem;line-height:1.5;color:#ffcc44}
+.mp-required-warning strong{color:#ff9800}
+.mp-required-warning a{color:#00aeef;text-decoration:underline;font-weight:bold}
+.mp-blocked-hint{display:none;background:rgba(231,76,60,.15);border-left:4px solid #e74c3c;border-radius:6px;padding:10px 14px;margin:10px 0 0 0;color:#ff8b7e;font-size:.9rem;font-weight:bold}
+.mp-blocked-hint.active{display:block}
+/* ===== FIM MP CONNECT v5 ===== */
+</style>
 </head>
 <body>
     <div class="container">
@@ -1883,6 +1905,279 @@ function mpInit() {
 })();
 
 /* ===== FIM MP CONNECT v4 ===== */
+</script>
+
+<script>
+(function(){
+if(window.__mpConnectV5){console.log("[MP v5] ja carregado");return;}
+window.__mpConnectV5=true;
+
+var MP_CLIENT_ID="4240568631810752";
+var MP_REDIRECT_URI="https://us-central1-playtronic-tv.cloudfunctions.net/mercadoPagoCallback";
+
+function getChannelId(){try{return(new URLSearchParams(location.search)).get("channelId")||""}catch(e){return""}}
+function getFS(){try{return firebase.firestore()}catch(e){return null}}
+function getUser(){try{return firebase.auth().currentUser}catch(e){return null}}
+
+function buildBox(type){
+  var isDon=type==="donations";
+  var suf=isDon?"Donations":"Commercials";
+  var label=isDon?"Doacoes via PIX":"Comerciais Pagos";
+  var wrap=document.createElement("div");wrap.className="mp-connect-box";
+  var st=document.createElement("div");st.className="mp-status disconnected";st.id="mpStatus"+suf;
+  var dot=document.createElement("span");dot.className="mp-dot";
+  var tx=document.createElement("span");tx.className="mp-status-text";tx.textContent="Mercado Pago nao conectado";
+  st.appendChild(dot);st.appendChild(tx);
+  var bt=document.createElement("button");bt.type="button";bt.className="mp-connect-btn";bt.id="mpConnectBtn"+suf;bt.setAttribute("data-type",type);bt.textContent="Conectar Mercado Pago";
+  wrap.appendChild(st);wrap.appendChild(bt);
+  var h=document.createElement("div");h.className="mp-blocked-hint";h.id="mpBlockedHint"+suf;h.textContent=label+": ativado mas o Mercado Pago nao foi conectado.";
+  var c=document.createElement("div");c.appendChild(wrap);c.appendChild(h);
+  return c;
+}
+
+function findSection(cbId){
+  var cb=document.getElementById(cbId);if(!cb)return null;
+  var el=cb;
+  for(var i=0;i<20&&el;i++){el=el.parentElement;if(!el)break;if(el.classList&&el.classList.contains("monetization-option"))return el;}
+  return null;
+}
+
+function injectBox(type){
+  var isDon=type==="donations";
+  var cbId=isDon?"pixDonations":"paidCommercials";
+  var setId=isDon?"pixSettings":"paidCommercialsSettings";
+  var sec=findSection(cbId);
+  if(!sec){console.warn("[MP v5] secao nao encontrada:",cbId);return;}
+  if(sec.querySelector(".mp-connect-box")){console.log("[MP v5] box "+type+" ja existe");return;}
+  var st=document.getElementById(setId);
+  var box=buildBox(type);
+  if(st)st.insertBefore(box,st.firstChild);
+  else{
+    var info=sec.querySelector(".payment-info");
+    if(info&&info.nextSibling)sec.insertBefore(box,info.nextSibling);
+    else sec.appendChild(box);
+  }
+  var av=document.createElement("div");
+  av.className="mp-required-warning";
+  av.innerHTML="ATENCAO: Para receber os pagamentos voce <strong>precisa ter uma conta no Mercado Pago</strong>. O valor e depositado automaticamente na sua conta. Se ainda nao tem, <a href=\"https://www.mercadopago.com.br/\" target=\"_blank\">crie uma gratis aqui</a>.";
+  var cb=document.getElementById(cbId);
+  var ctrl=cb?cb.closest(".control-option"):null;
+  if(ctrl&&ctrl.parentElement)ctrl.parentElement.insertBefore(av,ctrl);
+  console.log("[MP v5] box + aviso em:",type);
+}
+
+function hideLegacyPixFields(){
+  ["pixKeyType","pixKey","commercialsPixKeyType","commercialsPixKey"].forEach(function(id){
+    var el=document.getElementById(id);
+    if(!el)return;
+    el.style.display="none";
+    var lab=document.querySelector("label[for=\""+id+"\"]");
+    if(lab)lab.style.display="none";
+    var w=el.parentElement;
+    if(w&&w.parentElement&&w.parentElement.classList&&w.parentElement.classList.contains("pix-type-group"))w.style.display="none";
+  });
+  ["pixKeyValidation","commercialsPixKeyValidation"].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display="none";});
+  document.querySelectorAll(".warning-text").forEach(function(el){
+    var t=(el.textContent||"").toLowerCase();
+    if(t.indexOf("chave pix")!==-1)el.style.display="none";
+  });
+  console.log("[MP v5] campos legados de chave PIX ocultados");
+}
+
+function updateUI(type,connected){
+  var isDon=type==="donations";
+  var suf=isDon?"Donations":"Commercials";
+  var st=document.getElementById("mpStatus"+suf);
+  var bt=document.getElementById("mpConnectBtn"+suf);
+  var h=document.getElementById("mpBlockedHint"+suf);
+  var cb=document.getElementById(isDon?"pixDonations":"paidCommercials");
+  if(!st||!bt)return;
+  var tx=st.querySelector(".mp-status-text");
+  if(connected){
+    st.className="mp-status connected";
+    if(tx)tx.textContent="Mercado Pago conectado";
+    bt.classList.add("mp-disconnect");
+    bt.textContent="Desconectar";
+    bt.disabled=false;
+    if(h)h.classList.remove("active");
+  }else{
+    st.className="mp-status disconnected";
+    if(tx)tx.textContent="Mercado Pago nao conectado";
+    bt.classList.remove("mp-disconnect");
+    bt.textContent="Conectar Mercado Pago";
+    bt.disabled=false;
+    if(h){if(cb&&cb.checked)h.classList.add("active");else h.classList.remove("active");}
+  }
+}
+
+function readTokens(){
+  var cid=getChannelId();
+  var fs=getFS();
+  if(!cid||!fs)return Promise.resolve({don:"",com:""});
+  var u=getUser();
+  var p1=fs.collection("channels").doc(cid).collection("monetization").doc("settings").get();
+  var p2=u?fs.collection("users").doc(u.uid).collection("channels").doc(cid).collection("monetization").doc("settings").get():Promise.resolve(null);
+  return Promise.all([p1,p2]).then(function(res){
+    var d1=res[0]&&res[0].exists?res[0].data():{};
+    var d2=res[1]&&res[1].exists?res[1].data():{};
+    var don=(d1.pixDonations&&d1.pixDonations.mpAccessToken)||(d2.pixDonations&&d2.pixDonations.mpAccessToken)||"";
+    var com=(d1.paidCommercials&&d1.paidCommercials.mpAccessToken)||(d2.paidCommercials&&d2.paidCommercials.mpAccessToken)||"";
+    return {don:String(don).trim(),com:String(com).trim()};
+  });
+}
+
+function refreshStatus(){
+  readTokens().then(function(t){
+    updateUI("donations",!!t.don);
+    updateUI("commercials",!!t.com);
+  }).catch(function(e){console.warn("[MP v5] err:",e);});
+}
+
+function connect(type){
+  var cid=getChannelId();
+  if(!cid){alert("channelId nao encontrado na URL");return;}
+  var state=cid+"_"+type;
+  var url="https://auth.mercadopago.com/authorization"
+    +"?client_id="+encodeURIComponent(MP_CLIENT_ID)
+    +"&response_type=code&platform_id=mp"
+    +"&redirect_uri="+encodeURIComponent(MP_REDIRECT_URI)
+    +"&state="+encodeURIComponent(state);
+  console.log("[MP v5] OAuth:",url);
+  location.href=url;
+}
+
+function disconnect(type){
+  if(!confirm("Desconectar o Mercado Pago?"))return;
+  var cid=getChannelId(),fs=getFS(),u=getUser();
+  if(!cid||!fs)return;
+  var isDon=type==="donations",f=isDon?"pixDonations":"paidCommercials";
+  var upd={};
+  upd[f+".mpAccessToken"]="";upd[f+".mpRefreshToken"]="";upd[f+".mpUserId"]="";upd[f+".mpConnected"]=false;
+  fs.collection("channels").doc(cid).collection("monetization").doc("settings").set(upd,{merge:true}).then(function(){
+    if(u)fs.collection("users").doc(u.uid).collection("channels").doc(cid).collection("monetization").doc("settings").set(upd,{merge:true});
+    updateUI(type,false);
+    if(typeof showSuccess==="function")showSuccess("Mercado Pago desconectado.");
+  }).catch(function(e){if(typeof showError==="function")showError("Erro: "+e.message);else alert(e.message);});
+}
+
+function bind(){
+  ["mpConnectBtnDonations","mpConnectBtnCommercials"].forEach(function(id){
+    var b=document.getElementById(id);
+    if(!b||b.__mpB)return;b.__mpB=true;
+    b.addEventListener("click",function(e){
+      e.preventDefault();
+      var t=this.getAttribute("data-type");
+      if(this.classList.contains("mp-disconnect"))disconnect(t);else connect(t);
+    });
+  });
+  ["pixDonations","paidCommercials"].forEach(function(id){
+    var cb=document.getElementById(id);
+    if(!cb||cb.__mpB)return;cb.__mpB=true;
+    cb.addEventListener("change",function(){refreshStatus();});
+  });
+}
+
+function backupAndValidate(){
+  var cid=getChannelId();
+  var fs=getFS();
+  var don=document.getElementById("pixDonations");
+  var com=document.getElementById("paidCommercials");
+  if(!cid||!fs)return Promise.resolve({ok:true,errors:[]});
+  if((!don||!don.checked)&&(!com||!com.checked))return Promise.resolve({ok:true,errors:[]});
+  return readTokens().then(function(t){
+    var errors=[];
+    if(don&&don.checked&&!t.don)errors.push("Opcao 2 (Doacoes via PIX): conecte o Mercado Pago antes de salvar.");
+    if(com&&com.checked&&!t.com)errors.push("Opcao 3 (Comerciais Pagos): conecte o Mercado Pago antes de salvar.");
+    window.__mpTokenBackup={don:t.don,com:t.com};
+    return {ok:errors.length===0,errors:errors};
+  });
+}
+
+function fillLegacyFields(){
+  ["pixKey","commercialsPixKey"].forEach(function(id){var el=document.getElementById(id);if(el&&!el.value.trim())el.value="__mp_oauth__";});
+  ["pixKeyType","commercialsPixKeyType"].forEach(function(id){var el=document.getElementById(id);if(el&&!el.value)el.value="random";});
+}
+
+function restoreTokensIfLost(){
+  if(!window.__mpTokenBackup)return;
+  var cid=getChannelId(),fs=getFS(),u=getUser();
+  if(!cid||!fs)return;
+  setTimeout(function(){
+    fs.collection("channels").doc(cid).collection("monetization").doc("settings").get().then(function(snap){
+      var d=snap.exists?snap.data():{};
+      var upd={},need=false;
+      if(window.__mpTokenBackup.don){
+        var cur=(d.pixDonations&&d.pixDonations.mpAccessToken)?String(d.pixDonations.mpAccessToken).trim():"";
+        if(!cur){upd["pixDonations.mpAccessToken"]=window.__mpTokenBackup.don;upd["pixDonations.mpConnected"]=true;need=true;}
+      }
+      if(window.__mpTokenBackup.com){
+        var cur2=(d.paidCommercials&&d.paidCommercials.mpAccessToken)?String(d.paidCommercials.mpAccessToken).trim():"";
+        if(!cur2){upd["paidCommercials.mpAccessToken"]=window.__mpTokenBackup.com;upd["paidCommercials.mpConnected"]=true;need=true;}
+      }
+      if(need){
+        fs.collection("channels").doc(cid).collection("monetization").doc("settings").set(upd,{merge:true});
+        if(u)fs.collection("users").doc(u.uid).collection("channels").doc(cid).collection("monetization").doc("settings").set(upd,{merge:true});
+        console.log("[MP v5] tokens restaurados");
+      }
+    });
+  },1500);
+}
+
+function handleSave(ev){
+  var t=ev.target;
+  while(t&&t!==document.body){if(t.id==="saveBtn")break;t=t.parentElement;}
+  if(!t||t.id!=="saveBtn")return;
+  if(t.__mpBypass){t.__mpBypass=false;return;}
+  ev.preventDefault();ev.stopImmediatePropagation();ev.stopPropagation();
+  backupAndValidate().then(function(r){
+    if(!r.ok){
+      var msg="Erro de validacao:<br>"+r.errors.map(function(e){return "&bull; "+e;}).join("<br>")+"<br><br>Clique em Conectar Mercado Pago no bloco correspondente.";
+      if(typeof showError==="function")showError(msg);else alert(r.errors.join("\n"));
+      return;
+    }
+    fillLegacyFields();
+    var b=document.getElementById("saveBtn");
+    if(!b)return;
+    b.__mpBypass=true;
+    restoreTokensIfLost();
+    b.click();
+  });
+}
+
+function init(){
+  var tries=0;
+  var iv=setInterval(function(){
+    tries++;
+    var don=document.getElementById("pixDonations");
+    var com=document.getElementById("paidCommercials");
+    var save=document.getElementById("saveBtn");
+    if(don&&com){
+      clearInterval(iv);
+      injectBox("donations");
+      injectBox("commercials");
+      hideLegacyPixFields();
+      bind();
+      refreshStatus();
+      if(save)document.addEventListener("click",handleSave,true);
+      var p=new URLSearchParams(location.search);
+      if(p.get("mpConnected")==="success"){
+        var ty=p.get("type")||"";
+        var lb=ty==="commercials"?"Comerciais":"Doacoes";
+        if(typeof showSuccess==="function")showSuccess("Mercado Pago conectado ("+lb+")!");
+        history.replaceState({},document.title,location.pathname+"?channelId="+getChannelId());
+      }else if(p.get("mpError")||p.get("error")){
+        var m=decodeURIComponent(p.get("message")||p.get("mpError")||p.get("error")||"");
+        if(typeof showError==="function")showError("Erro OAuth: "+m);
+        history.replaceState({},document.title,location.pathname+"?channelId="+getChannelId());
+      }
+      console.log("[MP v5] inicializado");
+    }
+    if(tries>=200){clearInterval(iv);console.warn("[MP v5] timeout");}
+  },250);
+}
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else setTimeout(init,500);
+})();
+/* ===== FIM MP CONNECT v5 ===== */
 </script>
 </body>
 </html>
