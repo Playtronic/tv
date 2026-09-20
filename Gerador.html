@@ -5737,12 +5737,22 @@ function onYouTubePlayerReady(event) {
 
 // Monitorar estado do player
 function onYouTubePlayerStateChange(event) {
-    console.log('Estado do YouTube:', event.data);
+    console.log('Estado do YouTube:', event.data, '| currentState:', currentState);
     
     // 0 = ENDED, 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
     if (event.data === 0) { // ENDED
-        console.log('YouTube vídeo terminou');
-        verificarFimDoVideo();
+        console.log('YouTube vídeo terminou. Estado atual:', currentState);
+        
+        // Se estamos em comercial, o handler de comercial cuida disso via setInterval.
+        // NÃO chamar verificarFimDoVideo aqui para não confundir o fluxo.
+        if (currentState === 'commercial') {
+            console.log('Video ended durante comercial - deixando handleCommercialEnd cuidar');
+            return;
+        }
+        
+        if (currentState === 'program') {
+            verificarFimDoVideo();
+        }
     } else if (event.data === 1) { // PLAYING
         console.log('YouTube está tocando');
     } else if (event.data === 2) { // PAUSED
@@ -6358,6 +6368,17 @@ function reproduzirComercial() {
         
         console.log('=== INICIANDO INTERVALO COMERCIAL ===');
         console.log('CommercialBreakCount:', commercialBreakCount, 'COMMERCIALS_PER_BREAK:', COMMERCIALS_PER_BREAK);
+        
+        // Limit dinâmico: nunca exibir mais comerciais que o disponível na lista
+        var _listaAtiva = CHANNEL_COMMERCIALS_SYNCED ? CHANNEL_COMMERCIALS_LIVE : TV_COMMERCIALS;
+        var _maxBreak = Math.min(COMMERCIALS_PER_BREAK, _listaAtiva.length);
+        if (commercialBreakCount >= _maxBreak) {
+            console.log('Limite de comerciais atingido (' + _maxBreak + '), voltando ao programa');
+            commercialBreakCount = 0;
+            if (commercialIndicator) commercialIndicator.style.display = 'none';
+            reproduzirPrograma(currentPlayingSlot, 0);
+            return;
+        }
         
         // REMOVER MENSAGEM "Carregando programação..." DURANTE COMERCIAIS
         if (loadingMessage) {
