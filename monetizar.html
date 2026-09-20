@@ -293,7 +293,6 @@ function mpReadTokens(){
 
 function mpTokenExists(t){return !!(t&&(t.don||t.com||t.root))}
 
-// 🔥 CORRIGIDO: efetivo = token no bloco OU root
 function mpEffectiveDon(){return MP.don||MP.root||''}
 function mpEffectiveCom(){return MP.com||MP.root||''}
 
@@ -355,7 +354,6 @@ function mpRefreshStatus(){
     MP.connected=mpTokenExists(t);
     window.__mpLastRead=t;
     mpApplyUI();
-    // Sincroniza em background — se falhar (regras), não bloqueia
     if(MP.connected){
       mpSyncToBoth().catch(e=>console.log('[MP] sync falhou (não crítico):',e&&e.message));
     }
@@ -403,6 +401,7 @@ function mpConnect(){
   location.href=url;
 }
 
+// 🔥 CORRIGIDO: limpa tokens do Firestore E da memória
 function mpDoDisconnect(){
   const cid=channelId||mpGetCid();const fs=mpGetFs();const uid=mpGetUid();
   if(!cid||!fs)return Promise.resolve();
@@ -413,7 +412,25 @@ function mpDoDisconnect(){
   };
   return fs.collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true})
     .then(()=>fs.collection('channels').doc(cid).set(upd,{merge:true}))
-    .then(()=>{if(uid)return fs.collection('users').doc(uid).collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true});});
+    .then(()=>{if(uid)return fs.collection('users').doc(uid).collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true});})
+    .then(()=>{
+      // 🔥 NOVO: limpar da memória também, senão saveMonetization reenvia os tokens antigos
+      if(monetizationData.pixDonations){
+        monetizationData.pixDonations.mpAccessToken='';
+        monetizationData.pixDonations.mpRefreshToken='';
+        monetizationData.pixDonations.mpUserId='';
+        monetizationData.pixDonations.mpConnected=false;
+      }
+      if(monetizationData.paidCommercials){
+        monetizationData.paidCommercials.mpAccessToken='';
+        monetizationData.paidCommercials.mpRefreshToken='';
+        monetizationData.paidCommercials.mpUserId='';
+        monetizationData.paidCommercials.mpConnected=false;
+      }
+      MP.don='';MP.com='';MP.root='';
+      window.__mpLastRead={don:'',com:'',root:'',errors:[]};
+      console.log('[MP] tokens limpos da memória');
+    });
 }
 
 function mpDisconnect(){
@@ -421,7 +438,7 @@ function mpDisconnect(){
   if(!confirm('Desconectar o Mercado Pago? As opções 2 e 3 serão desabilitadas.'))return;
   MP.disconnecting=true;
   mpDoDisconnect().then(()=>{
-    MP.connected=false;MP.don='';MP.com='';MP.root='';
+    MP.connected=false;
     mpApplyUI();
     if(typeof showSuccess==='function')showSuccess('Mercado Pago desconectado.');
   }).catch(e=>{
@@ -591,7 +608,6 @@ function updateUI(){
   document.getElementById('saveBtn').disabled=true;
 }
 
-// 🔥 CORRIGIDO: aceita token no bloco OU no root
 function validateMonetizationSettings(){
   const errors=[];
   if(window.__hasPaidBlock&&!document.getElementById('paidCommercials').checked){
@@ -670,7 +686,7 @@ async function saveMonetization(){
     monetizationData.paidCommercials.pixKeyType=document.getElementById('commercialsPixKeyType').value;
     monetizationData.paidCommercials.pixKey=document.getElementById('commercialsPixKey').value.trim();
 
-    // Injeta tokens efetivos em memória (garante que são salvos)
+    // Injeta tokens efetivos em memória (só se existirem)
     const donTok=mpEffectiveDon();
     const comTok=mpEffectiveCom();
     if(donTok){
