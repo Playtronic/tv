@@ -230,13 +230,9 @@
             });
         }
 
-        // ═══════════════════════════════════════════════════════
-        // loadChannelData SIMPLIFICADO — só lê channels/{id}
-        // ═══════════════════════════════════════════════════════
         async function loadChannelData() {
             try {
                 showLoading('Carregando informações do canal...');
-
                 let foundChannel = null;
                 let foundLogo = null;
 
@@ -270,7 +266,6 @@
                     channelLogo.src = DEFAULT_LOGO;
                 }
 
-                // Buscar monetização em channels/{id}/monetization/settings
                 let monetizationData = null;
                 try {
                     const cm = await db.collection('channels').doc(currentChannelId)
@@ -282,7 +277,6 @@
                     console.log('Erro ao ler channels/settings:', e.message);
                 }
 
-                // Fallback: users/{ownerId}/channels/{id}/monetization/settings
                 if (!monetizationData && channelData.ownerId) {
                     try {
                         const um = await db.collection('users').doc(channelData.ownerId)
@@ -554,50 +548,74 @@
             }
         }
 
-        // ═══════════════════════════════════════════════════════
-        // SALVAR COMERCIAL no caminho CORRETO:
-        // paid_commercials/{channelId}/commercials/{autoId}
-        // ═══════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════
+        // SALVAR COMERCIAL — agora grava no array do doc do canal
+        // (é o que o player lê via onSnapshot)
+        // ═══════════════════════════════════════════════════════════
         async function saveCommercialToFirestore() {
             showLoading('Salvando comercial...');
             try {
                 const now = new Date();
                 const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000));
+                const expiresAtMs = expiresAt.getTime();
 
-                const commercialData = {
-                    videoUrl: videoData.url,
-                    videoId: videoData.videoId,
-                    videoTitle: videoData.title,
-                    videoDuration: videoData.duration,
-                    thumbnail: videoData.thumbnail,
-                    pricePaid: videoData.totalPrice,
-                    payerEmail: currentUser.email,
-                    payerId: currentUser.uid,
+                // 1. Atualiza o array commercials do doc do canal (o player lê daqui)
+                const channelRef = db.collection('channels').doc(channelData.id);
+                const channelSnap = await channelRef.get();
+                const existingCommercials = (channelSnap.exists && Array.isArray(channelSnap.data().commercials))
+                    ? channelSnap.data().commercials
+                    : [];
+
+                const newCommercialArrayItem = {
+                    url: videoData.url,
+                    name: videoData.title,
+                    isPaid: true,
+                    expiresAt: expiresAtMs,
                     payerName: currentUser.displayName || currentUser.email,
-                    channelId: channelData.id,
-                    channelName: channelData.name,
                     paymentId: currentPaymentId,
-                    status: 'active',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    expiresAt: expiresAt,
-                    willExpireAt: firebase.firestore.Timestamp.fromDate(expiresAt)
+                    pricePaid: videoData.totalPrice,
+                    createdAt: now.getTime()
                 };
 
-                // Cria o doc pai (se não existir) e salva na subcoleção commercials
-                const parentRef = db.collection('paid_commercials').doc(channelData.id);
-                await parentRef.set({
-                    channelId: channelData.id,
-                    channelName: channelData.name,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
+                const currentActiveUntil = (channelSnap.exists && channelSnap.data().paidCommercialsActiveUntil) || 0;
 
-                const commercialRef = parentRef.collection('commercials').doc();
-                await commercialRef.set({
-                    ...commercialData,
-                    commercialId: commercialRef.id
+                await channelRef.update({
+                    commercials: existingCommercials.concat([newCommercialArrayItem]),
+                    paidCommercialsActiveUntil: Math.max(currentActiveUntil, expiresAtMs)
                 });
 
-                console.log('Comercial salvo em paid_commercials/' + channelData.id + '/commercials/' + commercialRef.id);
+                // 2. Também salva na subcoleção (para relatórios)
+                try {
+                    const parentRef = db.collection('paid_commercials').doc(channelData.id);
+                    await parentRef.set({
+                        channelId: channelData.id,
+                        channelName: channelData.name,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+
+                    await parentRef.collection('commercials').add({
+                        videoUrl: videoData.url,
+                        videoId: videoData.videoId,
+                        videoTitle: videoData.title,
+                        videoDuration: videoData.duration,
+                        thumbnail: videoData.thumbnail,
+                        pricePaid: videoData.totalPrice,
+                        payerEmail: currentUser.email,
+                        payerId: currentUser.uid,
+                        payerName: currentUser.displayName || currentUser.email,
+                        channelId: channelData.id,
+                        channelName: channelData.name,
+                        paymentId: currentPaymentId,
+                        status: 'active',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        expiresAt: expiresAt,
+                        willExpireAt: firebase.firestore.Timestamp.fromDate(expiresAt)
+                    });
+                } catch (subErr) {
+                    console.warn('Erro ao salvar na subcoleção (não crítico):', subErr.message);
+                }
+
+                console.log('✅ Comercial salvo no array do canal e na subcoleção');
 
                 hideLoading();
                 document.getElementById('pixArea').style.display = 'none';
