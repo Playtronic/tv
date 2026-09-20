@@ -73,9 +73,6 @@ button:disabled:hover{background:#6b7280;transform:none}
 .mp-locked-hint.active{display:block}
 .mp-locked-checkbox{opacity:.45!important;cursor:not-allowed!important}
 .mp-legacy-hidden{display:none!important}
-.mp-debug-btn{position:fixed;bottom:15px;right:15px;background:#00aeef;color:#fff;border:none;border-radius:50%;width:44px;height:44px;font-size:18px;font-weight:bold;cursor:pointer;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,.4)}
-.mp-debug-panel{position:fixed;bottom:70px;right:15px;background:#0f0f1e;color:#b8c5d6;font-family:Consolas,monospace;font-size:11px;padding:12px;border-radius:8px;max-width:420px;max-height:400px;overflow:auto;border:2px solid #00aeef;z-index:99998;white-space:pre-wrap;line-height:1.4;display:none}
-.mp-debug-panel.show{display:block}
 @media(max-width:768px){.container{padding:15px}h1{font-size:2rem}h3{font-size:1.3rem}.monetization-option{padding:20px 15px}.channel-header{flex-direction:column;text-align:center;gap:15px}.navigation{flex-direction:column;gap:10px}.navigation button{width:100%}.pix-type-group{flex-direction:column}.pix-type-group>div{min-width:100%}}
 </style>
 </head>
@@ -229,9 +226,6 @@ ATENÇÃO: Para receber os pagamentos, você <strong>precisa ter uma conta no Me
 <div id="successMessage" class="success" style="display:none"></div>
 </div>
 
-<button class="mp-debug-btn" id="mpDebugBtn" style="display:none">?</button>
-<div class="mp-debug-panel" id="mpDebugPanel"></div>
-
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -296,10 +290,25 @@ function mpTokenExists(t){return !!(t&&(t.don||t.com||t.root))}
 function mpEffectiveDon(){return MP.don||MP.root||''}
 function mpEffectiveCom(){return MP.com||MP.root||''}
 
+// 🔥 CORRIGIDO: ao liberar, restaura estado dos checkboxes a partir de monetizationData
 function mpSetCheckboxLocked(id,locked){
   const cb=document.getElementById(id);if(!cb)return;
-  if(locked){cb.disabled=true;cb.classList.add('mp-locked-checkbox');cb.checked=false;cb.title='Conecte o Mercado Pago primeiro';}
-  else{cb.disabled=false;cb.classList.remove('mp-locked-checkbox');cb.removeAttribute('title');}
+  if(locked){
+    cb.disabled=true;
+    cb.classList.add('mp-locked-checkbox');
+    cb.checked=false;
+    cb.title='Conecte o Mercado Pago primeiro';
+  }else{
+    cb.disabled=false;
+    cb.classList.remove('mp-locked-checkbox');
+    cb.removeAttribute('title');
+    // 🔥 Restaurar estado do checkbox conforme dados salvos
+    if(id==='pixDonations'){
+      cb.checked = (monetizationData.pixDonations && monetizationData.pixDonations.enabled) || false;
+    } else if(id==='paidCommercials'){
+      cb.checked = (monetizationData.paidCommercials && monetizationData.paidCommercials.enabled) || false;
+    }
+  }
 }
 
 function mpSetHint(text){
@@ -401,7 +410,6 @@ function mpConnect(){
   location.href=url;
 }
 
-// 🔥 CORRIGIDO: limpa tokens do Firestore E da memória
 function mpDoDisconnect(){
   const cid=channelId||mpGetCid();const fs=mpGetFs();const uid=mpGetUid();
   if(!cid||!fs)return Promise.resolve();
@@ -414,7 +422,6 @@ function mpDoDisconnect(){
     .then(()=>fs.collection('channels').doc(cid).set(upd,{merge:true}))
     .then(()=>{if(uid)return fs.collection('users').doc(uid).collection('channels').doc(cid).collection('monetization').doc('settings').set(upd,{merge:true});})
     .then(()=>{
-      // 🔥 NOVO: limpar da memória também, senão saveMonetization reenvia os tokens antigos
       if(monetizationData.pixDonations){
         monetizationData.pixDonations.mpAccessToken='';
         monetizationData.pixDonations.mpRefreshToken='';
@@ -453,28 +460,6 @@ function mpBind(){
     e.preventDefault();e.stopPropagation();
     if(MP.loading)return;
     if(MP.connected)mpDisconnect();else mpConnect();
-  });
-}
-
-function mpMakeDebug(){
-  const b=document.getElementById('mpDebugBtn');const p=document.getElementById('mpDebugPanel');
-  if(!b||!p)return;
-  b.style.display='block';
-  b.addEventListener('click',()=>{
-    mpReadTokens().then(t=>{
-      const lines=[];
-      lines.push('MP Connect Debug');
-      lines.push('channelId: '+(channelId||mpGetCid()||'(vazio)'));
-      lines.push('uid: '+(mpGetUid()||'(não logado)'));
-      lines.push('MP.connected: '+MP.connected);
-      lines.push('---');
-      lines.push('pixDonations.mpAccessToken: '+(t.don?'SIM ('+t.don.substring(0,20)+'...)':'NÃO'));
-      lines.push('paidCommercials.mpAccessToken: '+(t.com?'SIM ('+t.com.substring(0,20)+'...)':'NÃO'));
-      lines.push('channels/{id}.mpAccessToken (root): '+(t.root?'SIM':'NÃO'));
-      lines.push('---');
-      if(t.errors.length){lines.push('ERROS DE LEITURA:');t.errors.forEach(e=>lines.push('  '+e));}else lines.push('Sem erros de leitura.');
-      p.textContent=lines.join('\n');p.classList.toggle('show');
-    });
   });
 }
 
@@ -542,12 +527,22 @@ async function loadChannelData(){
     logo.src=data.logo&&data.logo.trim()!==''?data.logo:DEFAULT_LOGO;
     logo.onerror=()=>logo.src=DEFAULT_LOGO;
 
+    // Buscar monetização — prioridade: users/settings, fallback: channels/settings
+    let mdata=null;
     const mdoc=await db.collection('users').doc(currentUser.uid).collection('channels').doc(channelId).collection('monetization').doc('settings').get();
     if(mdoc.exists){
-      const old=mdoc.data();
-      if(old.adsterraSmartlink)monetizationData.adsterraSmartlink=old.adsterraSmartlink;
-      if(old.pixDonations)monetizationData.pixDonations=Object.assign({},monetizationData.pixDonations,old.pixDonations);
-      if(old.paidCommercials)monetizationData.paidCommercials=Object.assign({},monetizationData.paidCommercials,old.paidCommercials);
+      mdata=mdoc.data();
+    }else{
+      try{
+        const cdoc=await db.collection('channels').doc(channelId).collection('monetization').doc('settings').get();
+        if(cdoc.exists)mdata=cdoc.data();
+      }catch(e){}
+    }
+
+    if(mdata){
+      if(mdata.adsterraSmartlink)monetizationData.adsterraSmartlink=mdata.adsterraSmartlink;
+      if(mdata.pixDonations)monetizationData.pixDonations=Object.assign({},monetizationData.pixDonations,mdata.pixDonations);
+      if(mdata.paidCommercials)monetizationData.paidCommercials=Object.assign({},monetizationData.paidCommercials,mdata.paidCommercials);
     }
     originalMonetizationData=JSON.parse(JSON.stringify(monetizationData));
 
@@ -580,7 +575,6 @@ async function loadChannelData(){
     document.getElementById('content').style.display='block';
 
     mpBind();
-    mpMakeDebug();
     mpRefreshStatus();
     mpHandleOAuthReturn();
 
@@ -686,7 +680,6 @@ async function saveMonetization(){
     monetizationData.paidCommercials.pixKeyType=document.getElementById('commercialsPixKeyType').value;
     monetizationData.paidCommercials.pixKey=document.getElementById('commercialsPixKey').value.trim();
 
-    // Injeta tokens efetivos em memória (só se existirem)
     const donTok=mpEffectiveDon();
     const comTok=mpEffectiveCom();
     if(donTok){
