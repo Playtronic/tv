@@ -6433,6 +6433,20 @@ function reproduzirComercial() {
         // Handler de fim do comercial        
 
         const handleCommercialEnd = function() {
+            // GUARD: se o estado nao e mais commercial, o timer disparou atrasado. Ignora.
+            if (currentState !== 'commercial') {
+                console.log('[GUARD] handleCommercialEnd ignorado - currentState=' + currentState);
+                return;
+            }
+            // Cancelar timers pendentes deste break
+            if (window._commercialSafetyTimer) {
+                clearTimeout(window._commercialSafetyTimer);
+                window._commercialSafetyTimer = null;
+            }
+            if (window._commercialYouTubeChecker) {
+                clearInterval(window._commercialYouTubeChecker);
+                window._commercialYouTubeChecker = null;
+            }
             console.log('Comercial terminado. CommercialBreakCount:', commercialBreakCount + 1, 'de', COMMERCIALS_PER_BREAK);
             
             // Incrementar contador
@@ -6448,6 +6462,9 @@ function reproduzirComercial() {
                 commercialBreakCount = 0;
                 if (commercialIndicator) commercialIndicator.style.display = 'none';
                 // NÃO incrementa slot novamente, pois já foi incrementado antes dos comerciais
+                if (typeof youtubePlayer !== "undefined" && youtubePlayer && youtubePlayer.destroy && isYoutubeVideo) {
+                    try { youtubePlayer.destroy(); youtubePlayer = null; playerReady = false; isYoutubeVideo = false; } catch(e){}
+                }
                 reproduzirPrograma(currentPlayingSlot, 0);
             }
         };
@@ -6472,17 +6489,28 @@ function reproduzirComercial() {
         // Configurar listeners para fim do comercial
         if (isYoutubeVideo && youtubePlayer) {
             // Para YouTube, usar um intervalo para verificar se terminou
-            const checkYouTubeEnd = setInterval(() => {
+            window._commercialYouTubeChecker = setInterval(() => {
+                if (currentState !== 'commercial') {
+                    clearInterval(window._commercialYouTubeChecker);
+                    window._commercialYouTubeChecker = null;
+                    return;
+                }
                 if (youtubePlayer && youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0) {
-                    clearInterval(checkYouTubeEnd);
+                    clearInterval(window._commercialYouTubeChecker);
+                    window._commercialYouTubeChecker = null;
                     handleCommercialEnd();
                 }
             }, 1000);
             
-            // Timeout de segurança
-            setTimeout(() => {
-                clearInterval(checkYouTubeEnd);
-                handleCommercialEnd();
+            // Timeout de seguranca (com guard)
+            window._commercialSafetyTimer = setTimeout(() => {
+                if (window._commercialYouTubeChecker) {
+                    clearInterval(window._commercialYouTubeChecker);
+                    window._commercialYouTubeChecker = null;
+                }
+                if (currentState === 'commercial') {
+                    handleCommercialEnd();
+                }
             }, 30000);
         } else if (videoElement) {
             // Para HTML5
