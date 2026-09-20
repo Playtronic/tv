@@ -1315,74 +1315,53 @@
                 };
                 
                 console.log('Salvando comercial:', commercialData);
-                
-                // Salvar na coleção de comerciais pagos
-                const commercialRef = await db.collection('paid_commercials').add(commercialData);
-                
-                // ─── NOVO: Atualizar array principal + paidCommercialsActiveUntil ───
-                const channelRefUpdate = db.collection('channels').doc(channelData.id);
-                const channelSnapUpdate = await channelRefUpdate.get();
-                const existingUntil = (channelSnapUpdate.data() && channelSnapUpdate.data().paidCommercialsActiveUntil) || 0;
-                const newActiveUntil = Math.max(existingUntil, expiresAt.getTime());
-                
-                const paidCommercialEntry = {
-                    name: '[PAGO] ' + (videoData.title || 'Comercial'),
-                    url: videoData.url,
-                    isPaid: true,
-                    commercialId: commercialRef.id,
-                    payerId: currentUser.uid,
-                    paidAmount: videoData.totalPrice,
-                    expiresAt: expiresAt.getTime(),
-                    priority: true,
-                    createdAt: Date.now()
-                };
-                
-                try {
-                    await channelRefUpdate.update({
-                        commercials: firebase.firestore.FieldValue.arrayUnion(paidCommercialEntry),
-                        paidCommercialsActiveUntil: newActiveUntil
-                    });
-                    console.log('✅ Array principal do canal atualizado');
-                } catch (e) {
-                    console.warn('⚠️ Falha ao atualizar array principal:', e);
-                }
-                
-                if (channelData.userId) {
-                    try {
-                        await db.collection('users').doc(channelData.userId)
-                            .collection('channels').doc(channelData.id)
-                            .update({
-                                commercials: firebase.firestore.FieldValue.arrayUnion(paidCommercialEntry),
-                                paidCommercialsActiveUntil: newActiveUntil
-                            });
-                        console.log('✅ Array legado atualizado');
-                    } catch (e) {
-                        console.warn('⚠️ Falha ao atualizar array legado:', e);
-                    }
-                }
-                
-                // Também adicionar à lista de comerciais do canal
-                const channelCommercialsRef = db.collection('channels').doc(channelData.id)
-                    .collection('commercials').doc(commercialRef.id);
-                
-                await channelCommercialsRef.set({
-                    ...commercialData,
-                    commercialId: commercialRef.id
-                });
-                
-                // Se o canal estiver na estrutura antiga (users), também salvar lá
-                if (channelData.userId) {
-                    const userChannelCommercialsRef = db.collection('users').doc(channelData.userId)
-                        .collection('channels').doc(channelData.id)
-                        .collection('commercials').doc(commercialRef.id);
-                    
-                    await userChannelCommercialsRef.set({
-                        ...commercialData,
-                        commercialId: commercialRef.id
-                    });
-                }
-                
-                console.log('Comercial salvo com ID:', commercialRef.id);
+
+// Garantir que o documento pai do canal existe em paid_commercials
+await db.collection('paid_commercials').doc(channelData.id).set({
+    channelId: channelData.id,
+    channelName: channelData.name,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+}, { merge: true });
+
+// Salvar na SUBCOLEÇÃO que o getActivePaidCommercials lê:
+// paid_commercials/{channelId}/commercials/{autoId}
+const commercialRef = db.collection('paid_commercials')
+    .doc(channelData.id)
+    .collection('commercials')
+    .doc();
+
+await commercialRef.set({
+    ...commercialData,
+    commercialId: commercialRef.id
+});
+
+// Espelho em channels/{id}/commercials (para relatórios)
+const channelCommercialsRef = db.collection('channels')
+    .doc(channelData.id)
+    .collection('commercials')
+    .doc(commercialRef.id);
+
+await channelCommercialsRef.set({
+    ...commercialData,
+    commercialId: commercialRef.id
+});
+
+// Espelho em users/{uid}/channels/{id}/commercials (estrutura antiga)
+if (channelData.userId) {
+    const userChannelCommercialsRef = db.collection('users')
+        .doc(channelData.userId)
+        .collection('channels')
+        .doc(channelData.id)
+        .collection('commercials')
+        .doc(commercialRef.id);
+
+    await userChannelCommercialsRef.set({
+        ...commercialData,
+        commercialId: commercialRef.id
+    });
+}
+
+console.log('Comercial salvo com ID:', commercialRef.id);
                 
                 // Programar exclusão automática após 24 horas
                 scheduleCommercialDeletion(commercialRef.id, expiresAt);
