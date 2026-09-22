@@ -213,6 +213,31 @@ ATENÇÃO: Para receber os pagamentos, você <strong>precisa ter uma conta no Me
 </div>
 </div>
 
+<div class="monetization-option">
+<h3>4. Assinatura Mensal</h3>
+<div class="payment-info">
+<p><strong>Como funciona:</strong> Plano de assinatura mensal. Cada espectador logado ganha <span class="commission-highlight">7 dias gratis</span> para experimentar. Depois disso, so assiste quem assina. Voce recebe <span class="commission-highlight">92%</span>.</p>
+</div>
+<div class="mp-required-warning mp-warn" style="display:none">
+ATENCAO: Para receber os pagamentos, voce precisa ter uma conta no Mercado Pago.
+</div>
+<div class="control-option">
+<input type="checkbox" id="subscriptionEnabled">
+<label for="subscriptionEnabled">Habilitar Assinatura Mensal</label>
+</div>
+<div id="subscriptionSettings" style="display:none;margin-top:15px">
+<div class="form-group">
+<label for="monthlyPrice">Valor mensal (R$):</label>
+<input type="number" id="monthlyPrice" min="1" step="0.01" value="9.90" style="width:180px;padding:10px">
+</div>
+<div class="form-group">
+<label for="trialDays">Dias gratis para experimentar:</label>
+<input type="number" id="trialDays" min="0" max="30" value="7" style="width:180px;padding:10px">
+<div class="field-info">0 desativa trial.</div>
+</div>
+</div>
+</div>
+
 <div class="navigation">
 <button id="cancelBtn" class="secondary">← Voltar para Gerador</button>
 <button id="saveBtn" disabled>Salvar e Publicar</button>
@@ -241,7 +266,8 @@ let channelId=null;
 let monetizationData={
   adsterraSmartlink:{enabled:false,url:''},
   pixDonations:{enabled:false,pixKey:'',pixKeyType:'',mpAccessToken:'',mpRefreshToken:'',mpUserId:'',mpConnected:false},
-  paidCommercials:{enabled:false,pricePerSecond:0.05,maxDuration:90,dailyCommercialsLimit:5,pixKey:'',pixKeyType:'',mpAccessToken:'',mpRefreshToken:'',mpUserId:'',mpConnected:false}
+  paidCommercials:{enabled:false,pricePerSecond:0.05,maxDuration:90,dailyCommercialsLimit:5,pixKey:'',pixKeyType:'',mpAccessToken:'',mpRefreshToken:'',mpUserId:'',mpConnected:false},
+  subscription:{enabled:false,monthlyPrice:9.90,trialDays:7,mpPlanId:''}
 };
 let originalMonetizationData=null;
 let isMonitoringChanges=false;
@@ -543,6 +569,7 @@ async function loadChannelData(){
       if(mdata.adsterraSmartlink)monetizationData.adsterraSmartlink=mdata.adsterraSmartlink;
       if(mdata.pixDonations)monetizationData.pixDonations=Object.assign({},monetizationData.pixDonations,mdata.pixDonations);
       if(mdata.paidCommercials)monetizationData.paidCommercials=Object.assign({},monetizationData.paidCommercials,mdata.paidCommercials);
+      if(mdata.subscription)monetizationData.subscription=Object.assign({},monetizationData.subscription,mdata.subscription);
     }
     originalMonetizationData=JSON.parse(JSON.stringify(monetizationData));
 
@@ -599,6 +626,10 @@ function updateUI(){
   document.getElementById('maxCommercialDuration').value=monetizationData.paidCommercials?.maxDuration||90;
   document.getElementById('dailyCommercialsLimit').value=monetizationData.paidCommercials?.dailyCommercialsLimit||5;
   document.getElementById('paidCommercialsSettings').style.display=monetizationData.paidCommercials?.enabled?'block':'none';
+  document.getElementById('subscriptionEnabled').checked=monetizationData.subscription?.enabled||false;
+  document.getElementById('monthlyPrice').value=monetizationData.subscription?.monthlyPrice||9.90;
+  document.getElementById('trialDays').value=(monetizationData.subscription?.trialDays!=null?monetizationData.subscription.trialDays:7);
+  document.getElementById('subscriptionSettings').style.display=monetizationData.subscription?.enabled?'block':'none';
   document.getElementById('saveBtn').disabled=true;
 }
 
@@ -617,6 +648,7 @@ function validateMonetizationSettings(){
       errors.push('Opção 2 (Doações PIX): conecte o Mercado Pago antes de salvar.');
     }
   }
+  if(document.getElementById('subscriptionEnabled').checked){if(!mpEffectiveCom()&&!(monetizationData.pixDonations&&monetizationData.pixDonations.mpAccessToken)&&!(monetizationData.paidCommercials&&monetizationData.paidCommercials.mpAccessToken)){errors.push('Opcao 4 (Assinatura): conecte o Mercado Pago antes de salvar.');}}
   if(document.getElementById('paidCommercials').checked){
     if(!mpEffectiveCom()&&!monetizationData.paidCommercials.mpAccessToken){
       errors.push('Opção 3 (Comerciais Pagos): conecte o Mercado Pago antes de salvar.');
@@ -680,6 +712,17 @@ async function saveMonetization(){
     monetizationData.paidCommercials.pixKeyType=document.getElementById('commercialsPixKeyType').value;
     monetizationData.paidCommercials.pixKey=document.getElementById('commercialsPixKey').value.trim();
 
+    monetizationData.subscription.enabled=document.getElementById('subscriptionEnabled').checked;
+    monetizationData.subscription.monthlyPrice=parseFloat(document.getElementById('monthlyPrice').value)||9.90;
+    monetizationData.subscription.trialDays=parseInt(document.getElementById('trialDays').value)||0;
+    if(monetizationData.subscription.enabled&&!monetizationData.subscription.mpPlanId){
+      try{
+        const r=await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/createSubscriptionPlan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channelId:channelId,monthlyPrice:monetizationData.subscription.monthlyPrice,title:'Assinatura - '+document.getElementById('channelNameSpan').textContent})});
+        const res=await r.json();
+        if(res.success)monetizationData.subscription.mpPlanId=res.planId;
+        else throw new Error(res.error);
+      }catch(e){showError('Erro ao criar plano: '+e.message);return;}
+    }
     const donTok=mpEffectiveDon();
     const comTok=mpEffectiveCom();
     if(donTok){
@@ -724,6 +767,9 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('adsterraSmartlink').addEventListener('change',function(){document.getElementById('adsterraSettings').style.display=this.checked?'block':'none';checkForChanges();});
   document.getElementById('pixDonations').addEventListener('change',function(){document.getElementById('pixSettings').style.display=this.checked?'block':'none';checkForChanges();});
   document.getElementById('paidCommercials').addEventListener('change',function(){document.getElementById('paidCommercialsSettings').style.display=this.checked?'block':'none';checkForChanges();});
+  document.getElementById('subscriptionEnabled').addEventListener('change',function(){document.getElementById('subscriptionSettings').style.display=this.checked?'block':'none';checkForChanges();});
+  document.getElementById('monthlyPrice').addEventListener('input',checkForChanges);
+  document.getElementById('trialDays').addEventListener('input',checkForChanges);
 
   auth.onAuthStateChanged(async(user)=>{
     currentUser=user;
