@@ -7208,313 +7208,405 @@ function verificarFimDoVideo() {
 
 
 
-    <!-- LIVE-COMMERCIAL-SYSTEM-V2 -->
+
+    <!-- LIVE-COMMERCIAL-SYSTEM-V4 -->
     <script>
-(function() {
-    'use strict';
+(function(){
+'use strict';
 
-    var LIVE_COMMERCIAL_INTERVAL_MS = 60000;
-    var LIVE_COMMERCIAL_SAFETY_TIMEOUT_MS = 120000;
+var INTERVAL_MS = 60000;
+var FORCE = true;
+var SAFETY_MS = 90000;
 
-    var _isLiveStream = false;
-    var _liveTimerId = null;
-    var _overlayDiv = null;
-    var _overlayVideo = null;
-    var _previousMuteState = { muted: false, volume: 1 };
-    var _inLiveCommercial = false;
-    var _liveCommercialIndex = 0;
-    var _ytCommercialPlayer = null;
+var isLive = false;
+var timerId = null;
+var overlay = null;
+var overlayVideo = null;
+var ytAd = null;
+var inAd = false;
+var adIndex = 0;
+var savedMute = { muted: false, volume: 1 };
 
-    function log(msg) {
-        try { console.log('[LIVE-C] ' + msg); } catch(e) {}
+function log() {
+  try {
+    var a = Array.prototype.slice.call(arguments);
+    a.unshift('[LIVE-C]');
+    console.log.apply(console, a);
+  } catch(e){}
+}
+
+function getVid() { return document.getElementById('myVideo'); }
+
+function ytDur() {
+  if (typeof youtubePlayer === 'undefined' || !youtubePlayer) return null;
+  if (typeof youtubePlayer.getDuration !== 'function') return null;
+  try { return youtubePlayer.getDuration(); } catch(e){ return null; }
+}
+
+function ytState() {
+  if (typeof youtubePlayer === 'undefined' || !youtubePlayer) return null;
+  if (typeof youtubePlayer.getPlayerState !== 'function') return null;
+  try { return youtubePlayer.getPlayerState(); } catch(e){ return null; }
+}
+
+function marcarLive(motivo) {
+  if (isLive) return;
+  isLive = true;
+  log('✅ LIVE CONFIRMADO: ' + motivo);
+  tentarArmarTimer();
+}
+
+// ═══ DETECÇÃO ═══
+// Estratégia: comparar ytDur() em dois momentos. Se crescer, é live.
+function detectar() {
+  log('=== Detectando live ===');
+
+  if (FORCE) {
+    log('⚠️ FORCE mode — assumindo live');
+    marcarLive('FORCE');
+    return;
+  }
+
+  // HTML5/HLS: duration=Infinity é live
+  var v = getVid();
+  if (v) {
+    log('HTML5 duration=' + v.duration);
+    if (v.duration === Infinity) { marcarLive('HTML5 Infinity'); return; }
+    if (v.src && v.src.indexOf('.m3u8') !== -1) { marcarLive('.m3u8'); return; }
+  }
+
+  // YouTube: aguardar player, ler duração 2x
+  var tentativas = 0;
+  var maxTent = 60;
+  var dur1 = null, t1 = null;
+
+  var watcher = setInterval(function() {
+    tentativas++;
+
+    if (typeof youtubePlayer === 'undefined' || !youtubePlayer) {
+      if (tentativas % 5 === 0) log('Aguardando youtubePlayer... #' + tentativas);
+      if (tentativas > maxTent) { log('❌ Sem youtubePlayer'); clearInterval(watcher); }
+      return;
     }
 
-    // ═══ DETECÇÃO DE LIVE ═══
-    function detectarLive() {
-        var v = document.getElementById('myVideo');
-        if (v) {
-            if (v.duration === Infinity || isNaN(v.duration)) {
-                _isLiveStream = true;
-                log('Live detectado via HTML5 duration');
-                return;
-            }
-            if (v.src && v.src.indexOf('.m3u8') !== -1 && v.src.indexOf('vod') === -1) {
-                _isLiveStream = true;
-                log('Live detectado via URL .m3u8');
-                return;
-            }
-            v.addEventListener('loadedmetadata', function() {
-                if (v.duration === Infinity || isNaN(v.duration)) {
-                    _isLiveStream = true;
-                    log('Live detectado via loadedmetadata');
-                }
-            });
-        }
-        var attempts = 0;
-        var ytWatch = setInterval(function() {
-            attempts++;
-            if (typeof youtubePlayer === 'undefined' || !youtubePlayer) {
-                if (attempts > 30) clearInterval(ytWatch);
-                return;
-            }
-            if (typeof youtubePlayer.getDuration !== 'function') return;
-            try {
-                var d = youtubePlayer.getDuration();
-                var st = -1;
-                if (typeof youtubePlayer.getPlayerState === 'function') st = youtubePlayer.getPlayerState();
-                if (d === Infinity || isNaN(d) || (d === 0 && st === 1)) {
-                    _isLiveStream = true;
-                    log('Live detectado via YouTube (d=' + d + ', st=' + st + ')');
-                    clearInterval(ytWatch);
-                }
-            } catch(e) {}
-            if (attempts > 30) clearInterval(ytWatch);
-        }, 2000);
+    var d = ytDur();
+    var st = ytState();
+    if (tentativas % 5 === 0) log('YT #' + tentativas + ' dur=' + d + ' state=' + st);
+
+    // Precisamos que o player esteja tocando para fazer a comparação
+    if (st !== 1) {
+      if (tentativas > maxTent) { log('❌ Player não entrou em playing'); clearInterval(watcher); }
+      return;
     }
 
-    // ═══ OVERLAY ═══
-    function criarOverlay() {
-        if (_overlayDiv) return true;
-        var wrapper = document.querySelector('.video-wrapper');
-        if (!wrapper) { log('Wrapper nao encontrado'); return false; }
-        _overlayDiv = document.createElement('div');
-        _overlayDiv.id = 'liveCommercialOverlay';
-        _overlayDiv.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:500;display:none;align-items:center;justify-content:center;';
-        wrapper.appendChild(_overlayDiv);
-        log('Overlay criado');
-        return true;
+    if (d === null || d === 0) {
+      if (tentativas > maxTent) { log('❌ Duração não disponível'); clearInterval(watcher); }
+      return;
     }
 
-    // ═══ TIMER ═══
-    function armarTimer() {
-        if (!_isLiveStream) { log('Nao e live, timer nao armado'); return; }
-        if (typeof userStartedPlayback === 'undefined' || !userStartedPlayback) { log('Aguardando userStartedPlayback'); return; }
-        desarmarTimer();
-        _liveTimerId = setTimeout(function() {
-            log('Timer disparou');
-            executarComercialLive();
-        }, LIVE_COMMERCIAL_INTERVAL_MS);
-        log('Timer armado: ' + (LIVE_COMMERCIAL_INTERVAL_MS/1000) + 's');
+    // Primeira amostra
+    if (dur1 === null) {
+      dur1 = d;
+      t1 = Date.now();
+      log('📊 Primeira amostra: dur=' + d + '. Aguardando 8s para comparar...');
+      return;
     }
 
-    function desarmarTimer() {
-        if (_liveTimerId) { clearTimeout(_liveTimerId); _liveTimerId = null; }
+    // Segunda amostra (só depois de 8s)
+    var elapsed = (Date.now() - t1) / 1000;
+    if (elapsed < 8) return;
+
+    var diff = d - dur1;
+    log('📊 Comparação: dur1=' + dur1 + ' dur2=' + d + ' diff=' + diff.toFixed(2) + ' em ' + elapsed.toFixed(1) + 's');
+
+    if (diff > 3) {
+      marcarLive('Duração cresceu: ' + dur1 + ' → ' + d);
+      clearInterval(watcher);
+      return;
     }
 
-    // ═══ BLOCO DE COMERCIAIS ═══
-    function executarComercialLive() {
-        if (_inLiveCommercial) return;
-        if (typeof currentState !== 'undefined' && currentState === 'commercial') return;
-        var lista = [];
-        var fonte = 'nenhuma';
-        try {
-            if (typeof CHANNEL_COMMERCIALS_SYNCED !== 'undefined' && CHANNEL_COMMERCIALS_SYNCED &&
-                typeof CHANNEL_COMMERCIALS_LIVE !== 'undefined' && CHANNEL_COMMERCIALS_LIVE && CHANNEL_COMMERCIALS_LIVE.length) {
-                lista = CHANNEL_COMMERCIALS_LIVE.slice();
-                fonte = 'pagos';
-            } else if (typeof TV_COMMERCIALS !== 'undefined' && TV_COMMERCIALS && TV_COMMERCIALS.length) {
-                lista = TV_COMMERCIALS.slice();
-                fonte = 'dono';
-            }
-        } catch(e) { log('Erro lista: ' + e.message); return; }
-        if (!lista || lista.length === 0) {
-            log('Sem comerciais. Rearmando.');
-            armarTimer();
-            return;
-        }
-        var n = (typeof COMMERCIALS_PER_BREAK !== 'undefined' && COMMERCIALS_PER_BREAK > 0) ? COMMERCIALS_PER_BREAK : 1;
-        var totalParaTocar = Math.min(n, lista.length);
-        log('Bloco: fonte=' + fonte + ', N=' + n + ', lista=' + lista.length + ', vaiTocar=' + totalParaTocar);
-        _inLiveCommercial = true;
-        if (typeof currentState !== 'undefined') currentState = 'commercial';
-        _previousMuteState = salvarMute();
-        mutarLive();
-        if (!criarOverlay()) {
-            _inLiveCommercial = false;
-            if (typeof currentState !== 'undefined') currentState = 'program';
-            armarTimer();
-            return;
-        }
-        _overlayDiv.style.display = 'flex';
-        var count = 0;
-        var playNext = function() {
-            if (count >= totalParaTocar) {
-                log('Bloco concluido (' + count + ')');
-                finalizarComercialLive();
-                return;
-            }
-            var order = (typeof COMMERCIALS_ORDER !== 'undefined') ? COMMERCIALS_ORDER : 'sequential';
-            var url;
-            if (order === 'sequential') {
-                url = lista[_liveCommercialIndex % lista.length];
-                _liveCommercialIndex = (_liveCommercialIndex + 1) % lista.length;
-            } else {
-                url = lista[Math.floor(Math.random() * lista.length)];
-            }
-            if (!url) { playNext(); return; }
-            count++;
-            log('Comercial ' + count + '/' + totalParaTocar);
-            tocarComercial(url, playNext, function(err) {
-                log('Erro: ' + err + ' - pulando');
-                playNext();
-            });
-        };
-        playNext();
-    }
+    // Se não cresceu, descarta e tenta de novo
+    log('Duração estável. Reamostrando...');
+    dur1 = d;
+    t1 = Date.now();
 
-    function salvarMute() {
-        try {
-            if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo && youtubePlayer && typeof youtubePlayer.isMuted === 'function') {
-                return { muted: youtubePlayer.isMuted(), volume: youtubePlayer.getVolume() / 100 };
-            }
-        } catch(e) {}
-        try {
-            var v = document.getElementById('myVideo');
-            if (v) return { muted: v.muted, volume: v.volume };
-        } catch(e) {}
-        return { muted: false, volume: 1 };
+    if (tentativas > maxTent) {
+      log('❌ Não foi possível confirmar live após ' + maxTent + ' tentativas');
+      clearInterval(watcher);
     }
+  }, 2000);
+}
 
-    function mutarLive() {
-        try {
-            if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo && youtubePlayer && typeof youtubePlayer.mute === 'function') {
-                youtubePlayer.mute(); return;
-            }
-        } catch(e) {}
-        try {
-            var v = document.getElementById('myVideo');
-            if (v) v.muted = true;
-        } catch(e) {}
-    }
+// ═══ OVERLAY ═══
+function criarOverlay() {
+  if (overlay) return true;
+  var w = document.querySelector('.video-wrapper');
+  if (!w) { log('❌ .video-wrapper não encontrado'); return false; }
+  overlay = document.createElement('div');
+  overlay.id = 'liveAdOverlay';
+  overlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:9999;display:none;align-items:center;justify-content:center;';
+  w.appendChild(overlay);
+  log('✅ Overlay criado');
+  return true;
+}
 
-    function desmutarLive() {
-        try {
-            if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo && youtubePlayer && typeof youtubePlayer.unMute === 'function') {
-                if (!_previousMuteState.muted) {
-                    youtubePlayer.unMute();
-                    if (typeof youtubePlayer.setVolume === 'function' && _previousMuteState.volume != null) youtubePlayer.setVolume(_previousMuteState.volume * 100);
-                }
-                return;
-            }
-        } catch(e) {}
-        try {
-            var v = document.getElementById('myVideo');
-            if (v) {
-                v.muted = _previousMuteState.muted;
-                if (!_previousMuteState.muted && _previousMuteState.volume != null) v.volume = _previousMuteState.volume;
-            }
-        } catch(e) {}
-    }
+// ═══ TIMER ═══
+function tentarArmarTimer() {
+  log('tentarArmarTimer: isLive=' + isLive + ' userStarted=' + (typeof userStartedPlayback !== 'undefined' ? userStartedPlayback : '?'));
+  if (!isLive) return;
+  if (typeof userStartedPlayback === 'undefined' || !userStartedPlayback) { log('Aguardando user iniciar playback'); return; }
+  desarmar();
+  timerId = setTimeout(function() {
+    log('⏰ TIMER DISPAROU');
+    executar();
+  }, INTERVAL_MS);
+  log('✅ Timer armado: ' + (INTERVAL_MS/1000) + 's');
+}
 
-    function tocarComercial(url, onEnd, onError) {
-        try { if (_overlayVideo) { _overlayVideo.pause(); _overlayVideo.src = ''; } } catch(e) {}
-        try { if (_ytCommercialPlayer) { _ytCommercialPlayer.destroy(); _ytCommercialPlayer = null; } } catch(e) {}
-        var isYT = url.indexOf('youtube.com') !== -1 || url.indexOf('youtu.be') !== -1;
-        if (isYT && typeof YT !== 'undefined' && typeof YT.Player === 'function') {
-            var vid = '';
-            if (url.indexOf('v=') !== -1) vid = url.split('v=')[1].split('&')[0];
-            else if (url.indexOf('youtu.be/') !== -1) vid = url.split('youtu.be/')[1].split('?')[0];
-            else if (url.indexOf('embed/') !== -1) vid = url.split('embed/')[1].split('?')[0];
-            if (vid) {
-                _overlayDiv.innerHTML = '<div id="liveCommercialYT" style="width:100%;height:100%;"></div>';
-                _overlayVideo = null;
-                _ytCommercialPlayer = new YT.Player('liveCommercialYT', {
-                    height: '100%', width: '100%', videoId: vid,
-                    playerVars: { 'autoplay': 1, 'controls': 0, 'modestbranding': 1, 'rel': 0, 'playsinline': 1, 'iv_load_policy': 3 },
-                    events: {
-                        onReady: function(e) {
-                            try { e.target.setVolume((_previousMuteState.volume || 1) * 100); } catch(x) {}
-                            try { e.target.playVideo(); } catch(x) {}
-                        },
-                        onStateChange: function(e) {
-                            if (e.data === 0) {
-                                try { _ytCommercialPlayer.destroy(); } catch(x) {}
-                                _ytCommercialPlayer = null;
-                                onEnd();
-                            }
-                        },
-                        onError: function(e) {
-                            try { _ytCommercialPlayer.destroy(); } catch(x) {}
-                            _ytCommercialPlayer = null;
-                            onError('YT ' + e.data);
-                        }
-                    }
-                });
-                setTimeout(function() {
-                    if (_inLiveCommercial && _ytCommercialPlayer) { log('Safety YT'); onEnd(); }
-                }, LIVE_COMMERCIAL_SAFETY_TIMEOUT_MS);
-                return;
-            }
-        }
-        _overlayDiv.innerHTML = '';
-        _overlayVideo = document.createElement('video');
-        _overlayVideo.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;';
-        _overlayVideo.playsInline = true;
-        _overlayVideo.setAttribute('playsinline', '');
-        _overlayVideo.setAttribute('webkit-playsinline', '');
-        _overlayVideo.src = url;
-        _overlayVideo.volume = _previousMuteState.volume || 1;
-        _overlayDiv.appendChild(_overlayVideo);
-        var ended = false;
-        var finish = function() { if (ended) return; ended = true; onEnd(); };
-        _overlayVideo.addEventListener('ended', finish, { once: true });
-        _overlayVideo.addEventListener('error', function() {
-            var c = _overlayVideo.error ? _overlayVideo.error.code : '?';
-            if (ended) return; ended = true;
-            onError('HTML5 ' + c);
-        }, { once: true });
-        var pp = _overlayVideo.play();
-        if (pp && typeof pp.catch === 'function') {
-            pp.catch(function(err) {
-                log('Autoplay bloqueado: ' + err.message);
-                _overlayVideo.muted = true;
-                _overlayVideo.play().then(function() {
-                    setTimeout(function() { _overlayVideo.muted = false; }, 100);
-                }).catch(function(e2) { finish(); });
-            });
-        }
-        setTimeout(function() {
-            if (_inLiveCommercial && !ended) { log('Safety HTML5'); finish(); }
-        }, LIVE_COMMERCIAL_SAFETY_TIMEOUT_MS);
-    }
+function desarmar() {
+  if (timerId) { clearTimeout(timerId); timerId = null; }
+}
 
-    function finalizarComercialLive() {
-        if (!_inLiveCommercial) return;
-        _inLiveCommercial = false;
-        try { if (_overlayVideo) { _overlayVideo.pause(); _overlayVideo.src = ''; } } catch(e) {}
-        try { if (_ytCommercialPlayer) { _ytCommercialPlayer.destroy(); _ytCommercialPlayer = null; } } catch(e) {}
-        if (_overlayDiv) _overlayDiv.style.display = 'none';
-        desmutarLive();
-        if (typeof currentState !== 'undefined') currentState = 'program';
-        armarTimer();
-        log('Live retomado, timer rearmado');
-    }
+// ═══ EXECUTAR BLOCO ═══
+function executar() {
+  log('=== executar() ===');
+  if (inAd) { log('Já em ad, ignorando'); return; }
 
-    // ═══ INIT ═══
-    function init() {
-        log('Sistema v2 iniciando...');
-        criarOverlay();
-        detectarLive();
-        var chk = setInterval(function() {
-            if (typeof userStartedPlayback !== 'undefined' && userStartedPlayback && _isLiveStream) {
-                clearInterval(chk);
-                armarTimer();
-            }
-        }, 1000);
-        setTimeout(function() { clearInterval(chk); }, 300000);
-        if (_isLiveStream && typeof userStartedPlayback !== 'undefined' && userStartedPlayback) armarTimer();
+  var lista = [];
+  var fonte = 'nenhuma';
+
+  if (typeof CHANNEL_COMMERCIALS_SYNCED !== 'undefined' && CHANNEL_COMMERCIALS_SYNCED &&
+      typeof CHANNEL_COMMERCIALS_LIVE !== 'undefined' && CHANNEL_COMMERCIALS_LIVE && CHANNEL_COMMERCIALS_LIVE.length) {
+    lista = CHANNEL_COMMERCIALS_LIVE.slice();
+    fonte = 'pagos';
+  } else if (typeof TV_COMMERCIALS !== 'undefined' && TV_COMMERCIALS && TV_COMMERCIALS.length) {
+    lista = TV_COMMERCIALS.slice();
+    fonte = 'dono';
+  }
+
+  log('Fonte: ' + fonte + ', itens: ' + lista.length);
+
+  if (lista.length === 0) {
+    log('Sem comerciais. Rearmando.');
+    tentarArmarTimer();
+    return;
+  }
+
+  var n = (typeof COMMERCIALS_PER_BREAK !== 'undefined' && COMMERCIALS_PER_BREAK > 0) ? COMMERCIALS_PER_BREAK : 1;
+  var total = Math.min(n, lista.length);
+  log('Vai tocar ' + total + ' comerciais');
+
+  inAd = true;
+  if (typeof currentState !== 'undefined') currentState = 'commercial';
+
+  savedMute = salvarMute();
+  mutar();
+
+  if (!criarOverlay()) {
+    inAd = false;
+    if (typeof currentState !== 'undefined') currentState = 'program';
+    desmutar();
+    tentarArmarTimer();
+    return;
+  }
+  overlay.style.display = 'flex';
+
+  var count = 0;
+  function next() {
+    if (count >= total) {
+      log('✅ Bloco completo');
+      finalizar();
+      return;
     }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() { setTimeout(init, 3000); });
+    var order = (typeof COMMERCIALS_ORDER !== 'undefined') ? COMMERCIALS_ORDER : 'sequential';
+    var url;
+    if (order === 'sequential') {
+      url = lista[adIndex % lista.length];
+      adIndex = (adIndex + 1) % lista.length;
     } else {
-        setTimeout(init, 3000);
+      url = lista[Math.floor(Math.random() * lista.length)];
     }
-    window.addEventListener('beforeunload', desarmarTimer);
-    window.__liveCommercial = {
-        status: function() { return { isLive: _isLiveStream, inCommercial: _inLiveCommercial, timerActive: !!_liveTimerId, intervalMs: LIVE_COMMERCIAL_INTERVAL_MS }; },
-        force: function() { executarComercialLive(); },
-        rearmar: armarTimer
+    if (!url) { next(); return; }
+    count++;
+    log('▶️ Ad ' + count + '/' + total + ': ' + url.substring(0,70));
+    tocar(url, next, function(err) {
+      log('⚠️ Erro: ' + err + ', pulando');
+      next();
+    });
+  }
+  next();
+}
+
+function salvarMute() {
+  try {
+    if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo && youtubePlayer && typeof youtubePlayer.isMuted === 'function') {
+      return { muted: youtubePlayer.isMuted(), volume: youtubePlayer.getVolume() / 100 };
+    }
+  } catch(e){}
+  var v = getVid();
+  if (v) return { muted: v.muted, volume: v.volume };
+  return { muted: false, volume: 1 };
+}
+
+function mutar() {
+  try {
+    if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo && youtubePlayer && typeof youtubePlayer.mute === 'function') {
+      youtubePlayer.mute(); return;
+    }
+  } catch(e){}
+  var v = getVid();
+  if (v) v.muted = true;
+}
+
+function desmutar() {
+  try {
+    if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo && youtubePlayer && typeof youtubePlayer.unMute === 'function') {
+      if (!savedMute.muted) {
+        youtubePlayer.unMute();
+        if (typeof youtubePlayer.setVolume === 'function' && savedMute.volume != null) youtubePlayer.setVolume(savedMute.volume * 100);
+      }
+      return;
+    }
+  } catch(e){}
+  var v = getVid();
+  if (v) {
+    v.muted = savedMute.muted;
+    if (!savedMute.muted && savedMute.volume != null) v.volume = savedMute.volume;
+  }
+}
+
+function tocar(url, onEnd, onError) {
+  try { if (overlayVideo) { overlayVideo.pause(); overlayVideo.src = ''; } } catch(e){}
+  try { if (ytAd) { ytAd.destroy(); ytAd = null; } } catch(e){}
+
+  var isYT = url.indexOf('youtube.com') !== -1 || url.indexOf('youtu.be') !== -1;
+
+  if (isYT && typeof YT !== 'undefined' && typeof YT.Player === 'function') {
+    var vid = '';
+    if (url.indexOf('v=') !== -1) vid = url.split('v=')[1].split('&')[0];
+    else if (url.indexOf('youtu.be/') !== -1) vid = url.split('youtu.be/')[1].split('?')[0];
+    else if (url.indexOf('embed/') !== -1) vid = url.split('embed/')[1].split('?')[0];
+    else if (url.indexOf('/shorts/') !== -1) vid = url.split('/shorts/')[1].split('?')[0];
+    if (vid) {
+      overlay.innerHTML = '<div id="liveAdYT" style="width:100%;height:100%;"></div>';
+      overlayVideo = null;
+      ytAd = new YT.Player('liveAdYT', {
+        height: '100%', width: '100%', videoId: vid,
+        playerVars: { 'autoplay': 1, 'controls': 0, 'modestbranding': 1, 'rel': 0, 'playsinline': 1, 'iv_load_policy': 3 },
+        events: {
+          onReady: function(e) {
+            try { e.target.setVolume((savedMute.volume || 1) * 100); } catch(x){}
+            try { e.target.playVideo(); } catch(x){}
+          },
+          onStateChange: function(e) {
+            if (e.data === 0) {
+              try { ytAd.destroy(); } catch(x){}
+              ytAd = null;
+              onEnd();
+            }
+          },
+          onError: function(e) {
+            try { ytAd.destroy(); } catch(x){}
+            ytAd = null;
+            onError('YT ' + e.data);
+          }
+        }
+      });
+      setTimeout(function() { if (inAd && ytAd) { log('safety YT'); onEnd(); } }, SAFETY_MS);
+      return;
+    }
+  }
+
+  overlay.innerHTML = '';
+  overlayVideo = document.createElement('video');
+  overlayVideo.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;';
+  overlayVideo.playsInline = true;
+  overlayVideo.setAttribute('playsinline','');
+  overlayVideo.setAttribute('webkit-playsinline','');
+  overlayVideo.src = url;
+  overlayVideo.volume = savedMute.volume || 1;
+  overlay.appendChild(overlayVideo);
+
+  var ended = false;
+  function fin() { if (ended) return; ended = true; onEnd(); }
+  overlayVideo.addEventListener('ended', fin, {once:true});
+  overlayVideo.addEventListener('error', function() {
+    var c = overlayVideo.error ? overlayVideo.error.code : '?';
+    if (ended) return; ended = true;
+    onError('HTML5 ' + c);
+  }, {once:true});
+
+  var pp = overlayVideo.play();
+  if (pp && typeof pp.catch === 'function') {
+    pp.catch(function(err) {
+      overlayVideo.muted = true;
+      overlayVideo.play().then(function() {
+        setTimeout(function() { overlayVideo.muted = false; }, 100);
+      }).catch(function() { fin(); });
+    });
+  }
+  setTimeout(function() { if (inAd && !ended) { log('safety HTML5'); fin(); } }, SAFETY_MS);
+}
+
+function finalizar() {
+  if (!inAd) return;
+  inAd = false;
+  try { if (overlayVideo) { overlayVideo.pause(); overlayVideo.src = ''; } } catch(e){}
+  try { if (ytAd) { ytAd.destroy(); ytAd = null; } } catch(e){}
+  if (overlay) overlay.style.display = 'none';
+  desmutar();
+  if (typeof currentState !== 'undefined') currentState = 'program';
+  tentarArmarTimer();
+  log('Live retomado, timer rearmado');
+}
+
+// ═══ INIT ═══
+function init() {
+  log('=================================');
+  log('Sistema v4 iniciando. Intervalo=' + (INTERVAL_MS/1000) + 's');
+  log('=================================');
+  criarOverlay();
+  detectar();
+
+  // Watchdog: armar timer quando user iniciar
+  var chk = setInterval(function() {
+    var usp = (typeof userStartedPlayback !== 'undefined') ? userStartedPlayback : false;
+    if (usp && isLive && !timerId && !inAd) {
+      clearInterval(chk);
+      log('Playback iniciou. Armando timer.');
+      tentarArmarTimer();
+    }
+  }, 1000);
+
+  setTimeout(function(){ clearInterval(chk); }, 600000);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(init, 3000); });
+} else {
+  setTimeout(init, 3000);
+}
+
+window.addEventListener('beforeunload', desarmar);
+
+window.__live = {
+  status: function() { return { isLive: isLive, inAd: inAd, timer: !!timerId, force: FORCE }; },
+  force: function() { log('force manual'); executar(); },
+  rearm: tentarArmarTimer,
+  diag: function() {
+    return {
+      ytExiste: typeof youtubePlayer !== 'undefined' && !!youtubePlayer,
+      ytDur: ytDur(),
+      ytState: ytState(),
+      userStarted: typeof userStartedPlayback !== 'undefined' ? userStartedPlayback : '?',
+      tvAds: typeof TV_COMMERCIALS !== 'undefined' ? TV_COMMERCIALS : '?',
+      paidAds: typeof CHANNEL_COMMERCIALS_LIVE !== 'undefined' ? CHANNEL_COMMERCIALS_LIVE : '?',
+      perBreak: typeof COMMERCIALS_PER_BREAK !== 'undefined' ? COMMERCIALS_PER_BREAK : '?'
     };
+  }
+};
+
+log('Use window.__live.diag() para diagnóstico');
 })();
     <\/script>
 </body>
