@@ -7432,6 +7432,7 @@ firebase.auth().onAuthStateChanged(async function(u){
 try{console.log('%c[AD] sistema ativo','background:#0a0;color:#fff;padding:2px 6px;font-weight:bold');}catch(e){}
 var INTERVAL_MS = 2400000;
 var SAFETY_MS = 120000;
+var LONG_VIDEO_MS = 10800000; // 3 horas — vídeos a partir disso recebem intervalos
 var timerId = null;
 var inAd = false;
 var overlayEl = null;
@@ -7439,6 +7440,7 @@ var ytAdPlayer = null;
 var adVideoEl = null;
 var adIdx = 0;
 var savedMute = { muted: false, volume: 1 };
+var _lastVideoKey = '';
 function adLog(){try{var a=[].slice.call(arguments);a.unshift('[AD]');console.log.apply(console,a);}catch(e){}}
 adLog('init intervalo='+(INTERVAL_MS/1000)+'s');
 function makeOverlay(){
@@ -7525,6 +7527,11 @@ function finishAd(){
 function runAd(){
   timerId = null;
   adLog('TIMER DISPAROU');
+  if(!_isLiveOrLongVideo()){
+    adLog('conteudo agora e curto - pulando ad');
+    armTimer();
+    return;
+  }
   if(inAd){armTimer();return;}
   var lista = [];
   var fonte = 'nenhuma';
@@ -7561,19 +7568,88 @@ function runAd(){
   }
   next();
 }
+function _getVideoDurationMs(){
+  try {
+    if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo &&
+        typeof youtubePlayer !== 'undefined' && youtubePlayer &&
+        typeof youtubePlayer.getDuration === 'function') {
+      var d = youtubePlayer.getDuration();
+      return (d && isFinite(d) && d > 0) ? d * 1000 : 0;
+    }
+    var v = document.getElementById('myVideo');
+    if (v && isFinite(v.duration) && v.duration > 0) return v.duration * 1000;
+  } catch(e){}
+  return 0;
+}
+function _isLiveVideo(){
+  try {
+    var v = document.getElementById('myVideo');
+    if (v && (v.duration === Infinity || (typeof v.duration === 'number' && isNaN(v.duration)))) return true;
+  } catch(e){}
+  return false;
+}
+function _isLiveOrLongVideo(){
+  if (_isLiveVideo()) return true;
+  var d = _getVideoDurationMs();
+  return d >= LONG_VIDEO_MS;
+}
+function _getVideoKey(){
+  try {
+    if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo &&
+        typeof youtubePlayer !== 'undefined' && youtubePlayer &&
+        typeof youtubePlayer.getVideoUrl === 'function') {
+      return 'yt:' + (youtubePlayer.getVideoUrl() || '');
+    }
+    var v = document.getElementById('myVideo');
+    if (v && v.src) {
+      var dur = isFinite(v.duration) ? v.duration.toFixed(0) : 'live';
+      return v.src.substring(0, 120) + '|' + dur;
+    }
+  } catch(e){}
+  return '';
+}
+
 function armTimer(){
-  if(timerId) return;
+  if(timerId){ clearTimeout(timerId); timerId = null; }
   if(typeof userStartedPlayback === 'undefined' || !userStartedPlayback) return;
+  if(!_isLiveOrLongVideo()){
+    var mins = (_getVideoDurationMs()/60000).toFixed(1);
+    adLog('conteudo curto (' + mins + 'min) - timer NAO armado');
+    return;
+  }
   timerId = setTimeout(runAd, INTERVAL_MS);
-  adLog('timer armado ' + (INTERVAL_MS/1000) + 's');
+  var label = _isLiveVideo() ? 'live' : ('longo ' + (_getVideoDurationMs()/3600000).toFixed(1) + 'h');
+  adLog('timer armado ' + (INTERVAL_MS/1000) + 's (' + label + ')');
 }
 function initAds(){
   makeOverlay();
   var w = setInterval(function(){
-    if(typeof userStartedPlayback !== 'undefined' && userStartedPlayback){clearInterval(w);armTimer();}
+    if(typeof userStartedPlayback !== 'undefined' && userStartedPlayback){
+      clearInterval(w);
+      _lastVideoKey = _getVideoKey();
+      armTimer();
+    }
   }, 1000);
   setTimeout(function(){clearInterval(w);}, 300000);
-  if(typeof userStartedPlayback !== 'undefined' && userStartedPlayback) armTimer();
+  if(typeof userStartedPlayback !== 'undefined' && userStartedPlayback){
+    _lastVideoKey = _getVideoKey();
+    armTimer();
+  }
+  // Polling: detecta troca de video e reavalia o timer
+  setInterval(function(){
+    if(typeof userStartedPlayback === 'undefined' || !userStartedPlayback) return;
+    if(inAd) return;
+    var key = _getVideoKey();
+    if(key && key !== _lastVideoKey){
+      _lastVideoKey = key;
+      adLog('conteudo mudou - reavaliando timer');
+      if(timerId){ clearTimeout(timerId); timerId = null; }
+      armTimer();
+    } else if (!timerId) {
+      // Sem timer e ainda estamos em conteudo longo/live: arma
+      armTimer();
+    }
+  }, 5000);
 }
 if(document.readyState === 'loading'){document.addEventListener('DOMContentLoaded', function(){setTimeout(initAds, 3000);});}else{setTimeout(initAds, 3000);}
 window.addEventListener('beforeunload', function(){if(timerId)clearTimeout(timerId);});
