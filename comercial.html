@@ -568,7 +568,8 @@
                     updatePaymentStatusUI(paymentData.status);
                     if (paymentData.status === 'approved') {
                         clearInterval(paymentCheckInterval);
-                        saveCommercialToFirestore();
+                        // 🛡️ NÃO salvamos mais no client — aguarda o webhook aplicar
+                        awaitCommercialAppliedOnServer();
                     } else if (paymentData.status === 'rejected') {
                         clearInterval(paymentCheckInterval);
                         setTimeout(() => { showError('Pagamento rejeitado.'); }, 2000);
@@ -597,90 +598,71 @@
         }
 
         // ═══════════════════════════════════════════════════════════
-        // SALVAR COMERCIAL — agora grava no array do doc do canal
-        // (é o que o player lê via onSnapshot)
+        // 🛡️ AGUARDA APLICAÇÃO NO SERVIDOR (via webhook)
+        // O client NÃO escreve mais em commercials[] — apenas observa.
         // ═══════════════════════════════════════════════════════════
-        async function saveCommercialToFirestore() {
-            showLoading('Salvando comercial...');
-            try {
-                const now = new Date();
-                const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000));
-                const expiresAtMs = expiresAt.getTime();
+        async function awaitCommercialAppliedOnServer() {
+            showLoading('Confirmando inserção do comercial...');
+            const channelId = channelData.id;
+            const paymentIdToFind = String(currentPaymentId);
+            const maxWaitMs = 90000;
+            const startedAt = Date.now();
 
-                // 1. Atualiza o array commercials do doc do canal (o player lê daqui)
-                const channelRef = db.collection('channels').doc(channelData.id);
-                const channelSnap = await channelRef.get();
-                const existingCommercials = (channelSnap.exists && Array.isArray(channelSnap.data().commercials))
-                    ? channelSnap.data().commercials
-                    : [];
-
-                const newCommercialArrayItem = {
-                    url: videoData.url,
-                    name: videoData.title,
-                    isPaid: true,
-                    expiresAt: expiresAtMs,
-                    payerName: currentUser.displayName || currentUser.email,
-                    paymentId: currentPaymentId,
-                    pricePaid: videoData.totalPrice,
-                    createdAt: now.getTime()
-                };
-
-                const currentActiveUntil = (channelSnap.exists && channelSnap.data().paidCommercialsActiveUntil) || 0;
-
-                await channelRef.update({
-                    commercials: existingCommercials.concat([newCommercialArrayItem]),
-                    paidCommercialsActiveUntil: Math.max(currentActiveUntil, expiresAtMs)
-                });
-
-                // 2. Também salva na subcoleção (para relatórios)
+            async function check() {
                 try {
-                    const parentRef = db.collection('paid_commercials').doc(channelData.id);
-                    await parentRef.set({
-                        channelId: channelData.id,
-                        channelName: channelData.name,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true });
-
-                    await parentRef.collection('commercials').add({
-                        videoUrl: videoData.url,
-                        videoId: videoData.videoId,
-                        videoTitle: videoData.title,
-                        videoDuration: videoData.duration,
-                        thumbnail: videoData.thumbnail,
-                        pricePaid: videoData.totalPrice,
-                        payerEmail: currentUser.email,
-                        payerId: currentUser.uid,
-                        payerName: currentUser.displayName || currentUser.email,
-                        channelId: channelData.id,
-                        channelName: channelData.name,
-                        paymentId: currentPaymentId,
-                        status: 'active',
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        expiresAt: expiresAt,
-                        willExpireAt: firebase.firestore.Timestamp.fromDate(expiresAt)
-                    });
-                } catch (subErr) {
-                    console.warn('Erro ao salvar na subcoleção (não crítico):', subErr.message);
+                    const snap = await db.collection('channels').doc(channelId).get();
+                    if (snap.exists) {
+                        const arr = Array.isArray(snap.data().commercials) ? snap.data().commercials : [];
+                        const found = arr.find(c => c && String(c.paymentId) === paymentIdToFind);
+                        if (found) {
+                            hideLoading();
+                            document.getElementById('pixArea').style.display = 'none';
+                            document.getElementById('successMessage').style.display = 'block';
+                            document.getElementById('successChannelName').textContent = channelData.name;
+                            document.getElementById('backToStart').style.display = 'block';
+                            document.getElementById('globalBackButton').style.display = 'none';
+                            startCountdown();
+                            return true;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[COMERCIAL] erro no polling:', e.message);
                 }
-
-                console.log('✅ Comercial salvo no array do canal e na subcoleção');
-
-                hideLoading();
-                document.getElementById('pixArea').style.display = 'none';
-                document.getElementById('successMessage').style.display = 'block';
-                document.getElementById('successChannelName').textContent = channelData.name;
-                document.getElementById('backToStart').style.display = 'block';
-                document.getElementById('globalBackButton').style.display = 'none';
-                startCountdown();
-
-            } catch (error) {
-                console.error('Erro ao salvar comercial:', error);
-                hideLoading();
-                showError('Erro ao salvar comercial: ' + error.message);
+                return false;
             }
+
+            // Primeira tentativa imediata
+            if (await check()) return;
+
+            // Polling a cada 3s até o limite de 90s
+            return new Promise(function(resolve) {
+                const iv = setInterval(async function() {
+                    if (Date.now() - startedAt > maxWaitMs) {
+                        clearInterval(iv);
+                        hideLoading();
+                        // Mostra tela informativa sem expor erro técnico
+                        document.getElementById('pixArea').style.display = 'none';
+                        var succ = document.getElementById('successMessage');
+                        succ.style.display = 'block';
+                        succ.innerHTML =
+                            '<h3>✅ Pagamento confirmado!</h3>' +
+                            '<p>Seu comercial foi registrado e será exibido no canal <span id="successChannelName">' + channelData.name + '</span> em alguns instantes.</p>' +
+                            '<p style="font-size:0.9rem;opacity:0.8;margin-top:8px;">Se em 5 minutos ele não aparecer, entre em contato informando o ID do pagamento:</p>' +
+                            '<p style="font-family:monospace;font-size:0.85rem;background:rgba(0,0,0,0.15);padding:6px;border-radius:4px;margin-top:4px;">' + paymentIdToFind + '</p>';
+                        document.getElementById('backToStart').style.display = 'block';
+                        document.getElementById('globalBackButton').style.display = 'none';
+                        resolve();
+                        return;
+                    }
+                    if (await check()) {
+                        clearInterval(iv);
+                        resolve();
+                    }
+                }, 3000);
+            });
         }
 
-        function startCountdown() {
+        function startCountdown() {        function startCountdown() {
             let countdown = 5;
             document.getElementById('countdown').textContent = countdown;
             const iv = setInterval(() => {
