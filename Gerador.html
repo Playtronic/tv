@@ -3445,6 +3445,7 @@ function calculateExpectedTime(duration) {
         }
     }
 
+    var _imperceptibleRefreshInterval = null;
     function setupSyncOnPlay() {
         if (videoElement) {
             videoElement.addEventListener('playing', () => {
@@ -3452,8 +3453,13 @@ function calculateExpectedTime(duration) {
                 if (!isYoutubeVideo) {
                     setTimeout(initSyncSystem, 1000);
                     
+                    // ⚡ PERFORMANCE: limpar interval anterior antes de criar novo
+                    if (_imperceptibleRefreshInterval) {
+                        clearInterval(_imperceptibleRefreshInterval);
+                        _imperceptibleRefreshInterval = null;
+                    }
                     const refreshInterval = intensiveMonitoring ? 45000 : 120000;
-                    setInterval(() => {
+                    _imperceptibleRefreshInterval = setInterval(() => {
                         if (!isManualSeeking && currentState !== 'commercial' && !isYoutubeVideo) {
                             imperceptibleRefresh();
                         }
@@ -6738,8 +6744,12 @@ function ocultarControlesYouTube() {
     }
 }
 
-// Chamar ao carregar página e periodicamente
-setInterval(ocultarControlesYouTube, 1000);
+// ⚡ PERFORMANCE: só roda quando há YouTube ativo, a cada 3s em vez de 1s
+var _ocultarYtInterval = setInterval(function() {
+    if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo) {
+        ocultarControlesYouTube();
+    }
+}, 3000);
         
         function hideControls() {
             if (customControls) {
@@ -7740,10 +7750,15 @@ function initAds(){
     _lastVideoKey = _getVideoKey();
     armTimer();
   }
-  // Polling: detecta troca de video e reavalia o timer
+  // ⚡ PERFORMANCE: polling só roda se há comerciais disponíveis
   setInterval(function(){
     if(typeof userStartedPlayback === 'undefined' || !userStartedPlayback) return;
     if(inAd) return;
+    // Se não há comerciais configurados, não faz nada
+    var temCom =
+      (typeof TV_COMMERCIALS !== 'undefined' && TV_COMMERCIALS && TV_COMMERCIALS.length > 0) ||
+      (typeof CHANNEL_COMMERCIALS_LIVE !== 'undefined' && CHANNEL_COMMERCIALS_LIVE && CHANNEL_COMMERCIALS_LIVE.length > 0);
+    if (!temCom) return;
     var key = _getVideoKey();
     if(key && key !== _lastVideoKey){
       _lastVideoKey = key;
@@ -7775,8 +7790,11 @@ function fixDisplay(){
     el.textContent = '0'; el.style.color = '#888';
   }catch(e){}
 }
-fixDisplay();
-setInterval(fixDisplay, 1500);
+// ⚡ PERFORMANCE: só roda se o debug display existir
+if (document.getElementById('commercialModeDisplay')) {
+    fixDisplay();
+    setInterval(fixDisplay, 3000);
+}
 window.__ads = { force: function(){ runAd(); }, diag: function(){ return { perBreak: (typeof COMMERCIALS_PER_BREAK !== 'undefined' ? COMMERCIALS_PER_BREAK : 'X'), tvAds: (typeof TV_COMMERCIALS !== 'undefined' ? TV_COMMERCIALS.length : 'X') }; } };
 adLog('API: window.__ads.diag()');
 })();
