@@ -7106,137 +7106,299 @@ function verificarFimDoVideo() {
 
                 document.addEventListener('DOMContentLoaded', function() {
 /* __SUB_GATE__ */
-// SUBSCRIPTION GATE
-function mostrarGateSub(motivo){
-  var w=document.querySelector(".video-wrapper");
-  if(!w)return;
-  var g=document.getElementById("subGateOverlay");
-  // PatchV3-A: se o motivo mudou, REMOVE e RECONSTRÓI o gate.
-  // Sem isso, o usuário logado continua vendo a tela de login.
-  var _currentM = g ? g.getAttribute("data-m") : null;
-  if(g && _currentM === motivo){
-    g.style.display="flex";
-    return;
-  }
-  if(g){
-    try { g.remove(); } catch(_e) {}
-    g = null;
-  }
-  g=document.createElement("div");
-  g.id="subGateOverlay";
-  g.style.cssText="position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1a2a6c,#b21f1f);z-index:99998;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;text-align:center;color:#fff;";
-  var price="R$ "+SUBSCRIPTION_PRICE.toFixed(2).replace(".",",");
-  var h="";
-  h+='<h2 style="font-size:1.6rem;margin-bottom:10px;color:#fdbb2d">Conteúdo Exclusivo<\/h2>';
-  if(motivo==="new"){
-    h+=(SUBSCRIPTION_TRIAL_DAYS>0
-      ?'<p style="margin-bottom:18px;opacity:0.9">Assine para assistir ou teste grátis por '+SUBSCRIPTION_TRIAL_DAYS+' dias.<\/p>'
-      :'<p style="margin-bottom:18px;opacity:0.9">Assine para assistir este canal.<\/p>');
-    if(SUBSCRIPTION_TRIAL_DAYS>0)h+='<button id="subTrialBtn" style="background:linear-gradient(135deg,#2ecc71,#27ae60);color:#fff;border:none;padding:14px 28px;border-radius:8px;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:6px;min-width:220px">Testar '+SUBSCRIPTION_TRIAL_DAYS+' dias grátis<\/button>';
-    h+='<button id="subPayBtn" style="background:linear-gradient(135deg,#3498db,#2980b9);color:#fff;border:none;padding:14px 28px;border-radius:8px;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:6px;min-width:220px">Assinar '+price+' por 30 dias<\/button>';
-  } else if(motivo==="expired"){
-    h+='<p style="margin-bottom:18px;opacity:0.9">Seu período grátis expirou. Assine para continuar assistindo.<\/p>';
-    h+='<button id="subPayBtn" style="background:linear-gradient(135deg,#3498db,#2980b9);color:#fff;border:none;padding:14px 28px;border-radius:8px;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:6px;min-width:220px">Assinar '+price+' por 30 dias<\/button>';
-  } else if(motivo==="login"){
-    h+='<p style="margin-bottom:18px;opacity:0.9">Faça login para continuar.<\/p>';
-    h+='<button id="subLoginBtn" style="background:linear-gradient(135deg,#4285f4,#3367d6);color:#fff;border:none;padding:14px 28px;border-radius:8px;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:6px;min-width:220px">Entrar com Google<\/button>';
-  } else {
-    h+='<p style="margin-bottom:18px;opacity:0.9">Recarregue a página.<\/p>';
-  }
-  g.innerHTML=h;
-  w.appendChild(g);
-  var tb=document.getElementById("subTrialBtn");
-  var pb=document.getElementById("subPayBtn");
-  var lb=document.getElementById("subLoginBtn");
-  if(tb){
-    tb.addEventListener("click",function(){
-      var u=firebase.auth().currentUser;
-      if(!u){mostrarGateSub("login");return;}
-      var now=new Date();
-      var ends=new Date(now.getTime()+SUBSCRIPTION_TRIAL_DAYS*86400000);
-      firebase.firestore().collection("users").doc(u.uid).collection("subscriptions").doc(CHANNEL_ID).set({
-        channelId:CHANNEL_ID,status:"trial",
-        trialStartedAt:firebase.firestore.Timestamp.fromDate(now),
-        trialEndsAt:firebase.firestore.Timestamp.fromDate(ends),
-        createdAt:firebase.firestore.FieldValue.serverTimestamp()
-      },{merge:true}).then(function(){location.reload();}).catch(function(e){alert("Erro: "+e.message);});
-    });
-  }
-  if(pb){
-    pb.addEventListener("click",function(){
-      var u=firebase.auth().currentUser;
-      if(!u){mostrarGateSub("login");return;}
-      pb.disabled=true;pb.textContent="Carregando...";
-      fetch("https://us-central1-playtronic-tv.cloudfunctions.net/createSubscription",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({channelId:CHANNEL_ID,channelName:CHANNEL_NAME_STR,userId:u.uid,userEmail:u.email,planId:SUBSCRIPTION_PLAN_ID})
-      }).then(function(r){return r.json();}).then(function(res){
-        if(res.success&&res.initPoint){window.location.href=res.initPoint;}
-        else{throw new Error(res.error||"Erro");}
-      }).catch(function(e){
-        alert("Erro: "+e.message);pb.disabled=false;pb.textContent="Assinar por "+price+"/mes";
-      });
-    });
-  }
-  if(lb){
-    lb.addEventListener("click",function(){
-      var lo=document.getElementById("loginOverlayChannel");
-      if(lo)lo.style.display="flex";
-    });
-  }
+// SUBSCRIPTION GATE — PIX 30 dias
+
+function _subFormatTimeLeft(ms){
+  var diff = ms - Date.now();
+  if (diff <= 0) return "0 minutos";
+  var dias = Math.floor(diff / 86400000);
+  var horas = Math.floor((diff % 86400000) / 3600000);
+  var min = Math.floor((diff % 3600000) / 60000);
+  if (dias > 0) return dias + " dia" + (dias !== 1 ? "s" : "") + ", " + horas + "h";
+  if (horas > 0) return horas + "h " + min + "min";
+  return min + " minuto" + (min !== 1 ? "s" : "");
 }
-function esconderGateSub(){
-  var g=document.getElementById("subGateOverlay");
-  if(g)g.style.display="none";
-}
-function mostrarBannerTrial(dias){
-  var b=document.getElementById("subTrialBanner");
-  if(!b){
-    b=document.createElement("div");
-    b.id="subTrialBanner";
-    b.style.cssText="position:fixed;bottom:20px;right:20px;background:linear-gradient(135deg,#2ecc71,#27ae60);color:#fff;padding:10px 18px;border-radius:8px;font-weight:bold;z-index:99997;box-shadow:0 4px 12px rgba(0,0,0,0.3);";
+
+var _subBannerTimer = null;
+function mostrarBannerAssinatura(expiresMs){
+  var b = document.getElementById("subBannerAssinatura");
+  if (!b){
+    b = document.createElement("div");
+    b.id = "subBannerAssinatura";
+    b.style.cssText = "position:fixed;bottom:20px;right:20px;background:linear-gradient(135deg,#2ecc71,#27ae60);color:#fff;padding:10px 18px;border-radius:8px;font-weight:bold;z-index:99997;box-shadow:0 4px 12px rgba(0,0,0,0.3);font-family:Arial,sans-serif;font-size:13px;";
     document.body.appendChild(b);
   }
-  b.textContent="Teste gratis: "+dias+" dia(s) restante(s)";
-}
-async function verificarAssinatura(){
-  if(!SUBSCRIPTION_ENABLED)return true;
-  var u=firebase.auth().currentUser;
-  if(!u){mostrarGateSub("login");return false;}
-  try{
-    var doc=await firebase.firestore().collection("users").doc(u.uid).collection("subscriptions").doc(CHANNEL_ID).get();
-    if(doc.exists){
-      var d=doc.data();
-      if(d.status==="active"){esconderGateSub();return true;}
-      if(d.status==="trial"&&d.trialEndsAt){
-        var now=Date.now();
-        var ends=d.trialEndsAt.toMillis?d.trialEndsAt.toMillis():d.trialEndsAt;
-        if(ends>now){
-          var dias=Math.ceil((ends-now)/86400000);
-          esconderGateSub();
-          mostrarBannerTrial(dias);
-          return true;
-        } else {
-          await firebase.firestore().collection("users").doc(u.uid).collection("subscriptions").doc(CHANNEL_ID).set({status:"expired",updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
-          mostrarGateSub("expired");
-          return false;
-        }
-      }
-      mostrarGateSub("expired");
-      return false;
+  function tick(){
+    var t = _subFormatTimeLeft(expiresMs);
+    b.textContent = "Assinatura ativa: " + t + " restantes";
+    if (expiresMs - Date.now() <= 0){
+      b.textContent = "Assinatura expirada";
+      if (_subBannerTimer) clearInterval(_subBannerTimer);
+      setTimeout(function(){ location.reload(); }, 2000);
     }
-    mostrarGateSub("new");
+  }
+  tick();
+  if (_subBannerTimer) clearInterval(_subBannerTimer);
+  _subBannerTimer = setInterval(tick, 60000);
+}
+function esconderBannerAssinatura(){
+  var b = document.getElementById("subBannerAssinatura");
+  if (b) b.remove();
+  if (_subBannerTimer){ clearInterval(_subBannerTimer); _subBannerTimer = null; }
+}
+
+function mostrarGateSub(motivo){
+  var w = document.querySelector(".video-wrapper");
+  if (!w){
+    var _tries = window._gateRetries || 0;
+    if (_tries < 5){
+      window._gateRetries = _tries + 1;
+      setTimeout(function(){ mostrarGateSub(motivo); }, 500);
+    }
+    return;
+  }
+  try {
+    var _v = document.getElementById("myVideo");
+    if (_v){
+      if (typeof window._preGateMuted === "undefined") window._preGateMuted = _v.muted;
+      _v.muted = true;
+    }
+    if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof youtubePlayer.mute === "function"){
+      youtubePlayer.mute();
+    }
+  } catch(e){}
+
+  var g = document.getElementById("subGateOverlay");
+  var _cur = g ? g.getAttribute("data-m") : null;
+  if (g && _cur === motivo){ g.style.display = "flex"; return; }
+  if (g){ try { g.remove(); } catch(_e){} g = null; }
+
+  g = document.createElement("div");
+  g.id = "subGateOverlay";
+  g.setAttribute("data-m", motivo);
+  g.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1a2a6c,#b21f1f);z-index:99998;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;text-align:center;color:#fff;";
+
+  var price = "R$ " + SUBSCRIPTION_PRICE.toFixed(2).replace(".", ",");
+  var h = "";
+  h += '<h2 style="font-size:1.6rem;margin-bottom:10px;color:#fdbb2d">Conteudo Exclusivo<\/h2>';
+
+  if (motivo === "new"){
+    h += '<p style="margin-bottom:18px;opacity:0.9">Assine para assistir este canal.<\/p>';
+    if (SUBSCRIPTION_TRIAL_DAYS > 0){
+      h += '<button id="subTrialBtn" style="background:linear-gradient(135deg,#2ecc71,#27ae60);color:#fff;border:none;padding:14px 28px;border-radius:8px;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:6px;min-width:220px">Testar ' + SUBSCRIPTION_TRIAL_DAYS + ' dia' + (SUBSCRIPTION_TRIAL_DAYS > 1 ? 's' : '') + ' gratis<\/button>';
+    }
+    h += '<button id="subPixBtn" style="background:linear-gradient(135deg,#3498db,#2980b9);color:#fff;border:none;padding:14px 28px;border-radius:8px;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:6px;min-width:220px">Assinar ' + price + ' por 30 dias<\/button>';
+    h += '<p style="font-size:0.85rem;margin-top:12px;opacity:0.7">Pagamento via PIX - Liberacao imediata<\/p>';
+  } else if (motivo === "expired"){
+    h += '<p style="margin-bottom:18px;opacity:0.9">Sua assinatura expirou. Renove para continuar assistindo.<\/p>';
+    h += '<button id="subPixBtn" style="background:linear-gradient(135deg,#3498db,#2980b9);color:#fff;border:none;padding:14px 28px;border-radius:8px;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:6px;min-width:220px">Renovar ' + price + ' por 30 dias<\/button>';
+    h += '<p style="font-size:0.85rem;margin-top:12px;opacity:0.7">Pagamento via PIX - Liberacao imediata<\/p>';
+  } else if (motivo === "login"){
+    h += '<p style="margin-bottom:18px;opacity:0.9">Faca login para continuar.<\/p>';
+    h += '<button id="subLoginBtn" style="background:linear-gradient(135deg,#4285f4,#3367d6);color:#fff;border:none;padding:14px 28px;border-radius:8px;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:6px;min-width:220px">Entrar com Google<\/button>';
+  } else {
+    h += '<p style="margin-bottom:18px;opacity:0.9">Recarregue a pagina.<\/p>';
+  }
+
+  g.innerHTML = h;
+  w.appendChild(g);
+
+  var tb = document.getElementById("subTrialBtn");
+  var pb = document.getElementById("subPixBtn");
+  var lb = document.getElementById("subLoginBtn");
+
+  if (tb){
+    tb.addEventListener("click", function(){
+      var u = firebase.auth().currentUser;
+      if (!u){ mostrarGateSub("login"); return; }
+      var now = new Date();
+      var ends = new Date(now.getTime() + SUBSCRIPTION_TRIAL_DAYS * 86400000);
+      firebase.firestore().collection("users").doc(u.uid)
+        .collection("subscriptions").doc(CHANNEL_ID)
+        .set({
+          channelId: CHANNEL_ID, status: "trial", method: "trial",
+          trialStartedAt: firebase.firestore.Timestamp.fromDate(now),
+          trialEndsAt: firebase.firestore.Timestamp.fromDate(ends),
+          startedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          expiresAt: firebase.firestore.Timestamp.fromDate(ends),
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, {merge: true})
+        .then(function(){ location.reload(); })
+        .catch(function(e){ alert("Erro: " + e.message); });
+    });
+  }
+  if (pb){ pb.addEventListener("click", function(){ assinarComPix(pb); }); }
+  if (lb){
+    lb.addEventListener("click", function(){
+      var lo = document.getElementById("loginOverlayChannel");
+      if (lo) lo.style.display = "flex";
+    });
+  }
+}
+
+function esconderGateSub(){
+  var g = document.getElementById("subGateOverlay");
+  if (g) g.style.display = "none";
+  try {
+    var _v = document.getElementById("myVideo");
+    if (_v && typeof window._preGateMuted !== "undefined") _v.muted = window._preGateMuted;
+    if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof youtubePlayer.unMute === "function") youtubePlayer.unMute();
+  } catch(e){}
+}
+
+function mostrarBannerTrial(dias){
+  var b = document.getElementById("subTrialBanner");
+  if (!b){
+    b = document.createElement("div");
+    b.id = "subTrialBanner";
+    b.style.cssText = "position:fixed;bottom:20px;right:20px;background:linear-gradient(135deg,#2ecc71,#27ae60);color:#fff;padding:10px 18px;border-radius:8px;font-weight:bold;z-index:99997;box-shadow:0 4px 12px rgba(0,0,0,0.3);";
+    document.body.appendChild(b);
+  }
+  b.textContent = "Teste gratis: " + dias + " dia(s) restante(s)";
+}
+
+function assinarComPix(btn){
+  var u = firebase.auth().currentUser;
+  if (!u){ mostrarGateSub("login"); return; }
+  var orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Gerando PIX...";
+  fetch("https://us-central1-playtronic-tv.cloudfunctions.net/createPixPayment", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      channelId: CHANNEL_ID,
+      paymentType: "subscription",
+      amount: SUBSCRIPTION_PRICE,
+      payerEmail: u.email,
+      payerId: u.uid,
+      payerName: u.displayName || u.email
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    if (!res.success) throw new Error(res.details || res.error || "Erro");
+    mostrarLightboxPix(res.paymentId, res.qrCodeBase64, res.qrCode);
+  })
+  .catch(function(e){
+    alert("Erro: " + e.message);
+    btn.disabled = false;
+    btn.textContent = orig;
+  });
+}
+
+function mostrarLightboxPix(paymentId, qrBase64, pixCode){
+  var lb = document.getElementById("subPixLightbox");
+  if (lb) lb.remove();
+  lb = document.createElement("div");
+  lb.id = "subPixLightbox";
+  lb.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Arial,sans-serif;";
+  var inner = document.createElement("div");
+  inner.style.cssText = "background:#fff;color:#333;border-radius:15px;padding:30px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;position:relative;text-align:center;";
+  var price = "R$ " + SUBSCRIPTION_PRICE.toFixed(2).replace(".", ",");
+  inner.innerHTML =
+    '<button id="subPixClose" style="position:absolute;top:10px;right:15px;background:none;border:none;font-size:28px;cursor:pointer;color:#666;line-height:1;">x<\/button>' +
+    '<h2 style="color:#333;margin-bottom:8px;">Pagar assinatura via PIX<\/h2>' +
+    '<p style="color:#666;font-size:0.95rem;margin-bottom:20px;">Valor: <strong style="color:#2ecc71">' + price + ' por 30 dias<\/strong><\/p>' +
+    '<div id="subPixQr" style="margin:0 auto 20px;max-width:250px;"><\/div>' +
+    '<p style="color:#333;font-weight:bold;margin-bottom:8px;">Ou copie o codigo:<\/p>' +
+    '<textarea id="subPixCode" readonly style="width:100%;height:70px;border:1px solid #ddd;border-radius:8px;padding:10px;font-family:monospace;font-size:12px;background:#f8f9fa;resize:none;"><\/textarea>' +
+    '<button id="subPixCopy" style="background:#3498db;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:12px;">Copiar codigo PIX<\/button>' +
+    '<div id="subPixStatus" style="margin-top:20px;padding:15px;border-radius:8px;background:#fff3cd;color:#856404;font-weight:bold;">Aguardando pagamento...<\/div>';
+  lb.appendChild(inner);
+  document.body.appendChild(lb);
+
+  if (qrBase64){
+    var qrDiv = document.getElementById("subPixQr");
+    if (qrDiv) qrDiv.innerHTML = '<img src="data:image/png;base64,' + qrBase64 + '" style="max-width:100%;border-radius:8px;border:2px solid #2ecc71;">';
+  }
+  var codeEl = document.getElementById("subPixCode");
+  if (codeEl) codeEl.value = pixCode || "";
+
+  var copyBtn = document.getElementById("subPixCopy");
+  if (copyBtn){
+    copyBtn.addEventListener("click", function(){
+      var ta = document.getElementById("subPixCode");
+      if (!ta) return;
+      ta.select(); ta.setSelectionRange(0, 99999);
+      document.execCommand("copy");
+      var o = copyBtn.textContent;
+      copyBtn.textContent = "Copiado!";
+      copyBtn.style.background = "#2ecc71";
+      setTimeout(function(){ copyBtn.textContent = o; copyBtn.style.background = "#3498db"; }, 2000);
+    });
+  }
+  var closeBtn = document.getElementById("subPixClose");
+  if (closeBtn){
+    closeBtn.addEventListener("click", function(){
+      clearInterval(window._subPixPoll);
+      lb.remove();
+      var pb = document.getElementById("subPixBtn");
+      if (pb){ pb.disabled = false; pb.textContent = "Assinar " + price + " por 30 dias"; }
+    });
+  }
+
+  window._subPixPoll = setInterval(function(){
+    fetch("https://us-central1-playtronic-tv.cloudfunctions.net/checkPaymentStatus?paymentId=" + paymentId)
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (!data || !data.success) return;
+        var st = document.getElementById("subPixStatus");
+        if (!st) return;
+        if (data.status === "approved"){
+          clearInterval(window._subPixPoll);
+          st.style.background = "#d4edda";
+          st.style.color = "#155724";
+          st.textContent = "Pagamento confirmado! Liberando canal...";
+          setTimeout(function(){ location.reload(); }, 2000);
+        } else if (data.status === "rejected" || data.status === "cancelled"){
+          clearInterval(window._subPixPoll);
+          st.style.background = "#f8d7da";
+          st.style.color = "#721c24";
+          st.textContent = "Pagamento nao realizado.";
+        }
+      })
+      .catch(function(){});
+  }, 5000);
+}
+
+async function verificarAssinatura(){
+  if (!SUBSCRIPTION_ENABLED) return true;
+  var u = firebase.auth().currentUser;
+  if (!u){ mostrarGateSub("login"); return false; }
+  try {
+    var doc = await firebase.firestore().collection("users").doc(u.uid)
+      .collection("subscriptions").doc(CHANNEL_ID).get();
+    if (!doc.exists){ mostrarGateSub("new"); return false; }
+    var d = doc.data();
+    var now = Date.now();
+    var expiresMs = 0;
+    if (d.expiresAt) expiresMs = d.expiresAt.toMillis ? d.expiresAt.toMillis() : d.expiresAt;
+    else if (d.trialEndsAt) expiresMs = d.trialEndsAt.toMillis ? d.trialEndsAt.toMillis() : d.trialEndsAt;
+
+    if (expiresMs > now && (d.status === "active" || d.status === "trial")){
+      esconderGateSub();
+      esconderBannerAssinatura();
+      mostrarBannerAssinatura(expiresMs);
+      return true;
+    }
+    if (d.status !== "expired"){
+      await firebase.firestore().collection("users").doc(u.uid)
+        .collection("subscriptions").doc(CHANNEL_ID)
+        .set({status: "expired", updatedAt: firebase.firestore.FieldValue.serverTimestamp()}, {merge: true});
+    }
+    esconderBannerAssinatura();
+    mostrarGateSub("expired");
     return false;
-  }catch(e){
-    console.error("[SUB] "+e.message);
+  } catch(e){
+    console.error("[SUB] " + e.message);
     mostrarGateSub("erro");
     return false;
   }
 }
 firebase.auth().onAuthStateChanged(async function(u){
-  var ok=await verificarAssinatura();
-  if(!ok){window._subBlocked=true;}
+  var ok = await verificarAssinatura();
+  if (!ok) window._subBlocked = true;
 });
                         inicializarAutenticacao();
     
