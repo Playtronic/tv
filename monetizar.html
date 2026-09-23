@@ -73,6 +73,26 @@ button:disabled:hover{background:#6b7280;transform:none}
 .mp-locked-hint.active{display:block}
 .mp-locked-checkbox{opacity:.45!important;cursor:not-allowed!important}
 .mp-legacy-hidden{display:none!important}
+
+/* 🔒 Bloqueio de Adsterra quando Assinatura Mensal está ativa */
+.mp-adsterra-locked {
+    opacity: .45 !important;
+    cursor: not-allowed !important;
+}
+.mp-adsterra-hint {
+    display: none;
+    background: rgba(253, 187, 45, .12);
+    border-left: 4px solid #fdbb2d;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 10px 0 0 0;
+    color: #ffd97a;
+    font-size: .9rem;
+    font-weight: bold;
+}
+.mp-adsterra-hint.active {
+    display: block;
+}
 @media(max-width:768px){.container{padding:15px}h1{font-size:2rem}h3{font-size:1.3rem}.monetization-option{padding:20px 15px}.channel-header{flex-direction:column;text-align:center;gap:15px}.navigation{flex-direction:column;gap:10px}.navigation button{width:100%}.pix-type-group{flex-direction:column}.pix-type-group>div{min-width:100%}}
 </style>
 </head>
@@ -105,6 +125,7 @@ button:disabled:hover{background:#6b7280;transform:none}
 <input type="checkbox" id="adsterraSmartlink">
 <label for="adsterraSmartlink">Habilitar Smartlink Adsterra</label>
 </div>
+<div id="adsterraLockedHint" class="mp-adsterra-hint"></div>
 <div class="info-box">
 <p><strong>Como funciona:</strong> Ao acessar seu canal, os espectadores encontrarão o conteúdo temporariamente bloqueado. Eles precisarão clicar em um botão para desbloqueá-lo, o que abrirá uma nova aba com um anúncio. Após visualizar o anúncio (geralmente por alguns segundos), o conteúdo do seu canal será liberado automaticamente. Este sistema garante que você seja remunerado por cada visualização.</p>
 </div>
@@ -627,6 +648,36 @@ async function loadChannelData(){
   }
 }
 
+// 🔒 Bloqueia Adsterra automaticamente quando Assinatura está ativa
+function updateAdsterraLock(){
+    const cb     = document.getElementById('adsterraSmartlink');
+    const sub    = document.getElementById('subscriptionEnabled');
+    const hint   = document.getElementById('adsterraLockedHint');
+    const setBox = document.getElementById('adsterraSettings');
+    if(!cb || !sub) return;
+
+    const subActive = sub.checked;
+
+    if(subActive){
+        cb.checked  = false;
+        cb.disabled = true;
+        cb.classList.add('mp-adsterra-locked');
+        cb.title    = 'Bloqueado: Assinatura Mensal está ativa.';
+        if(setBox) setBox.style.display = 'none';
+        if(hint){
+            hint.classList.add('active');
+            hint.textContent = '🔒 Smartlink Adsterra foi desativado e bloqueado porque a Assinatura Mensal está ativa. Eles não podem coexistir: o Adsterra exige que o conteúdo seja bloqueado por anúncio, o que conflita com a assinatura.';
+        }
+    } else {
+        cb.disabled = false;
+        cb.classList.remove('mp-adsterra-locked');
+        cb.removeAttribute('title');
+        cb.checked = (monetizationData.adsterraSmartlink && monetizationData.adsterraSmartlink.enabled) || false;
+        if(setBox) setBox.style.display = cb.checked ? 'block' : 'none';
+        if(hint) hint.classList.remove('active');
+    }
+}
+
 function updateUI(){
   document.getElementById('adsterraSmartlink').checked=monetizationData.adsterraSmartlink?.enabled||false;
   document.getElementById('adsterraSmartlinkUrl').value=monetizationData.adsterraSmartlink?.url||'';
@@ -650,6 +701,7 @@ function updateUI(){
   document.getElementById('monthlyPrice').value=monetizationData.subscription?.monthlyPrice||9.90;
   document.getElementById('trialDays').value=(monetizationData.subscription?.trialDays!=null?monetizationData.subscription.trialDays:7);
   document.getElementById('subscriptionSettings').style.display=monetizationData.subscription?.enabled?'block':'none';
+  updateAdsterraLock();
   document.getElementById('saveBtn').disabled=true;
 }
 
@@ -679,6 +731,9 @@ function validateMonetizationSettings(){
     if(md<5||md>300)errors.push('Duração máxima deve estar entre 5 e 300 segundos.');
     const dl=parseInt(document.getElementById('dailyCommercialsLimit').value);
     if(isNaN(dl)||dl<1||dl>100)errors.push('Limite diário deve estar entre 1 e 100.');
+  }
+  if(document.getElementById('subscriptionEnabled').checked && document.getElementById('adsterraSmartlink').checked){
+    errors.push('Smartlink Adsterra e Assinatura Mensal não podem estar ativos ao mesmo tempo.');
   }
   return errors;
 }
@@ -721,6 +776,11 @@ async function saveMonetization(){
     if(errors.length>0){
       showError('❌ Erro de validação:<br>• '+errors.join('<br>• ')+'<br><br>Corrija as configurações ou desabilite as opções.');
       return;
+    }
+    // 🔒 Regra dura: se assinatura está ativa, Adsterra NUNCA é salvo como ativo
+    if(monetizationData.subscription && monetizationData.subscription.enabled){
+        monetizationData.adsterraSmartlink.enabled = false;
+        document.getElementById('adsterraSmartlink').checked = false;
     }
     monetizationData.adsterraSmartlink.enabled=document.getElementById('adsterraSmartlink').checked;
     monetizationData.adsterraSmartlink.url=document.getElementById('adsterraSmartlinkUrl').value.trim();
@@ -789,11 +849,11 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('adsterraSmartlink').addEventListener('change',function(){document.getElementById('adsterraSettings').style.display=this.checked?'block':'none';checkForChanges();});
   document.getElementById('pixDonations').addEventListener('change',function(){document.getElementById('pixSettings').style.display=this.checked?'block':'none';checkForChanges();});
   document.getElementById('paidCommercials').addEventListener('change',function(){document.getElementById('paidCommercialsSettings').style.display=this.checked?'block':'none';checkForChanges();});
-  document.getElementById('subscriptionEnabled').addEventListener('change',function(){document.getElementById('subscriptionSettings').style.display=this.checked?'block':'none';checkForChanges();});
+  document.getElementById('subscriptionEnabled').addEventListener('change',function(){document.getElementById('subscriptionSettings').style.display=this.checked?'block':'none';updateAdsterraLock();checkForChanges();});
   document.getElementById('monthlyPrice').addEventListener('input',checkForChanges);
   document.getElementById('trialEnabled').addEventListener('change',function(){document.getElementById('trialSettings').style.display=this.checked?'block':'none';checkForChanges();});
   document.getElementById('trialDays').addEventListener('change',checkForChanges);
-  document.getElementById('subscriptionEnabled').addEventListener('change',function(){document.getElementById('subscriptionSettings').style.display=this.checked?'block':'none';checkForChanges();});
+  document.getElementById('subscriptionEnabled').addEventListener('change',function(){document.getElementById('subscriptionSettings').style.display=this.checked?'block':'none';updateAdsterraLock();checkForChanges();});
   document.getElementById('monthlyPrice').addEventListener('input',checkForChanges);
   document.getElementById('trialDays').addEventListener('input',checkForChanges);
 
