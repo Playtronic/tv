@@ -319,6 +319,7 @@
                     console.warn('[COMERCIAL] erro ao checar limite (permitindo):', e.message);
                 }
 
+                // ✅ Popula logo, nome, slogan, preço, duração máxima
                 updateChannelUI();
                 hideLoading();
 
@@ -441,7 +442,7 @@
             // 🚫 Re-checa o limite direto do Firestore antes de gerar o PIX
             try {
                 const snap = await db.collection('channels').doc(channelData.id).get();
-                const arr = snap.exists && Array.isArray(snap.data().commercials) ? snap.data().commercials : [];
+                const arr = (snap.exists && Array.isArray(snap.data().commercials)) ? snap.data().commercials : [];
                 const agora = Date.now();
                 const ativos = arr.filter(function(c) { return c.isPaid === true && (c.expiresAt || 0) > agora; });
                 const limite = parseInt(channelData.paidCommercials.dailyCommercialsLimit || 5);
@@ -499,7 +500,6 @@
                 });
                 const result = await response.json().catch(function(){ return null; });
                 if (!response.ok) {
-                    // Detecta limite atingido vindo do servidor
                     var errMsg = (result && result.error) || '';
                     if (errMsg.toLowerCase().indexOf('limite') !== -1) {
                         hideLoading();
@@ -568,7 +568,6 @@
                     updatePaymentStatusUI(paymentData.status);
                     if (paymentData.status === 'approved') {
                         clearInterval(paymentCheckInterval);
-                        // 🛡️ NÃO salvamos mais no client — aguarda o webhook aplicar
                         awaitCommercialAppliedOnServer();
                     } else if (paymentData.status === 'rejected') {
                         clearInterval(paymentCheckInterval);
@@ -587,7 +586,7 @@
                     el.innerHTML = '<strong>⏳ Aguardando pagamento...</strong><br><small>Escaneie o QR Code ou copie o código PIX.</small>';
                     break;
                 case 'approved':
-                    el.innerHTML = '<strong>✅ Pagamento confirmado!</strong><br><small>Salvando seu comercial...</small>';
+                    el.innerHTML = '<strong>✅ Pagamento confirmado!</strong><br><small>Confirmando inserção do comercial...</small>';
                     break;
                 case 'rejected':
                     el.innerHTML = '<strong>❌ Pagamento não realizado</strong>';
@@ -631,16 +630,13 @@
                 return false;
             }
 
-            // Primeira tentativa imediata
             if (await check()) return;
 
-            // Polling a cada 3s até o limite de 90s
             return new Promise(function(resolve) {
                 const iv = setInterval(async function() {
                     if (Date.now() - startedAt > maxWaitMs) {
                         clearInterval(iv);
                         hideLoading();
-                        // Mostra tela informativa sem expor erro técnico
                         document.getElementById('pixArea').style.display = 'none';
                         var succ = document.getElementById('successMessage');
                         succ.style.display = 'block';
@@ -662,7 +658,7 @@
             });
         }
 
-        function startCountdown() {        function startCountdown() {
+        function startCountdown() {
             let countdown = 5;
             document.getElementById('countdown').textContent = countdown;
             const iv = setInterval(() => {
