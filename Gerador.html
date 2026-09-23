@@ -1524,6 +1524,32 @@
                 <input type="text" id="tvSlogan" maxlength="100" placeholder="Ex: Programação 24 horas">
                 <div class="char-counter" id="tvSloganCounter">0/100</div>
             </div>
+
+            <div class="form-group">
+                <label for="tvCategory">Categoria do Canal:</label>
+                <select id="tvCategory">
+                    <option value="">Selecione uma categoria</option>
+                    <option value="noticias">Notícias</option>
+                    <option value="esportes">Esportes</option>
+                    <option value="filmes">Filmes</option>
+                    <option value="series">Séries</option>
+                    <option value="novelas">Novelas</option>
+                    <option value="animes">Animes e Tokusatsus</option>
+                    <option value="desenhos">Desenhos Animados</option>
+                    <option value="infantil">Infantil</option>
+                    <option value="documentarios">Documentários</option>
+                    <option value="musica">Música</option>
+                    <option value="variedades">Variedades</option>
+                    <option value="humor">Humor</option>
+                    <option value="games">Games</option>
+                    <option value="religioso">Religioso</option>
+                    <option value="retransmissoes">Retransmissões</option>
+                    <option value="adulto">Adulto (18+)</option>
+                    <option value="outros">Outros</option>
+                </select>
+                <div class="field-info">Ajuda os espectadores a encontrarem seu canal</div>
+                <div class="error-message" id="categoryError">Por favor, selecione uma categoria para o canal.</div>
+            </div>
             
             <div class="form-group">
                 <label for="tvLogo">URL da Logo (Opcional):</label>
@@ -1630,16 +1656,7 @@
         <div id="screen3" class="screen">
             <h1>Configure os Programas</h1>
             
-            <!-- Controle de Conteúdo Adulto -->
-            <div class="adult-content-control">
-                <div class="adult-content-checkbox">
-                    <input type="checkbox" id="adultContent">
-                    <label for="adultContent">Conteúdo Adulto (18+)</label>
-                </div>
-                <div class="adult-content-info">
-                    Se ativado, o canal será marcado como conteúdo para maiores de 18 anos. 
-                </div>
-            </div>
+            <!-- Categoria Adulto (18+) agora é feita via dropdown acima -->
             
             <!-- NOVO: Seleção de Modo de Programação -->
             <div class="programming-mode-control">
@@ -1929,6 +1946,7 @@
             email: '',
             name: '',
             slogan: '',
+            category: '',
             logo: '',
             visibility: 'brazil',
 
@@ -4116,6 +4134,12 @@ if (slotIndex === currentPlayingSlot) {
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
     <meta name="version" content="${version}">
+    <meta name="channel-category" content="${dados.category || ''}">
+    <meta name="channel-id" content="${channelId}">
+    <meta name="channel-name" content="${dados.name}">
+    <meta name="channel-slogan" content="${dados.slogan || ''}">
+    <meta name="channel-logo" content="${dados.logo || ''}">
+    <meta name="channel-adult" content="${dados.isAdultContent ? 'true' : 'false'}">
     <meta name="generator" content="Gerador de TV Online">
     <meta name="adult-content" content="${isAdultContent ? 'true' : 'false'}">
     <meta name="programming-mode" content="${programmingMode}">
@@ -8189,6 +8213,7 @@ async function carregarConfiguracoesMonetizacao(channelId) {
                 email: channelData.email || '',
                 name: channelData.name || '',
                 slogan: channelData.slogan || '',
+                category: channelData.category || '',
                 logo: channelData.logo || DEFAULT_LOGO,
                 visibility: channelData.visibility || 'brazil',
                 showChannelNameWithLogo: channelData.showChannelNameWithLogo !== undefined ? channelData.showChannelNameWithLogo : true,
@@ -8509,6 +8534,7 @@ async function iniciarPublicacao() {
         name: dadosNormalizados.name,
         email: dadosNormalizados.email,
         slogan: dadosNormalizados.slogan,
+        category: dadosNormalizados.category || '',
         logo: dadosNormalizados.logo || DEFAULT_LOGO,
         visibility: dadosNormalizados.visibility,
         showChannelNameWithLogo: dadosNormalizados.showChannelNameWithLogo,
@@ -8578,6 +8604,24 @@ async function iniciarPublicacao() {
             if (currentChannelId && currentChannelId.startsWith('temp-')) {
                 console.log(`🔄 Atualizando de ID temporário ${currentChannelId} para ID real ${channelId}`);
                 currentChannelId = channelId;
+            }
+
+            // 📂 Salva categoria no doc raiz channels/{id} para listagem pública
+            try {
+                await db.collection('channels').doc(channelId).set({
+                    channelId: channelId,
+                    ownerId: currentUser.uid,
+                    name: dadosNormalizados.name,
+                    slogan: dadosNormalizados.slogan || '',
+                    category: dadosNormalizados.category || '',
+                    isAdultContent: !!dadosNormalizados.isAdultContent,
+                    logo: dadosNormalizados.logo || DEFAULT_LOGO,
+                    url: dadosNormalizados.url || ('https://canaisdetv.online/canais/' + channelId + '.html'),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                console.log('📂 channels/' + channelId + ' atualizado (categoria=' + dadosNormalizados.category + ', adult=' + dadosNormalizados.isAdultContent + ')');
+            } catch(e) {
+                console.warn('Erro ao salvar em channels/ (não crítico):', e.message);
             }
             
             const versaoAtual = tvData.version;
@@ -9917,6 +9961,7 @@ console.log("Preenchendo formulário...");
                 document.getElementById('tvEmail').value = tvData.email;
                 document.getElementById('tvName').value = tvData.name;
                 document.getElementById('tvSlogan').value = tvData.slogan;
+                document.getElementById('tvCategory').value = tvData.category || '';
                 
                 if (tvData.logo === DEFAULT_LOGO || !tvData.logo) {
                     document.getElementById('tvLogo').value = '';
@@ -9942,7 +9987,6 @@ console.log("Preenchendo formulário...");
                 document.getElementById('enableLive').checked = tvData.enableLive;
                 document.getElementById('enableDebug').checked = tvData.enableDebug;
                 document.getElementById('customReleaseDate').checked = tvData.customReleaseDate;
-                document.getElementById('adultContent').checked = tvData.isAdultContent;
                 
                 const customReleaseDateCheckbox = document.getElementById('customReleaseDate');
                 const releaseDateInput = document.getElementById('releaseDate');
@@ -10419,7 +10463,6 @@ console.log("Preenchendo formulário...");
             
             // Elementos da tela 3
             const screen3 = document.getElementById('screen3');
-            const adultContentCheckbox = document.getElementById('adultContent');
             const programmingModeSelect = document.getElementById('programmingMode');
             const gradeModeContainer = document.getElementById('gradeModeContainer');
             const playlistModeContainer = document.getElementById('playlistModeContainer');
@@ -10625,11 +10668,6 @@ console.log("Preenchendo formulário...");
                 }
             });
             
-            // Configurar checkbox de conteúdo adulto
-            adultContentCheckbox.addEventListener('change', function() {
-                tvData.isAdultContent = this.checked;
-            });
-            
             // Configurar dropdown de modo de programação
             programmingModeSelect.addEventListener('change', alternarModoProgramacao);
             
@@ -10710,6 +10748,7 @@ releaseDateInput.addEventListener('change', function() {
                 tvEmailInput.value = '';
                 tvNameInput.value = '';
                 tvSloganInput.value = '';
+                document.getElementById('tvCategory').value = '';
                 tvLogoInput.value = '';
                 visibilitySelect.value = 'brazil';
                 visibilityInfo.textContent = 'Seu canal será acessível apenas no Brasil';
@@ -10719,7 +10758,6 @@ releaseDateInput.addEventListener('change', function() {
                 enableLiveCheckbox.checked = true;
                 enableDebugCheckbox.checked = true;
                 customReleaseDateCheckbox.checked = false;
-                adultContentCheckbox.checked = false;
                 programmingModeSelect.value = 'grade';
                 commercialsOrderSelect.value = 'sequential';
                 releaseDateInput.value = '';
@@ -10817,8 +10855,17 @@ releaseDateInput.addEventListener('change', function() {
                 const email = tvEmailInput.value.trim();
                 const nome = tvNameInput.value.trim();
                 const slogan = tvSloganInput.value.trim();
+                const category = document.getElementById('tvCategory').value;
+                const categoryError = document.getElementById('categoryError');
                 
                 let isValid = true;
+                
+                if (!category) {
+                    categoryError.style.display = 'block';
+                    isValid = false;
+                } else {
+                    categoryError.style.display = 'none';
+                }
                 
                 if (!email || !isValidEmail(email)) {
                     emailError.textContent = 'Por favor, insira um e-mail válido.';
@@ -10840,6 +10887,8 @@ releaseDateInput.addEventListener('change', function() {
                     tvData.email = email;
                     tvData.name = nome;
                     tvData.slogan = slogan;
+                    tvData.category = category;
+                    tvData.isAdultContent = (category === 'adulto');
                     tvData.logo = tvLogoInput.value.trim() || '';
                     
                     showScreen('screen2');
@@ -10855,7 +10904,8 @@ toScreen3Btn.addEventListener('click', () => {
     tvData.enableLive = enableLiveCheckbox.checked;
     tvData.enableDebug = enableDebugCheckbox.checked;
     tvData.customReleaseDate = customReleaseDateCheckbox.checked;
-    tvData.isAdultContent = adultContentCheckbox.checked;
+    // 🎯 Adulto agora é derivado da categoria (não há mais checkbox)
+    tvData.isAdultContent = (tvData.category === 'adulto');
     
     // Só armazenar a data se a checkbox estiver marcada
     if (customReleaseDateCheckbox.checked) {
