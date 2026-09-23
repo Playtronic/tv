@@ -5215,6 +5215,10 @@ if (slotIndex === currentPlayingSlot) {
         const CHANNEL_ID = "${channelId}";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = ${dados.monetization?.subscription?.enabled ? 'true' : 'false'};
+        try {
+            console.log('[gerarHTML] SUBSCRIPTION_ENABLED =', SUBSCRIPTION_ENABLED,
+                '| dados.monetization =', JSON.stringify(dados.monetization || null));
+        } catch(_e) {}
         const SUBSCRIPTION_PRICE = ${dados.monetization?.subscription?.monthlyPrice || 0};
         const SUBSCRIPTION_TRIAL_DAYS = ${dados.monetization?.subscription?.trialDays || 0};
         const SUBSCRIPTION_PLAN_ID = "${dados.monetization?.subscription?.mpPlanId || ''}";
@@ -7825,44 +7829,75 @@ async function hasActiveMonetization(channelId) {
 
 // 🔥 NOVA FUNÇÃO: Carregar configurações de monetização do Firestore
 async function carregarConfiguracoesMonetizacao(channelId) {
-    if (!currentUser || !channelId) {
-        console.log("Usuário não autenticado ou channelId inválido");
+    if (!channelId) {
+        console.log("[monet] channelId inválido");
         return null;
     }
     
+    let fromChannel = null;
+    let fromUser = null;
+    
+    // Tenta channels/{channelId}/monetization/settings
     try {
-        console.log(`Carregando configurações de monetização para o canal: ${channelId}`);
-        
-        // Primeiro, tenta buscar na nova estrutura (coleção 'channels')
         const channelMonetizationRef = db.collection('channels').doc(channelId)
             .collection('monetization').doc('settings');
         const channelMonetizationDoc = await channelMonetizationRef.get();
-        
         if (channelMonetizationDoc.exists) {
-            const data = channelMonetizationDoc.data();
-            console.log("Configurações de monetização encontradas na nova estrutura:", data);
-            return data;
+            fromChannel = channelMonetizationDoc.data();
+            console.log("[monet] encontrado em channels/:", fromChannel);
         }
-        
-        // Se não encontrou, tenta na estrutura antiga (coleção 'users')
-        const userMonetizationRef = db.collection('users').doc(currentUser.uid)
-            .collection('channels').doc(channelId)
-            .collection('monetization').doc('settings');
-        const userMonetizationDoc = await userMonetizationRef.get();
-        
-        if (userMonetizationDoc.exists) {
-            const data = userMonetizationDoc.data();
-            console.log("Configurações de monetização encontradas na estrutura antiga:", data);
-            return data;
+    } catch(e) { console.warn("[monet] erro channels/:", e.message); }
+    
+    // Tenta users/{uid}/channels/{channelId}/monetization/settings
+    try {
+        if (currentUser) {
+            const userMonetizationRef = db.collection('users').doc(currentUser.uid)
+                .collection('channels').doc(channelId)
+                .collection('monetization').doc('settings');
+            const userMonetizationDoc = await userMonetizationRef.get();
+            if (userMonetizationDoc.exists) {
+                fromUser = userMonetizationDoc.data();
+                console.log("[monet] encontrado em users/:", fromUser);
+            }
         }
-        
-        console.log("Nenhuma configuração de monetização encontrada para o canal:", channelId);
-        return null;
-        
-    } catch (error) {
-        console.error("Erro ao carregar configurações de monetização:", error);
+    } catch(e) { console.warn("[monet] erro users/:", e.message); }
+    
+    if (!fromChannel && !fromUser) {
+        console.log("[monet] nenhuma configuração encontrada para", channelId);
         return null;
     }
+    
+    // PATCH v2: merge profundo. users/ sobrescreve channels/ (tem subscription completa).
+    // Assim o gate de assinatura recebe o objeto subscription que só existe em users/.
+    function mergeObj(a, b) {
+        a = a || {}; b = b || {};
+        const out = Object.assign({}, a);
+        for (const k in b) {
+            if (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k])) {
+                out[k] = Object.assign({}, a[k] || {}, b[k]);
+            } else {
+                out[k] = b[k];
+            }
+        }
+        return out;
+    }
+    
+    const merged = mergeObj(fromChannel, fromUser);
+    
+    // Garante que os 4 blocos principais existem
+    merged.adsterraSmartlink = merged.adsterraSmartlink || {enabled:false, url:''};
+    merged.pixDonations    = merged.pixDonations    || {enabled:false};
+    merged.paidCommercials = merged.paidCommercials || {enabled:false};
+    merged.subscription    = merged.subscription    || {enabled:false};
+    
+    console.log("[monet] MERGE FINAL:", {
+        subscription:    merged.subscription,
+        adsterraSmartlink: merged.adsterraSmartlink,
+        pixDonations:    merged.pixDonations,
+        paidCommercials: merged.paidCommercials
+    });
+    
+    return merged;
 }
 
 
