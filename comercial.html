@@ -297,6 +297,28 @@
                 }
 
                 channelData.paidCommercials = monetizationData.paidCommercials;
+
+                // 🚫 Verifica se o canal já atingiu o limite de comerciais pagos ativos
+                try {
+                    const agora = Date.now();
+                    const ativos = (foundChannel.commercials || []).filter(function(c) {
+                        return c.isPaid === true && (c.expiresAt || 0) > agora;
+                    });
+                    const limite = parseInt(monetizationData.paidCommercials.dailyCommercialsLimit || 5);
+                    console.log('[COMERCIAL] ativos=' + ativos.length + ' / limite=' + limite);
+
+                    if (ativos.length >= limite) {
+                        hideLoading();
+                        showError('Este canal está com a agenda de comerciais temporariamente cheia. Tente novamente daqui algumas horas.');
+                        document.getElementById('videoForm').style.display = 'none';
+                        document.getElementById('videoPreview').style.display = 'none';
+                        document.getElementById('pixArea').style.display = 'none';
+                        return;
+                    }
+                } catch(e) {
+                    console.warn('[COMERCIAL] erro ao checar limite (permitindo):', e.message);
+                }
+
                 updateChannelUI();
                 hideLoading();
 
@@ -410,11 +432,27 @@
             if (youtubePlayer) { youtubePlayer.destroy(); youtubePlayer = null; }
         }
 
-        function proceedToPayment() {
+        async function proceedToPayment() {
             if (!videoData || !currentUser) { showError('Dados incompletos.'); return; }
             const maxDuration = channelData.paidCommercials.maxDuration || 90;
             if (isNaN(videoData.duration) || videoData.duration <= 0) { showError('Duração inválida.'); return; }
             if (videoData.duration > maxDuration) { showError('Vídeo excede o máximo.'); return; }
+
+            // 🚫 Re-checa o limite direto do Firestore antes de gerar o PIX
+            try {
+                const snap = await db.collection('channels').doc(channelData.id).get();
+                const arr = snap.exists && Array.isArray(snap.data().commercials) ? snap.data().commercials : [];
+                const agora = Date.now();
+                const ativos = arr.filter(function(c) { return c.isPaid === true && (c.expiresAt || 0) > agora; });
+                const limite = parseInt(channelData.paidCommercials.dailyCommercialsLimit || 5);
+                if (ativos.length >= limite) {
+                    document.getElementById('videoForm').style.display = 'none';
+                    document.getElementById('videoPreview').style.display = 'none';
+                    document.getElementById('pixArea').style.display = 'none';
+                    showError('Este canal está com a agenda de comerciais temporariamente cheia. Tente novamente daqui algumas horas.');
+                    return;
+                }
+            } catch(e) { console.warn('[COMERCIAL] recheck limite:', e.message); }
 
             document.getElementById('videoForm').style.display = 'none';
             document.getElementById('videoPreview').style.display = 'none';
@@ -459,9 +497,19 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(paymentData)
                 });
-                if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + await response.text());
-                const result = await response.json();
-                if (!result.success) throw new Error(result.error || 'Erro ao gerar pagamento');
+                const result = await response.json().catch(function(){ return null; });
+                if (!response.ok) {
+                    // Detecta limite atingido vindo do servidor
+                    var errMsg = (result && result.error) || '';
+                    if (errMsg.toLowerCase().indexOf('limite') !== -1) {
+                        hideLoading();
+                        document.getElementById('pixArea').style.display = 'none';
+                        showError('Este canal está com a agenda de comerciais temporariamente cheia. Tente novamente daqui algumas horas.');
+                        return;
+                    }
+                    throw new Error((result && result.details) || errMsg || ('HTTP ' + response.status));
+                }
+                if (!result || !result.success) throw new Error((result && result.error) || 'Erro ao gerar pagamento');
                 currentPaymentId = result.paymentId;
                 if (result.qrCodeBase64) {
                     displayQRCode(result.qrCodeBase64);
