@@ -778,6 +778,34 @@ async function saveMonetization(){
   try{
     if(!currentUser||!channelId)throw new Error('Sessão expirada. Faça login novamente.');
     await verifyChannelAccess(channelId);
+
+    // 🚫 BLOQUEIO DURO: re-verifica no Firestore se ainda há comerciais pagos ativos
+    // e impede o salvamento se o dono tentar desabilitar.
+    try{
+      const chk = await db.collection('channels').doc(channelId).get();
+      if(chk.exists){
+        const until = chk.data().paidCommercialsActiveUntil || 0;
+        if(until > Date.now()){
+          // Há comerciais pagos ativos — força enabled=true e trava o checkbox
+          document.getElementById('paidCommercials').checked = true;
+          document.getElementById('paidCommercials').disabled = true;
+          document.getElementById('paidCommercials').title =
+            'Bloqueado: existem comerciais pagos ativos neste canal.';
+          monetizationData.paidCommercials.enabled = true;
+
+          // Se o input de preço/limite ainda estão visíveis, mantém
+          const sp = document.getElementById('paidCommercialsSettings');
+          if(sp) sp.style.display = 'block';
+
+          showError(
+            '❌ Não é possível desabilitar comerciais pagos enquanto houver comerciais ativos neste canal.<br><br>' +
+            'O bloqueio será removido automaticamente quando todos expirarem.'
+          );
+          return;
+        }
+      }
+    }catch(e){ console.warn('[PAID-BLOCK] erro:', e.message); }
+
     const errors=validateMonetizationSettings();
     if(errors.length>0){
       showError('❌ Erro de validação:<br>• '+errors.join('<br>• ')+'<br><br>Corrija as configurações ou desabilite as opções.');
@@ -857,7 +885,26 @@ document.addEventListener('DOMContentLoaded',function(){
   });
   document.getElementById('adsterraSmartlink').addEventListener('change',function(){document.getElementById('adsterraSettings').style.display=this.checked?'block':'none';checkForChanges();});
   document.getElementById('pixDonations').addEventListener('change',function(){document.getElementById('pixSettings').style.display=this.checked?'block':'none';checkForChanges();});
-  document.getElementById('paidCommercials').addEventListener('change',function(){document.getElementById('paidCommercialsSettings').style.display=this.checked?'block':'none';checkForChanges();});
+  document.getElementById('paidCommercials').addEventListener('change',async function(){
+    var cb=this;
+    // Se há bloqueio ativo, força re-marcação
+    if(window.__hasPaidBlock && !cb.checked){
+        try{
+            var chk=await db.collection('channels').doc(channelId).get();
+            if(chk.exists && (chk.data().paidCommercialsActiveUntil||0)>Date.now()){
+                cb.checked=true;
+                cb.disabled=true;
+                cb.title='Bloqueado: existem comerciais pagos ativos neste canal.';
+                document.getElementById('paidCommercialsSettings').style.display='block';
+                showError('❌ Não é possível desabilitar comerciais pagos enquanto houver comerciais ativos.<br>O bloqueio será removido automaticamente quando todos expirarem.');
+                checkForChanges();
+                return;
+            }
+        }catch(e){}
+    }
+    document.getElementById('paidCommercialsSettings').style.display=cb.checked?'block':'none';
+    checkForChanges();
+});
   document.getElementById('subscriptionEnabled').addEventListener('change',function(){document.getElementById('subscriptionSettings').style.display=this.checked?'block':'none';updateAdsterraLock();checkForChanges();});
   document.getElementById('monthlyPrice').addEventListener('input',checkForChanges);
   document.getElementById('trialEnabled').addEventListener('change',function(){document.getElementById('trialSettings').style.display=this.checked?'block':'none';checkForChanges();});
