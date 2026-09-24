@@ -5973,7 +5973,9 @@ function criarPlayerYouTube(videoId, startSeconds = 0, autoplay = true) {
             'origin': window.location.origin,
             'widget_referrer': window.location.href,
             'iv_load_policy': 3,
-            'playsinline': 1
+            'playsinline': 1,
+            'cc_load_policy': 0,
+            'cc_lang_pref': 'xx'
         },
         events: {
             'onReady': onYouTubePlayerReady,
@@ -5987,9 +5989,31 @@ function criarPlayerYouTube(videoId, startSeconds = 0, autoplay = true) {
 }
 
 // Quando o player está pronto
+function _desligarLegendas(player) {
+    try {
+        if (!player) return;
+        // 1) Descarrega modulo de captions
+        if (typeof player.unloadModule === 'function') {
+            player.unloadModule('captions');
+            player.unloadModule('cc');
+        }
+        // 2) setOption para limpar track ativo
+        if (typeof player.setOption === 'function') {
+            player.setOption('captions', 'track', {});
+            player.setOption('cc', 'track', {});
+            try { player.setOption('captions', 'reload', true); } catch(e){}
+        }
+    } catch(e) {
+        console.warn('Erro desligando legendas:', e);
+    }
+}
+
 function onYouTubePlayerReady(event) {
     console.log('Player do YouTube pronto');
     playerReady = true;
+    
+    // 🔇 Desliga legendas na carga
+    _desligarLegendas(event.target);
     
     // Configurar volume inicial
     if (volumeSlider) {
@@ -6009,6 +6033,11 @@ function onYouTubePlayerReady(event) {
 // Monitorar estado do player
 function onYouTubePlayerStateChange(event) {
     console.log('Estado do YouTube:', event.data, '| currentState:', currentState);
+    
+    // 🔇 Desliga legendas toda vez que comeca/buffering/pausa
+    if (event.data === 1 || event.data === 2 || event.data === 3) {
+        try { _desligarLegendas(event.target); } catch(e){}
+    }
     
     // 0 = ENDED, 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
     if (event.data === 0) { // ENDED
