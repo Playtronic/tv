@@ -1940,6 +1940,9 @@
         let currentChannelId = null;
         let editingChannel = false;
         let originalChannelName = '';
+
+        // 🔒 Array global para guardar listeners de proteção (evita vazamento de memória)
+        if (!window.__protectionListeners) window.__protectionListeners = [];
         
         // Dados da TV - ATUALIZADO COM NOVOS CAMPOS
         let tvData = {
@@ -8847,7 +8850,16 @@ async function iniciarPublicacao() {
         async function carregarCanais() {
             try {
                 console.log("🔄 Carregando canais do banco de dados...");
-                
+
+                // 🔒 Limpa listeners da carga anterior (evita vazamento de memória)
+                if (window.__protectionListeners && window.__protectionListeners.length > 0) {
+                    window.__protectionListeners.forEach(fn => {
+                        try { fn(); } catch(e) {}
+                    });
+                    console.log("🧹 Limpou " + window.__protectionListeners.length + " listeners antigos");
+                }
+                window.__protectionListeners = [];
+
                 const channelsList = document.getElementById('channelsList');
                 const emptyState = document.getElementById('emptyState');
                 
@@ -9127,13 +9139,15 @@ console.log('---');
                                         }
                                     }
 
-                                    chRef.onSnapshot(snap => {
+                                    const _unsub = chRef.onSnapshot(snap => {
                                         if (!snap.exists) return;
                                         const d = snap.data() || {};
                                         applyProtection(d.paidCommercialsActiveUntil || 0);
                                     }, err => {
                                         console.warn('Listener de proteção falhou:', err.message);
                                     });
+                                    // 🔒 Guarda a função de cancelamento
+                                    window.__protectionListeners.push(_unsub);
                                 } catch (e) {
                                     console.warn('Proteção visual falhou:', e.message);
                                 }
