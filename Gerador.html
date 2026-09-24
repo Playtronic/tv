@@ -6008,12 +6008,36 @@ function _desligarLegendas(player) {
     }
 }
 
+function _forcarQualidadeMaxima(player) {
+    try {
+        if (!player) return;
+        var niveis = [];
+        try { niveis = player.getAvailableQualityLevels() || []; } catch(e){ niveis = []; }
+        var ordem = ['highres','hd2160','hd1440','hd1080','hd720','large','medium','small','tiny'];
+        var escolhida = 'hd1080';
+        for (var i = 0; i < ordem.length; i++) {
+            if (niveis.indexOf(ordem[i]) !== -1) { escolhida = ordem[i]; break; }
+        }
+        if (typeof player.setPlaybackQuality === 'function') {
+            player.setPlaybackQuality(escolhida);
+        }
+        if (typeof player.setPlaybackQualityRange === 'function') {
+            player.setPlaybackQualityRange(escolhida, escolhida);
+        }
+    } catch(e) {
+        console.warn('Erro forçando qualidade:', e);
+    }
+}
+
 function onYouTubePlayerReady(event) {
     console.log('Player do YouTube pronto');
     playerReady = true;
     
     // 🔇 Desliga legendas na carga
     _desligarLegendas(event.target);
+    
+    // 🎬 Força qualidade máxima
+    _forcarQualidadeMaxima(event.target);
     
     // Configurar volume inicial
     if (volumeSlider) {
@@ -6031,12 +6055,31 @@ function onYouTubePlayerReady(event) {
 }
 
 // Monitorar estado do player
+var _qualidadeMonitor = null;
+function _iniciarMonitorQualidade() {
+    if (_qualidadeMonitor) clearInterval(_qualidadeMonitor);
+    _qualidadeMonitor = setInterval(function() {
+        if (isYoutubeVideo && youtubePlayer && playerReady) {
+            try { _forcarQualidadeMaxima(youtubePlayer); } catch(e){}
+        }
+    }, 15000);
+}
+
 function onYouTubePlayerStateChange(event) {
     console.log('Estado do YouTube:', event.data, '| currentState:', currentState);
+    
+    if (event.data === 1 && !_qualidadeMonitor) {
+        _iniciarMonitorQualidade();
+    }
     
     // 🔇 Desliga legendas toda vez que comeca/buffering/pausa
     if (event.data === 1 || event.data === 2 || event.data === 3) {
         try { _desligarLegendas(event.target); } catch(e){}
+    }
+    
+    // 🎬 Força qualidade máxima ao começar a tocar
+    if (event.data === 1) {
+        try { _forcarQualidadeMaxima(event.target); } catch(e){}
     }
     
     // 0 = ENDED, 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
