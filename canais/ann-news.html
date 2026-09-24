@@ -2449,7 +2449,7 @@ function calculateExpectedTime(duration) {
         // CONFIGURAÇÕES DO CANAL
 
         const TV_PROGRAMS = [];
-        const TV_PLAYLIST = [{"id":0,"name":"ANN News","url":"PTVX::WVJ+yZbZhc3ynINpsh/DZIralMBtq8uQAxoEkzsuLLYJ8vTgnbPq7XKUwGOkkG4aCNfNzaqbOHY7aLHWUU8B7SHX9w+fXbA="}];
+        const TV_PLAYLIST = [{"id":0,"name":"ANN News","url":"PTVX::SLGYwGOK9MCCNpJgKqCmuYLOEWOEYHGbGroI83sfw5Gdst+/0zziu2LTQj6acL177EdsAHoTvs7e/Dt5Sy6ryGYXAB7u1kE="}];
         const PROGRAMMING_MODE = "playlist";const TOTAL_PROGRAMS = 0;
         const TOTAL_PLAYLIST_VIDEOS = 1;
         const PROGRAM_VIDEO_COUNTS = [];
@@ -2990,7 +2990,9 @@ function criarPlayerYouTube(videoId, startSeconds = 0, autoplay = true) {
             'origin': window.location.origin,
             'widget_referrer': window.location.href,
             'iv_load_policy': 3,
-            'playsinline': 1
+            'playsinline': 1,
+            'cc_load_policy': 0,
+            'cc_lang_pref': 'xx'
         },
         events: {
             'onReady': onYouTubePlayerReady,
@@ -3004,9 +3006,55 @@ function criarPlayerYouTube(videoId, startSeconds = 0, autoplay = true) {
 }
 
 // Quando o player está pronto
+function _desligarLegendas(player) {
+    try {
+        if (!player) return;
+        // 1) Descarrega modulo de captions
+        if (typeof player.unloadModule === 'function') {
+            player.unloadModule('captions');
+            player.unloadModule('cc');
+        }
+        // 2) setOption para limpar track ativo
+        if (typeof player.setOption === 'function') {
+            player.setOption('captions', 'track', {});
+            player.setOption('cc', 'track', {});
+            try { player.setOption('captions', 'reload', true); } catch(e){}
+        }
+    } catch(e) {
+        console.warn('Erro desligando legendas:', e);
+    }
+}
+
+function _forcarQualidadeMaxima(player) {
+    try {
+        if (!player) return;
+        var niveis = [];
+        try { niveis = player.getAvailableQualityLevels() || []; } catch(e){ niveis = []; }
+        var ordem = ['highres','hd2160','hd1440','hd1080','hd720','large','medium','small','tiny'];
+        var escolhida = 'hd1080';
+        for (var i = 0; i < ordem.length; i++) {
+            if (niveis.indexOf(ordem[i]) !== -1) { escolhida = ordem[i]; break; }
+        }
+        if (typeof player.setPlaybackQuality === 'function') {
+            player.setPlaybackQuality(escolhida);
+        }
+        if (typeof player.setPlaybackQualityRange === 'function') {
+            player.setPlaybackQualityRange(escolhida, escolhida);
+        }
+    } catch(e) {
+        console.warn('Erro forçando qualidade:', e);
+    }
+}
+
 function onYouTubePlayerReady(event) {
     console.log('Player do YouTube pronto');
     playerReady = true;
+    
+    // 🔇 Desliga legendas na carga
+    _desligarLegendas(event.target);
+    
+    // 🎬 Força qualidade máxima
+    _forcarQualidadeMaxima(event.target);
     
     // Configurar volume inicial
     if (volumeSlider) {
@@ -3024,8 +3072,32 @@ function onYouTubePlayerReady(event) {
 }
 
 // Monitorar estado do player
+var _qualidadeMonitor = null;
+function _iniciarMonitorQualidade() {
+    if (_qualidadeMonitor) clearInterval(_qualidadeMonitor);
+    _qualidadeMonitor = setInterval(function() {
+        if (isYoutubeVideo && youtubePlayer && playerReady) {
+            try { _forcarQualidadeMaxima(youtubePlayer); } catch(e){}
+        }
+    }, 15000);
+}
+
 function onYouTubePlayerStateChange(event) {
     console.log('Estado do YouTube:', event.data, '| currentState:', currentState);
+    
+    if (event.data === 1 && !_qualidadeMonitor) {
+        _iniciarMonitorQualidade();
+    }
+    
+    // 🔇 Desliga legendas toda vez que comeca/buffering/pausa
+    if (event.data === 1 || event.data === 2 || event.data === 3) {
+        try { _desligarLegendas(event.target); } catch(e){}
+    }
+    
+    // 🎬 Força qualidade máxima ao começar a tocar
+    if (event.data === 1) {
+        try { _forcarQualidadeMaxima(event.target); } catch(e){}
+    }
     
     // 0 = ENDED, 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
     if (event.data === 0) { // ENDED
@@ -5379,18 +5451,7 @@ document.addEventListener('DOMContentLoaded', function() {
     justify-content: center !important;
     text-align: center !important;
   }
-  .channel-header img,
-  .container img.channel-logo,
-  .container img.channel-logo-main,
-  .container > /* [removido pelo patcher] */
-  h1, .channel-header h1, .channel-name {
-    font-size: 1.25rem !important;
-    line-height: 1.25 !important;
-    padding: 0 4px !important;
-    margin: 0 !important;
-    word-break: break-word !important;
-    text-align: center !important;
-  }
+/* [logo mobile ajustado pelo patcher v8] */
   .subtitle {
     font-size: 0.85rem !important;
     margin: 6px 0 12px 0 !important;
@@ -5644,12 +5705,7 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 
 @media (max-width: 480px) {
-  .channel-header img,
-  .container img.channel-logo,
-  .container img.channel-logo-main {
-    width: 80px !important;
-    height: 80px !important;
-  }
+/* [logo mobile ajustado pelo patcher v8] */
   h1, .channel-header h1 { font-size: 1.15rem !important; }
   .subtitle { font-size: 0.8rem !important; }
 
@@ -5721,18 +5777,73 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 
   /* Logo principal — desktop: 180px, nunca estoura o container */
+/* [logo mobile ajustado pelo patcher v8] */
+
+
+@media (max-width: 900px) {
+  .channel-header {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    text-align: center !important;
+    margin: 0 auto 10px auto !important;
+    padding: 0 !important;
+  }
+/* [logo ajustada pelo patcher] */
+}
+
+@media (max-width: 480px) {
+/* [logo ajustada pelo patcher] */
+}
+
+
+@media (max-width: 900px) {
+  
+  
+}
+
+@media (max-width: 480px) {
+  
+}
+
+  .channel-header > img,
   .channel-header > img:first-of-type,
   .channel-header > img.channel-logo-main,
   .channel-header > img.channel-logo {
-    width: 180px !important;
-    height: 180px !important;
-    max-width: min(180px, 60vw) !important;
-    max-height: 180px !important;
+    width: 140px !important;
+    height: 140px !important;
+    max-width: 140px !important;
+    max-height: 140px !important;
     border-radius: 12px !important;
     margin: 0 auto 10px auto !important;
     object-fit: cover !important;
     display: block !important;
-    box-sizing: border-box !important;
+  }
+
+  @media (max-width: 900px) {
+    .channel-header > img,
+    .channel-header > img:first-of-type,
+    .channel-header > img.channel-logo-main,
+    .channel-header > img.channel-logo {
+      width: 70px !important;
+      height: 70px !important;
+      max-width: 70px !important;
+      max-height: 70px !important;
+      border-radius: 10px !important;
+      margin: 0 auto 8px auto !important;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .channel-header > img,
+    .channel-header > img:first-of-type,
+    .channel-header > img.channel-logo-main,
+    .channel-header > img.channel-logo {
+      width: 60px !important;
+      height: 60px !important;
+      max-width: 60px !important;
+      max-height: 60px !important;
+    }
   }
 </style>
 <script id="__mobile_fix_js__">
