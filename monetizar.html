@@ -456,10 +456,27 @@ function mpSyncToBoth(){
     });
 }
 
-function mpConnect(){
+async function mpConnect(){
   const cid=channelId||mpGetCid();
   if(!cid){alert('channelId ausente');return;}
-  const state=cid+'_donations';
+
+  // 🔒 Nonce CSRF (proteção contra sequestro de OAuth)
+  var nonce = 'n' + Date.now().toString(36) + Math.random().toString(36).substr(2,12);
+  try{
+    var uid = (firebase.auth().currentUser || {}).uid || '';
+    await firebase.firestore().collection('oauthStates').doc(nonce).set({
+      channelId: cid,
+      type: 'donations',
+      uid: uid,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 10*60*1000
+    });
+  }catch(e){
+    console.warn('[MP] falha ao registrar nonce:', e.message);
+    nonce = null;
+  }
+
+  var state = nonce ? (cid + '_donations_' + nonce) : (cid + '_donations');
   const url='https://auth.mercadopago.com/authorization'
     +'?client_id='+encodeURIComponent(MP_CLIENT_ID)
     +'&response_type=code&platform_id=mp'
