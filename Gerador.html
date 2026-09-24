@@ -7699,28 +7699,33 @@ function _getVideoDurationMs(){
 function _isLiveVideo(){
   try {
     // ── 1) Player YouTube é a fonte ativa? ──
-    // Nesse caso o <video id="myVideo"> HTML5 fica órfão (duration = NaN)
-    // e NÃO deve ser consultado. Usamos a duração real do player.
     if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo) {
       if (typeof youtubePlayer !== 'undefined' && youtubePlayer &&
-          typeof youtubePlayer.getDuration === 'function' &&
           typeof playerReady !== 'undefined' && playerReady) {
-        var ytDur = youtubePlayer.getDuration();
-        // Live no YouTube = duração 0 (streams não têm duração finita).
-        // VODs retornam a duração real (>0).
-        if (!ytDur || isNaN(ytDur) || ytDur === 0) return true;
+
+        // 1a) Sinal MAIS confiável: o próprio YouTube diz se é live.
+        // Funciona em lives longas (dias/meses) onde getDuration() > 0.
+        try {
+          var vd = (typeof youtubePlayer.getVideoData === 'function')
+            ? youtubePlayer.getVideoData()
+            : null;
+          if (vd && vd.isLive === true) return true;
+          if (vd && vd.isLive === false) return false; // YouTube confirmou: não é live
+        } catch(e){}
+
+        // 1b) Fallback: getDuration() === 0 (lives recém-iniciadas)
+        if (typeof youtubePlayer.getDuration === 'function') {
+          var ytDur = youtubePlayer.getDuration();
+          if (!ytDur || isNaN(ytDur) || ytDur === 0) return true;
+        }
       }
-      // Player ainda carregando ou VOD → NÃO é live.
-      // VOD longo (>= 3h) é tratado por _getVideoDurationMs() em _isLiveOrLongVideo().
       return false;
     }
 
     // ── 2) HTML5 puro ──
     var v = document.getElementById('myVideo');
     if (!v) return false;
-    var d = v.duration;
-    if (d === Infinity) return true;              // stream HTML5 real (MSE/live)
-    // NaN agora retorna FALSE (era o bug: <video> sem src ficava NaN e virava "live")
+    if (v.duration === Infinity) return true;
     return false;
   } catch(e){}
   return false;
