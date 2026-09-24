@@ -3488,21 +3488,9 @@ function calculateExpectedTime(duration) {
         
         if (wasPlaying) {
             const parent = videoElement.parentElement;
-            const _oldVideo = videoElement;
-            const _oldSrc = _oldVideo.src;
-            const _oldStyle = _oldVideo.style.cssText;            try {
-                _oldVideo.pause();
-                _oldVideo.removeAttribute('src');
-                _oldVideo.load();
-                if (_oldVideo._ptvxHandlers) {
-                    for (var _evt in _oldVideo._ptvxHandlers) {
-                        try { _oldVideo.removeEventListener(_evt, _oldVideo._ptvxHandlers[_evt]); } catch(e){}
-                    }
-                    _oldVideo._ptvxHandlers = null;
-                }
-            } catch(e) {}
             const newVideo = document.createElement('video');
-            newVideo.src = _oldSrc;
+            
+            newVideo.src = videoElement.src;
             newVideo.currentTime = currentTime;
             newVideo.muted = false;
             newVideo.volume = 1.0;
@@ -3706,16 +3694,11 @@ function cleanupInactiveViewers() {
                         return;
                     }
                     
-                    const userVoteRef = userVotesRef.child(currentUserChannel.uid);                    if (window._ptvxUserVoteListener) {
-                        try { window._ptvxUserVoteListener.ref.off('value', window._ptvxUserVoteListener.callback); } catch(e){}
-                        window._ptvxUserVoteListener = null;
-                    }
-                    const _voteCallback = (snapshot) => {
+                    const userVoteRef = userVotesRef.child(currentUserChannel.uid);
+                    userVoteRef.on('value', (snapshot) => {
                         currentUserVote = snapshot.val();
                         updateLikeDislikeUI();
-                    };
-                    userVoteRef.on('value', _voteCallback);
-                    window._ptvxUserVoteListener = { ref: userVoteRef, callback: _voteCallback };
+                    });
                 }
                 
                 function setupLikeDislikeButtons() {
@@ -5479,7 +5462,6 @@ if (slotIndex === currentPlayingSlot) {
         let playerReady = false;
         
         // ELEMENTOS DO PLAYER
-        var _playerInitialized = false;
         let videoElement = null;
         let youtubeContainer = null;
         let autoplayOverlay = null;
@@ -6253,20 +6235,19 @@ videoElement.setAttribute('playsinline', '');
     function handlePlaying() {
         console.log('▶️ playing - Vídeo começou a tocar');
         // 🔥 CORREÇÃO: Respeitar mute do usuário (não forçar áudio)
-    }    if (videoElement._ptvxHandlers) {
-        for (var _evt in videoElement._ptvxHandlers) {
-            try { videoElement.removeEventListener(_evt, videoElement._ptvxHandlers[_evt]); } catch(e){}
-        }
     }
-    videoElement._ptvxHandlers = {
-        loadedmetadata: handleLoadedMetadata,
-        error: handleError,
-        canplay: handleCanPlay,
-        playing: handlePlaying
-    };
-    for (var _evt in videoElement._ptvxHandlers) {
-        videoElement.addEventListener(_evt, videoElement._ptvxHandlers[_evt], { once: true });
-    }
+    
+    // Remover listeners antigos
+    videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.removeEventListener('error', handleError);
+    videoElement.removeEventListener('canplay', handleCanPlay);
+    videoElement.removeEventListener('playing', handlePlaying);
+    
+    // Adicionar novos listeners (APENAS UMA VEZ)
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    videoElement.addEventListener('error', handleError, { once: true });
+    videoElement.addEventListener('canplay', handleCanPlay, { once: true });
+    videoElement.addEventListener('playing', handlePlaying, { once: true });
     
     // 8. INICIAR carregamento
     console.log('🔄 Chamando videoElement.load()');
@@ -7078,13 +7059,6 @@ function verificarFimDoVideo() {
         }
         
         function inicializarPlayer() {
-        // 🔒 GUARD: impede inicializacao duplicada
-        if (_playerInitialized) {
-            console.log('[PLAYER] já inicializado — ignorando chamada duplicada');
-            return;
-        }
-        _playerInitialized = true;
-
         // INICIALIZAR SLOT CORRETAMENTE PARA MODO PLAYLIST
         if (PROGRAMMING_MODE === 'playlist') {
             currentPlayingSlot = calcularSlotAtualPlaylist();
@@ -11214,25 +11188,7 @@ toScreen3Btn.addEventListener('click', () => {
             // Inicializar a tela 0
             showScreen('screen0');
         });
-    </script><script>
-(function(){
-    function ptvxCleanup(){
-        try { if (typeof likesRef !== "undefined" && likesRef) likesRef.off(); } catch(e){}
-        try { if (typeof dislikesRef !== "undefined" && dislikesRef) dislikesRef.off(); } catch(e){}
-        try { if (typeof onlineViewersRef !== "undefined" && onlineViewersRef) onlineViewersRef.off(); } catch(e){}
-        try { if (window._ptvxUserVoteListener && window._ptvxUserVoteListener.ref) window._ptvxUserVoteListener.ref.off("value", window._ptvxUserVoteListener.callback); } catch(e){}
-        try { if (typeof viewerRef !== "undefined" && viewerRef) viewerRef.remove(); } catch(e){}
-        try { if (typeof _imperceptibleRefreshInterval !== "undefined" && _imperceptibleRefreshInterval) clearInterval(_imperceptibleRefreshInterval); } catch(e){}
-        try { if (typeof _ocultarYtInterval !== "undefined" && _ocultarYtInterval) clearInterval(_ocultarYtInterval); } catch(e){}
-        try { if (typeof syncCheckInterval !== "undefined" && syncCheckInterval) clearInterval(syncCheckInterval); } catch(e){}
-        try { if (typeof audioMonitorInterval !== "undefined" && audioMonitorInterval) clearInterval(audioMonitorInterval); } catch(e){}
-        try { if (typeof paymentCheckInterval !== "undefined" && paymentCheckInterval) clearInterval(paymentCheckInterval); } catch(e){}
-        try { if (window._subPixPoll) clearInterval(window._subPixPoll); } catch(e){}
-        console.log("[PTVX] Cleanup executado");
-    }
-    window.addEventListener("beforeunload", ptvxCleanup);
-    window.addEventListener("pagehide", ptvxCleanup);
-})();
-<\/script>
-</body>
+    </script>
+    
+    </body>
 </html>
