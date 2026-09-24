@@ -2825,6 +2825,7 @@ let donationSystem = {
         const pixArea = document.getElementById('pixArea');
         const qrcodeContainer = document.getElementById('qrcodeContainer');
         const pixCode = document.getElementById('pixCode');
+        this.currentCheckToken = null;
         
         if (!amountInput || !generatePixButton) return;
         
@@ -2860,6 +2861,7 @@ let donationSystem = {
             
             if (result.success) {
                 this.currentPaymentId = result.paymentId;
+                this.currentCheckToken = result.checkToken || '';
                 pixArea.style.display = 'block';
                 
                 if (result.qrCodeBase64) {
@@ -2890,7 +2892,7 @@ let donationSystem = {
         if (!this.currentPaymentId) return null;
         
         try {
-            const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/checkPaymentStatus?paymentId=' + this.currentPaymentId);
+            const response = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/checkPaymentStatus?paymentId=' + this.currentPaymentId + '&token=' + encodeURIComponent(this.currentCheckToken || ''));
             
             if (response.ok) {
                 const result = await response.json();
@@ -7327,23 +7329,23 @@ function mostrarGateSub(motivo){
   var lb = document.getElementById("subLoginBtn");
 
   if (tb){
-    tb.addEventListener("click", function(){
+    tb.addEventListener("click", async function(){
       var u = firebase.auth().currentUser;
       if (!u){ mostrarGateSub("login"); return; }
-      var now = new Date();
-      var ends = new Date(now.getTime() + SUBSCRIPTION_TRIAL_DAYS * 86400000);
-      firebase.firestore().collection("users").doc(u.uid)
-        .collection("subscriptions").doc(CHANNEL_ID)
-        .set({
-          channelId: CHANNEL_ID, status: "trial", method: "trial",
-          trialStartedAt: firebase.firestore.Timestamp.fromDate(now),
-          trialEndsAt: firebase.firestore.Timestamp.fromDate(ends),
-          startedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          expiresAt: firebase.firestore.Timestamp.fromDate(ends),
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, {merge: true})
-        .then(function(){ location.reload(); })
-        .catch(function(e){ alert("Erro: " + e.message); });
+      try {
+        var idToken = await u.getIdToken(true);
+        var r = await fetch("https://us-central1-playtronic-tv.cloudfunctions.net/startFreeTrial", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + idToken
+          },
+          body: JSON.stringify({ channelId: CHANNEL_ID })
+        });
+        var data = await r.json();
+        if (!r.ok || !data.success) throw new Error((data && data.error) || "Erro");
+        location.reload();
+      } catch (e) { alert("Erro: " + e.message); }
     });
   }
   if (pb){ pb.addEventListener("click", function(){ assinarComPix(pb); }); }
@@ -7397,7 +7399,7 @@ function assinarComPix(btn){
   .then(function(r){ return r.json(); })
   .then(function(res){
     if (!res.success) throw new Error(res.details || res.error || "Erro");
-    mostrarLightboxPix(res.paymentId, res.qrCodeBase64, res.qrCode);
+    mostrarLightboxPix(res.paymentId, res.qrCodeBase64, res.qrCode, res.checkToken);
   })
   .catch(function(e){
     alert("Erro: " + e.message);
@@ -7406,7 +7408,7 @@ function assinarComPix(btn){
   });
 }
 
-function mostrarLightboxPix(paymentId, qrBase64, pixCode){
+function mostrarLightboxPix(paymentId, qrBase64, pixCode, checkToken){
   var lb = document.getElementById("subPixLightbox");
   if (lb) lb.remove();
   lb = document.createElement("div");
@@ -7458,7 +7460,7 @@ function mostrarLightboxPix(paymentId, qrBase64, pixCode){
   }
 
   window._subPixPoll = setInterval(function(){
-    fetch("https://us-central1-playtronic-tv.cloudfunctions.net/checkPaymentStatus?paymentId=" + paymentId)
+    fetch("https://us-central1-playtronic-tv.cloudfunctions.net/checkPaymentStatus?paymentId=" + paymentId + "&token=" + encodeURIComponent(checkToken || ''))
       .then(function(r){ return r.json(); })
       .then(function(data){
         if (!data || !data.success) return;
@@ -8041,14 +8043,17 @@ async function publicarCanal(nomeCanal, dadosGerador) {
         if (videosParaSalvar.length === 0) {
             console.warn("⚠️ Nenhum vídeo para salvar. Pulando proteção de vídeos.");
         } else {
-                        // 🔥 CORREÇÃO CORS v2: usa mode no-cors para contornar bloqueio do navegador
-            console.log("📤 Enviando vídeos para proteção (modo no-cors)...");
+                        // 🔒 Enviando vídeos com autenticação (fecha brecha)
+            console.log("📤 Enviando vídeos para proteção (autenticado)...");
             try {
-                await fetch("https://us-central1-playtronic-tv.cloudfunctions.net/saveChannelVideos", {
+                if (!currentUser) throw new Error("Usuário não autenticado");
+                const idToken = await currentUser.getIdToken(true);
+
+                const resp = await fetch("https://us-central1-playtronic-tv.cloudfunctions.net/saveChannelVideos", {
                     method: "POST",
-                    mode: "no-cors",
                     headers: {
-                        "Content-Type": "text/plain;charset=UTF-8",
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer " + idToken
                     },
                     body: JSON.stringify({
                         channelId: channelIdParaVideos,
@@ -8056,12 +8061,16 @@ async function publicarCanal(nomeCanal, dadosGerador) {
                         programmingMode: dadosGerador.programmingMode
                     })
                 });
-                console.log("✅ Requisição enviada (resposta opaca — assumindo sucesso)");
-                // Aguarda um pouco para o servidor processar
-                await new Promise(r => setTimeout(r, 2500));
+
+                if (!resp.ok) {
+                    const errTxt = await resp.text().catch(()=>'');
+                    throw new Error("CF rejeitou (" + resp.status + "): " + errTxt);
+                }
+                const result = await resp.json();
+                console.log("✅ Vídeos protegidos:", result);
+                await new Promise(r => setTimeout(r, 800));
             } catch (e) {
-                console.warn("⚠️ Aviso no fetch no-cors (pode ser normal):", e);
-                // Não joga erro — continua o fluxo
+                console.warn("⚠️ Aviso ao salvar vídeos protegidos (não bloqueia):", e);
             }
         }
         
