@@ -622,18 +622,23 @@ async function loadChannelData(){
 
     updateUI();
 
+    // ℹ️ Nova regra: comerciais pagos ativos NÃO bloqueiam mais o desligamento da opção.
+    // Ao desativar, o dono para de aceitar NOVOS comerciais, mas os JÁ ATIVOS continuam
+    // sendo exibidos pelo canal até expirarem (cliente que pagou recebe o serviço completo).
     if(window.__hasPaidBlock){
       const cbp=document.getElementById('paidCommercials');
-      if(cbp){cbp.checked=true;cbp.disabled=true;cbp.title='Bloqueado: comerciais pagos ativos até '+new Date(window.__paidBlockUntil).toLocaleString('pt-BR');}
+      if(cbp){
+        cbp.title='Há comerciais pagos ativos até '+new Date(window.__paidBlockUntil).toLocaleString('pt-BR')+'. Eles continuarão sendo exibidos até expirarem, mesmo que você desative a opção.';
+      }
       const sp=document.getElementById('paidCommercialsSettings');
       if(sp){
         sp.style.display='block';
-        if(!document.getElementById('paidBlockNotice')){
-          const n=document.createElement('div');n.id='paidBlockNotice';
-          n.style.cssText='background:#fff3cd;color:#856404;padding:12px;border-radius:8px;margin-bottom:15px;border-left:4px solid #ffcc44;font-weight:bold;';
-          n.innerHTML='🔒 <strong>Opção bloqueada</strong><br><small>Comerciais pagos ativos até <b>'+new Date(window.__paidBlockUntil).toLocaleString('pt-BR')+'</b>.</small>';
-          sp.insertBefore(n,sp.firstChild);
-        }
+        const existing=document.getElementById('paidBlockNotice');
+        if(existing) existing.remove();
+        const n=document.createElement('div');n.id='paidBlockNotice';
+        n.style.cssText='background:#e8f4fc;color:#1f2937;padding:12px 14px;border-radius:8px;margin-bottom:15px;border-left:4px solid #3498db;font-weight:500;line-height:1.55;';
+        n.innerHTML='ℹ️ <strong>Comerciais pagos ativos</strong><br><small>Existem comerciais pagos que ficarão no ar até <b>'+new Date(window.__paidBlockUntil).toLocaleString('pt-BR')+'</b>.<br>Você pode <b>desativar a opção</b> a qualquer momento para parar de aceitar novos comerciais — os que já estão ativos continuarão sendo exibidos normalmente até expirarem.</small>';
+        sp.insertBefore(n,sp.firstChild);
       }
     }
 
@@ -713,9 +718,8 @@ function updateUI(){
 
 function validateMonetizationSettings(){
   const errors=[];
-  if(window.__hasPaidBlock&&!document.getElementById('paidCommercials').checked){
-    errors.push('Não é possível desabilitar comerciais pagos enquanto houver comerciais ativos.');
-  }
+  // ✅ Nova regra: é permitido desativar comerciais pagos mesmo com ativos.
+  // Os comerciais já inseridos em channels/{id}.commercials[] continuam tocando até expirarem.
   if(document.getElementById('adsterraSmartlink').checked){
     const u=document.getElementById('adsterraSmartlinkUrl').value.trim();
     if(!u)errors.push('Opção 1: URL do Smartlink não inserida.');
@@ -779,32 +783,10 @@ async function saveMonetization(){
     if(!currentUser||!channelId)throw new Error('Sessão expirada. Faça login novamente.');
     await verifyChannelAccess(channelId);
 
-    // 🚫 BLOQUEIO DURO: re-verifica no Firestore se ainda há comerciais pagos ativos
-    // e impede o salvamento se o dono tentar desabilitar.
-    try{
-      const chk = await db.collection('channels').doc(channelId).get();
-      if(chk.exists){
-        const until = chk.data().paidCommercialsActiveUntil || 0;
-        if(until > Date.now()){
-          // Há comerciais pagos ativos — força enabled=true e trava o checkbox
-          document.getElementById('paidCommercials').checked = true;
-          document.getElementById('paidCommercials').disabled = true;
-          document.getElementById('paidCommercials').title =
-            'Bloqueado: existem comerciais pagos ativos neste canal.';
-          monetizationData.paidCommercials.enabled = true;
-
-          // Se o input de preço/limite ainda estão visíveis, mantém
-          const sp = document.getElementById('paidCommercialsSettings');
-          if(sp) sp.style.display = 'block';
-
-          showError(
-            '❌ Não é possível desabilitar comerciais pagos enquanto houver comerciais ativos neste canal.<br><br>' +
-            'O bloqueio será removido automaticamente quando todos expirarem.'
-          );
-          return;
-        }
-      }
-    }catch(e){ console.warn('[PAID-BLOCK] erro:', e.message); }
+    // ✅ Nova regra: é permitido desativar comerciais pagos mesmo com ativos.
+    // Os comerciais já inseridos em channels/{id}.commercials[] continuam sendo exibidos
+    // pelo canal até expiresAt — quem pagou recebe o serviço contratado.
+    // A desativação apenas impede a compra de NOVOS comerciais (createPixPayment rejeita).
 
     const errors=validateMonetizationSettings();
     if(errors.length>0){
@@ -885,22 +867,20 @@ document.addEventListener('DOMContentLoaded',function(){
   });
   document.getElementById('adsterraSmartlink').addEventListener('change',function(){document.getElementById('adsterraSettings').style.display=this.checked?'block':'none';checkForChanges();});
   document.getElementById('pixDonations').addEventListener('change',function(){document.getElementById('pixSettings').style.display=this.checked?'block':'none';checkForChanges();});
-  document.getElementById('paidCommercials').addEventListener('change',async function(){
+  document.getElementById('paidCommercials').addEventListener('change',function(){
     var cb=this;
-    // Se há bloqueio ativo, força re-marcação
+    // ✅ Nova regra: permite desmarcar mesmo com comerciais pagos ativos.
+    // Os comerciais já ativos continuam sendo exibidos até expirarem.
     if(window.__hasPaidBlock && !cb.checked){
-        try{
-            var chk=await db.collection('channels').doc(channelId).get();
-            if(chk.exists && (chk.data().paidCommercialsActiveUntil||0)>Date.now()){
-                cb.checked=true;
-                cb.disabled=true;
-                cb.title='Bloqueado: existem comerciais pagos ativos neste canal.';
-                document.getElementById('paidCommercialsSettings').style.display='block';
-                showError('❌ Não é possível desabilitar comerciais pagos enquanto houver comerciais ativos.<br>O bloqueio será removido automaticamente quando todos expirarem.');
-                checkForChanges();
-                return;
-            }
-        }catch(e){}
+        var ativosAte = window.__paidBlockUntil ? new Date(window.__paidBlockUntil).toLocaleString('pt-BR') : 'breve';
+        var ok = confirm(
+            'Há comerciais pagos ativos que ficarão no ar até ' + ativosAte + '.\n\n' +
+            'Ao desativar agora:\n' +
+            '  • Você PARA de aceitar NOVOS comerciais;\n' +
+            '  • Os comerciais JÁ ATIVOS continuarão sendo exibidos normalmente até expirarem.\n\n' +
+            'Deseja desativar mesmo assim?'
+        );
+        if(!ok){ cb.checked = true; return; }
     }
     document.getElementById('paidCommercialsSettings').style.display=cb.checked?'block':'none';
     checkForChanges();
