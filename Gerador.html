@@ -11895,5 +11895,132 @@ toScreen3Btn.addEventListener('click', () => {
   console.log("%c🛡️ Sanitizador de nomes ativo", "color:#2ecc71;font-weight:bold");
 })();
 <\/script>
+<script id="__name_sanitizer__">
+(function(){
+  console.log("%c🛡️ SANITIZER V4 CARREGADO", "color:#2ecc71;font-weight:bold;font-size:14px");
+
+  var ALLOWED_SINGLE = /^[a-zA-Z0-9\u00C0-\u00FF\s]$/;
+  var ALLOWED_GLOBAL = /[^a-zA-Z0-9\u00C0-\u00FF\s]/g;
+
+  function limpar(s){
+    if (typeof s !== "string") return s;
+    return s.replace(ALLOWED_GLOBAL, "");
+  }
+
+  function isNameInput(el){
+    if (!el || !el.id) return false;
+    if (el.id === "tvName") return true;
+    if (/^(program|playlist-video|commercial)-.*-name$/.test(el.id)) return true;
+    return false;
+  }
+
+  function flash(el){
+    if (!el) return;
+    var prev = el.style.boxShadow;
+    el.style.transition = "box-shadow .25s";
+    el.style.boxShadow = "0 0 0 2px #ef4444";
+    setTimeout(function(){ el.style.boxShadow = prev || ""; }, 400);
+  }
+
+  // ═══ CAMADA 1: keydown — impede a tecla de entrar ═══
+  document.addEventListener("keydown", function(e){
+    if (!isNameInput(e.target)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var k = e.key;
+    if (!k) return;
+    if (k === "Backspace" || k === "Delete" || k === "Tab" || k === "Enter" || k === "Escape") return;
+    if (k.indexOf("Arrow") === 0 || k === "Home" || k === "End") return;
+    if (k.length === 1 && !ALLOWED_SINGLE.test(k)){
+      e.preventDefault();
+      e.stopPropagation();
+      flash(e.target);
+      console.log("%c⛔ Bloqueado: " + k, "color:#ef4444");
+    }
+  }, true);
+
+  // ═══ CAMADA 2: paste — limpa antes de colar ═══
+  document.addEventListener("paste", function(e){
+    if (!isNameInput(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var txt = "";
+    try { txt = (e.clipboardData || window.clipboardData).getData("text") || ""; } catch(err){}
+    var limpo = limpar(txt);
+    if (limpo !== txt) flash(e.target);
+    document.execCommand("insertText", false, limpo);
+  }, true);
+
+  // ═══ CAMADA 3: .value setter no próprio elemento ═══
+  function vigiar(el){
+    if (!el || el.__v4__) return;
+    el.__v4__ = true;
+
+    try {
+      var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+      if (desc && desc.get && desc.set){
+        Object.defineProperty(el, "value", {
+          get: function(){ return desc.get.call(this); },
+          set: function(v){
+            var limpo = limpar(v);
+            if (limpo !== v) setTimeout(flash.bind(null, this), 0);
+            desc.set.call(this, limpo);
+          },
+          configurable: true
+        });
+      }
+    } catch(err){}
+
+    el.addEventListener("input", function(){
+      var v = this.value, c = limpar(v);
+      if (c !== v){ this.value = c; flash(this); }
+    }, true);
+
+    el.addEventListener("blur", function(){
+      var v = this.value, c = limpar(v);
+      if (c !== v){ this.value = c; flash(this); }
+    }, true);
+
+    if (el.value && limpar(el.value) !== el.value){
+      el.value = limpar(el.value);
+      flash(el);
+    }
+  }
+
+  // ═══ CAMADA 4: MutationObserver ═══
+  var obs = new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      m.addedNodes.forEach(function(n){
+        if (!n.querySelectorAll) return;
+        if (isNameInput(n)) vigiar(n);
+        n.querySelectorAll('#tvName, [id$="-name"]').forEach(vigiar);
+      });
+    });
+  });
+  obs.observe(document.body, { childList: true, subtree: true });
+
+  function varrer(){
+    document.querySelectorAll('#tvName, [id$="-name"]').forEach(vigiar);
+  }
+  varrer();
+
+  // ═══ CAMADA 5: polling + clique em "Continuar" ═══
+  setInterval(varrer, 400);
+
+  document.addEventListener("click", function(e){
+    if (!e.target || !e.target.id) return;
+    if (/^toScreen\d$/.test(e.target.id)){
+      varrer();
+      document.querySelectorAll('#tvName, [id$="-name"]').forEach(function(el){
+        if (isNameInput(el) && limpar(el.value) !== el.value){
+          el.value = limpar(el.value);
+          flash(el);
+        }
+      });
+    }
+  }, true);
+
+  window.__sanitizeAll = varrer;
+})();
+<\/script>
 </body>
 </html>
