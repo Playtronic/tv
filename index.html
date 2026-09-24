@@ -258,6 +258,7 @@ main{position:relative;z-index:1}
 .fav-btn:hover{background:rgba(253,187,45,0.25);border-color:#fdbb2d!important}
 .fav-btn.active{background:#fdbb2d;color:#000;border-color:#fdbb2d!important}
 .fav-btn.active svg{fill:currentColor}
+.fav-btn:disabled{opacity:.4;cursor:not-allowed}
 .watch-btn{background:linear-gradient(135deg,#2ecc71,#27ae60);color:#fff;flex:1!important}
 .watch-btn svg{width:14px;height:14px;fill:currentColor}
 .watch-btn:hover{background:linear-gradient(135deg,#27ae60,#229954);transform:scale(1.02)}
@@ -315,7 +316,7 @@ main{position:relative;z-index:1}
 <div id="loginOverlay" class="login-overlay">
   <div class="login-modal">
     <h2>Entrar</h2>
-    <p>Faça login com sua conta Google para criar canais, favoritar e interagir.</p>
+    <p>Faça login com sua conta Google para salvar seus favoritos e acessá-los em qualquer dispositivo.</p>
     <button id="googleLoginBtn" class="google-login-btn">
       <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
         <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
@@ -367,32 +368,102 @@ const CATEGORY_NAMES = {
   variedades:'Variedades', humor:'Humor', games:'Games', religioso:'Religioso',
   retransmissoes:'Retransmissões', adulto:'Adulto (18+)', outros:'Outros'
 };
-const FAVORITES_KEY = 'playtronic_favorites_v1';
 
 let allChannels = [];
-let favorites = [];
+let favorites = [];           // array de channelIds
 let searchTerm = '';
 let currentUser = null;
+let favoritesLoaded = false;  // garante que só renderiza favoritos depois de carregar
 
 /* ═══════════ AUTH ═══════════ */
 function setupAuth(){
-  auth.onAuthStateChanged(user => {
+  auth.onAuthStateChanged(async user => {
     currentUser = user;
     const loginBtn = document.getElementById('loginButton');
     const userInfo = document.getElementById('userInfo');
+
     if (user) {
       loginBtn.style.display = 'none';
       userInfo.classList.add('active');
       document.getElementById('userAvatar').src = user.photoURL || 'https://www.gravatar.com/avatar/?d=mp';
       document.getElementById('userName').textContent = user.displayName || 'Usuário';
       document.getElementById('userEmail').textContent = user.email || '';
+
+      await loadFavoritesFromAccount();
     } else {
       loginBtn.style.display = 'inline-block';
       userInfo.classList.remove('active');
       document.getElementById('userCard').classList.remove('active');
+
+      favorites = [];
+      favoritesLoaded = true;
+      render();
     }
   });
 }
+
+/* ═══════════ FAVORITOS (na conta) ═══════════ */
+async function loadFavoritesFromAccount(){
+  if (!currentUser) { favorites = []; favoritesLoaded = true; render(); return; }
+  try {
+    const ref = db.collection('users').doc(currentUser.uid)
+      .collection('preferences').doc('favorites');
+    const snap = await ref.get();
+    if (snap.exists) {
+      const d = snap.data() || {};
+      favorites = Array.isArray(d.channelIds) ? d.channelIds.slice() : [];
+    } else {
+      favorites = [];
+    }
+    favoritesLoaded = true;
+    render();
+  } catch(e){
+    console.warn('Erro ao carregar favoritos:', e.message);
+    favorites = [];
+    favoritesLoaded = true;
+    render();
+  }
+}
+
+async function saveFavoritesToAccount(){
+  if (!currentUser) return;
+  try {
+    const ref = db.collection('users').doc(currentUser.uid)
+      .collection('preferences').doc('favorites');
+    await ref.set({
+      channelIds: favorites.slice(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch(e){
+    console.warn('Erro ao salvar favoritos:', e.message);
+    // Reverte otimisticamente
+    alert('Erro ao salvar favoritos. Tente novamente.');
+  }
+}
+
+function isFavorite(id){ return favorites.indexOf(id) !== -1; }
+
+async function toggleFavorite(id, btn){
+  if (!currentUser) {
+    // Abre modal de login
+    document.getElementById('loginOverlay').classList.add('active');
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+
+  const i = favorites.indexOf(id);
+  const adding = i === -1;
+
+  // Atualização otimista na UI
+  if (adding) favorites.push(id); else favorites.splice(i, 1);
+  render();
+
+  // Persiste
+  await saveFavoritesToAccount();
+}
+
+/* ═══════════ LOGIN MODAL ═══════════ */
 document.getElementById('loginButton').addEventListener('click', () => {
   document.getElementById('loginOverlay').classList.add('active');
 });
@@ -422,17 +493,7 @@ document.addEventListener('click', e => {
   }
 });
 
-/* ═══════════ FAVORITOS ═══════════ */
-function getFavorites(){ try{ const r=localStorage.getItem(FAVORITES_KEY); return r?JSON.parse(r):[]; }catch(e){ return []; } }
-function saveFavorites(a){ try{ localStorage.setItem(FAVORITES_KEY, JSON.stringify(a)); }catch(e){} }
-function isFavorite(id){ return favorites.indexOf(id) !== -1; }
-function toggleFavorite(id){
-  const i = favorites.indexOf(id);
-  if (i === -1) favorites.push(id); else favorites.splice(i,1);
-  saveFavorites(favorites);
-  render();
-}
-
+/* ═══════════ HELPERS ═══════════ */
 function escapeHtml(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
@@ -517,7 +578,6 @@ async function loadAll(){
     }));
 
     allChannels = channels;
-    favorites = getFavorites();
     render();
     statusEl.style.display = 'none';
 
@@ -657,7 +717,13 @@ function render(){
     return;
   }
 
-  if (favChannels.length > 0){
+  // Fileira 1: Favoritos
+  if (!currentUser){
+    html += `<section class="section">
+      <div class="section-header"><div class="section-title">Seus Favoritos</div></div>
+      <div class="empty-msg">Faça login para salvar seus favoritos e acessá-los em qualquer dispositivo.</div>
+    </section>`;
+  } else if (favChannels.length > 0){
     html += makeSection('Seus Favoritos', favChannels, { key:'favorites', countLabel:true });
   } else {
     html += `<section class="section">
@@ -686,7 +752,7 @@ function wireEvents(main){
   main.querySelectorAll('.fav-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.preventDefault(); e.stopPropagation();
-      toggleFavorite(btn.getAttribute('data-fav'));
+      toggleFavorite(btn.getAttribute('data-fav'), btn);
     });
   });
   main.querySelectorAll('.carousel-nav button').forEach(btn => {
