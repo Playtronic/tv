@@ -9288,23 +9288,38 @@ async function iniciarPublicacao() {
                 currentChannelId = channelId;
             }
 
-            // 📂 Salva categoria no doc raiz channels/{id} para listagem pública
-            try {
-                await db.collection('channels').doc(channelId).set({
-                    channelId: channelId,
-                    ownerId: currentUser.uid,
-                    name: dadosNormalizados.name,
-                    slogan: dadosNormalizados.slogan || '',
-                    category: dadosNormalizados.category || '',
-                    isAdultContent: !!dadosNormalizados.isAdultContent,
-                    logo: dadosNormalizados.logo || DEFAULT_LOGO,
-                    url: dadosNormalizados.url || ('https://canaisdetv.online/canais/' + channelId + '.html'),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-                console.log('📂 channels/' + channelId + ' atualizado (categoria=' + dadosNormalizados.category + ', adult=' + dadosNormalizados.isAdultContent + ')');
-            } catch(e) {
-                console.warn('Erro ao salvar em channels/ (não crítico):', e.message);
-            }
+                // 📂 Salva metadados no doc raiz channels/{id} para a homepage pública
+    try {
+        const __chRef = db.collection('channels').doc(channelId);
+        const __chSnap = await __chRef.get();
+        const __existing = __chSnap.exists ? __chSnap.data() : {};
+
+        const __programNames = (dadosNormalizados.programmingMode === 'playlist')
+            ? (dadosNormalizados.playlistVideos || []).map(function(v) { return (v && v.name) || 'Sem nome'; })
+            : (dadosNormalizados.programs || []).map(function(p) { return (p && p.name) || 'Sem nome'; });
+
+        const __meta = {
+            channelId: channelId,
+            ownerId: currentUser.uid,
+            name: dadosNormalizados.name,
+            slogan: dadosNormalizados.slogan || '',
+            category: dadosNormalizados.category || '',
+            isAdultContent: !!dadosNormalizados.isAdultContent,
+            logo: dadosNormalizados.logo || DEFAULT_LOGO,
+            url: dadosNormalizados.url || ('https://canaisdetv.online/canais/' + channelId + '.html'),
+            programmingMode: dadosNormalizados.programmingMode || 'grade',
+            releaseDate: releaseDate || dadosNormalizados.releaseDate || '',
+            programNames: __programNames,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        if (!__existing.createdAt) {
+            __meta.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        }
+        await __chRef.set(__meta, { merge: true });
+        console.log('📂 channels/' + channelId + ' atualizado com metadados da homepage (' + __programNames.length + ' programas)');
+    } catch(e) {
+        console.warn('Erro ao salvar em channels/ (não crítico):', e.message);
+    }
             
             const versaoAtual = tvData.version;
             
