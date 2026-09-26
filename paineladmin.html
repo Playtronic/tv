@@ -853,6 +853,176 @@ function buildNewSuspensionBlock() {
   auto();
 })();
 
+
+
+// ═══════════════════════════════════════════════════════════
+// v25 — Intercepta o botão Republicar Todos e usa lógica
+// NOVA que SEMPRE injeta o bloco (não pula nada)
+// ═══════════════════════════════════════════════════════════
+(function(){
+  if (window.__ptvV25) return;
+  window.__ptvV25 = true;
+
+  var LT = '<', GT = '>', SL = '/', DQ = '"', SQ = "'";
+  var OPEN_TAG = LT + 'script id=' + DQ + '__suspension_check__' + DQ + GT;
+  var CLOSE_TAG = LT + SL + 'script' + GT;
+  var BODY_CLOSE = LT + SL + 'body' + GT;
+
+  function buildBlock() {
+    var body =
+      '(function(){' +
+      'var c=(typeof CHANNEL_ID!=="undefined")?CHANNEL_ID:"";' +
+      'if(!c)return;' +
+      'var a=false;' +
+      'var O="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png";' +
+      'function p(){try{var v=document.getElementById("myVideo");if(v){v.pause();try{v.src="";}catch(e){}}}catch(e){}try{if(typeof youtubePlayer!=="undefined"&&youtubePlayer&&youtubePlayer.pauseVideo)youtubePlayer.pauseVideo();}catch(e){}}' +
+      'function h(){var s=[".program-info",".debug-info",".custom-controls",".like-dislike-container",".autoplay-overlay",".commercial-indicator",".action-buttons-wrapper",".social-media-links",".contact-info"];for(var i=0;i<s.length;i++){var e=document.querySelectorAll(s[i]);for(var j=0;j<e.length;j++)e[j].style.display="none";}}' +
+      'function show(){if(a)return;a=true;p();h();var v=document.querySelector(".video-wrapper");if(!v)return;' +
+      'var im=' + DQ + LT + 'img src=' + DQ + DQ + '+O+' + DQ + DQ + ' style=' + DQ + DQ + 'width:100%;height:100%;object-fit:cover;' + DQ + DQ + GT + DQ + ';' +
+      'var bx=' + DQ + LT + 'div style=' + DQ + DQ + 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:24px;border-radius:10px;text-align:center;color:#fff;max-width:400px;' + DQ + DQ + GT + LT + 'h3' + GT + 'Canal Temporariamente Fora do Ar' + LT + SL + 'h3' + GT + LT + 'p style=' + DQ + DQ + 'font-size:0.9rem;opacity:0.9;' + DQ + DQ + GT + 'Este canal esta passando por manutencao.' + LT + SL + 'p' + GT + LT + 'p style=' + DQ + DQ + 'font-size:0.9rem;opacity:0.9;' + DQ + DQ + GT + 'Tente novamente mais tarde.' + LT + SL + 'p' + GT + LT + SL + 'div' + GT + DQ + ';' +
+      'v.innerHTML=im+bx;}' +
+      'function i(){if(typeof firebase==="undefined"||!firebase.firestore){setTimeout(i,500);return;}try{firebase.firestore().collection("channels").doc(c).onSnapshot(function(sn){if(!sn.exists)return;var d=sn.data()||{};if(d.suspended===true||d.accountSuspended===true)show();else if(a)location.reload();},function(e){console.warn("[Susp]",e.message);});}catch(e){}}' +
+      'i();' +
+      '})();';
+    return OPEN_TAG + '\n' + body + '\n' + CLOSE_TAG;
+  }
+
+  function injectBlock(html) {
+    // Remove QUALQUER bloco antigo (com ou sem onSnapshot)
+    var guard = 0;
+    while (guard++ < 20) {
+      var i = html.indexOf(OPEN_TAG);
+      if (i === -1) break;
+      var j = html.indexOf(CLOSE_TAG, i);
+      if (j === -1) break;
+      html = html.slice(0, i) + html.slice(j + CLOSE_TAG.length);
+    }
+    // Insere antes de </body>
+    var bIdx = html.lastIndexOf(BODY_CLOSE);
+    if (bIdx === -1) return null;
+    return html.slice(0, bIdx) + buildBlock() + '\n' + html.slice(bIdx);
+  }
+
+  async function runNew() {
+    if (!confirm('Forçar injeção do bloco de suspensão em TODOS os canais?')) return;
+
+    var modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;';
+    modal.innerHTML =
+      '<div style="background:linear-gradient(135deg,#1a0d33,#2a0d2a);border:2px solid #fdbb2d;border-radius:14px;padding:26px;max-width:680px;width:100%;color:#fff;font-family:Arial,sans-serif;">' +
+        '<h2 style="color:#fdbb2d;margin:0 0 14px;">Forçando injeção do bloco</h2>' +
+        '<div style="background:rgba(255,255,255,0.08);border-radius:8px;padding:14px;margin-bottom:14px;">' +
+          '<div id="fvPct" style="font-size:1.7rem;font-weight:bold;color:#fdbb2d;text-align:center;">0%</div>' +
+          '<div style="background:rgba(255,255,255,0.15);height:8px;border-radius:4px;overflow:hidden;margin-top:8px;"><div id="fvBar" style="background:#fdbb2d;height:100%;width:0%;transition:width .3s;"></div></div>' +
+          '<div id="fvCurrent" style="font-size:13px;opacity:.85;margin-top:10px;text-align:center;">Preparando...</div>' +
+        '</div>' +
+        '<div id="fvLog" style="font-family:Consolas,monospace;font-size:12px;background:#000;border-radius:8px;padding:12px;max-height:300px;overflow-y:auto;line-height:1.7;"></div>' +
+        '<button id="fvClose" style="display:none;width:100%;margin-top:14px;background:#2ecc71;color:#fff;border:none;padding:12px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:15px;">Fechar</button>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    var P = document.getElementById('fvPct');
+    var B = document.getElementById('fvBar');
+    var C = document.getElementById('fvCurrent');
+    var L = document.getElementById('fvLog');
+    var X = document.getElementById('fvClose');
+
+    function log(t, c) {
+      var d = document.createElement('div');
+      d.style.color = c || '#ddd';
+      d.textContent = t;
+      L.appendChild(d);
+      L.scrollTop = L.scrollHeight;
+    }
+    X.onclick = function(){ modal.remove(); };
+
+    try {
+      log('Carregando lista de canais...', '#fdbb2d');
+      var r = await callCF('adminListAllChannels', {});
+      var list = r.channels || [];
+      log('Total: ' + list.length + ' canais', '#fdbb2d');
+      var ok = 0, fa = 0, semUrl = 0;
+
+      for (var i = 0; i < list.length; i++) {
+        var ch = list[i];
+        C.textContent = (i + 1) + '/' + list.length + ' - ' + ch.name;
+        P.textContent = Math.round(i / list.length * 100) + '%';
+        B.style.width = (i / list.length * 100) + '%';
+
+        if (!ch.url) { log('SEM URL: ' + ch.name, '#888'); semUrl++; continue; }
+
+        try {
+          var resp = await fetch(ch.url + '?_=' + Date.now(), { cache: 'no-store' });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          var h = await resp.text();
+          var patched = injectBlock(h);
+          if (patched === null) throw new Error('Sem </body> no HTML');
+
+          var w = await fetch('https://cool-cloud-e4adtv.playtronicpublisher.workers.dev', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+            body: JSON.stringify({
+              nomeCanal: ch.name,
+              htmlContent: patched,
+              dadosConfig: {},
+              isNewChannel: false,
+              channelId: ch.channelId
+            })
+          });
+          var wd = await w.json().catch(function(){ return {}; });
+          if (!w.ok || !wd.success) throw new Error(wd.error || ('Worker HTTP ' + w.status));
+
+          log('OK ' + ch.name, '#2ecc71');
+          ok++;
+        } catch (err) {
+          log('FALHA ' + ch.name + ': ' + err.message, '#ff6b6b');
+          fa++;
+        }
+      }
+
+      P.textContent = '100%';
+      B.style.width = '100%';
+      C.textContent = 'Concluído';
+      log('', '#fff');
+      log('════════════════', '#fdbb2d');
+      log('OK: ' + ok, '#2ecc71');
+      log('Sem URL: ' + semUrl, '#888');
+      log('Falhas: ' + fa, fa > 0 ? '#ff6b6b' : '#fff');
+      log('════════════════', '#fdbb2d');
+      X.style.display = 'block';
+    } catch (e) {
+      log('ERRO FATAL: ' + e.message, '#ff6b6b');
+      X.style.display = 'block';
+    }
+  }
+
+  function patchButton() {
+    var btn = document.getElementById('btnRepublishAllDirect');
+    if (!btn) {
+      if (!window.__ptvV25Tries) window.__ptvV25Tries = 0;
+      if (window.__ptvV25Tries++ < 40) setTimeout(patchButton, 500);
+      return;
+    }
+    if (btn.__v25) return;
+    btn.__v25 = true;
+
+    // Clona o botão para REMOVER todos os listeners antigos
+    var clone = btn.cloneNode(true);
+    clone.__v25 = true;
+    btn.parentNode.replaceChild(clone, btn);
+
+    // Adiciona o listener NOVO
+    clone.addEventListener('click', runNew);
+    console.log('[v25] Botão Republicar Todos interceptado — agora usa a lógica nova');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', patchButton);
+  } else {
+    patchButton();
+  }
+})();
+
 </script>
 </body>
 </html>
