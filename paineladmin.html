@@ -1195,6 +1195,52 @@ function buildNewSuspensionBlock() {
   else wire();
 })();
 
+
+(function(){
+  var channelCache = null;
+  function loadChannels(){
+    if (channelCache) return Promise.resolve(channelCache);
+    return callCF('adminListAllChannels', {}).then(function(r){
+      channelCache = r.channels || [];
+      return channelCache;
+    });
+  }
+  function patchEdit(){
+    if (typeof window.onAction !== 'function') return setTimeout(patchEdit, 500);
+    if (window.__v43AdminEdit) return;
+    window.__v43AdminEdit = true;
+    var orig = window.onAction;
+    window.onAction = async function(e){
+      var b = e.target.closest('button[data-a]');
+      if (!b) return orig.call(this, e);
+      var act = b.dataset.a;
+      if (act !== 'edit') return orig.call(this, e);
+      var card = b.closest('.card');
+      var cid = card && card.dataset.cid;
+      if (!cid) return orig.call(this, e);
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        var list = await loadChannels();
+        var ch = null;
+        for (var i = 0; i < list.length; i++){
+          if (list[i].channelId === cid){ ch = list[i]; break; }
+        }
+        if (!ch){ alert('canal nao encontrado'); return false; }
+        var url = 'https://canaisdetv.online/Gerador?adminEdit=' + encodeURIComponent(cid) + '&ownerUid=' + encodeURIComponent(ch.ownerUid);
+        window.open(url, '_blank');
+        return false;
+      } catch(err) {
+        alert('Erro: ' + err.message);
+        return false;
+      }
+    };
+    console.log('[v43-admin] botao Editar agora abre o Gerador em modo admin');
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', patchEdit);
+  else patchEdit();
+})();
+
 </script>
 
 <textarea id="suspTpl" style="display:none"><script id="__suspension_check__">
