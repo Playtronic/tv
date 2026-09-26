@@ -12373,7 +12373,65 @@ toScreen3Btn.addEventListener('click', () => {
             // Inicializar a tela 0
             showScreen('screen0');
         });
-    </script>
+    
+(function(){
+  var params = new URLSearchParams(location.search);
+  var adminChannelId = params.get('adminEdit');
+  var adminOwnerUid = params.get('ownerUid');
+  if (!adminChannelId || !adminOwnerUid) return;
+  window.__adminEditMode = { channelId: adminChannelId, ownerUid: adminOwnerUid };
+  console.log('[v43] adminEdit ativo:', adminChannelId);
+  var CF = 'https://us-central1-playtronic-tv.cloudfunctions.net';
+  var _origSalvar = salvarCanalBancoDados;
+  salvarCanalBancoDados = async function(channelData, isPublication) {
+    if (!window.__adminEditMode) return _origSalvar.call(this, channelData, isPublication);
+    console.log('[v43] salvando via CF');
+    if (!currentUser) throw new Error('nao autenticado');
+    var token = await currentUser.getIdToken(true);
+    var patch = Object.assign({}, channelData);
+    delete patch.id;
+    delete patch.userId;
+    delete patch.createdAt;
+    delete patch.updatedAt;
+    var r = await fetch(CF + '/adminUpdateChannel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ channelId: window.__adminEditMode.channelId, ownerUid: window.__adminEditMode.ownerUid, patch: patch })
+    });
+    var data = await r.json();
+    if (!r.ok || !data.success) throw new Error(data.error || 'falha ao salvar');
+    console.log('[v43] salvo. campos:', data.updatedFields);
+    return window.__adminEditMode.channelId;
+  };
+  firebase.auth().onAuthStateChanged(async function(user){
+    if (!user) return;
+    if (window.__adminEditStarted) return;
+    window.__adminEditStarted = true;
+    console.log('[v43] carregando via CF...');
+    try {
+      var token = await user.getIdToken(true);
+      var r = await fetch(CF + '/adminGetChannelFull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ channelId: adminChannelId, ownerUid: adminOwnerUid })
+      });
+      var data = await r.json();
+      if (!r.ok || !data.success) throw new Error(data.error || 'falha');
+      var raw = data.channel || {};
+      try {
+        await db.collection('users').doc(user.uid).collection('channels').doc(adminChannelId).set(raw, { merge: true });
+        console.log('[v43] backup ok');
+      } catch(e){ console.warn('[v43] backup falhou:', e.message); }
+      await editChannel(adminChannelId);
+      console.log('[v43] form preenchido');
+    } catch(e) {
+      console.error('[v43] erro:', e);
+      alert('Erro ao carregar canal em modo admin: ' + e.message);
+    }
+  });
+})();
+
+</script>
 
                     
     <script id="__name_sanitizer__">
