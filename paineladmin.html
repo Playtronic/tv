@@ -1728,5 +1728,180 @@ else wire();
 })();
 
 </script></textarea>
+
+<script>
+(function(){
+  console.log('[v42] iniciado');
+
+  function makeBtn(cid){
+    var b = document.createElement('button');
+    b.className = 'btn-rep';
+    b.textContent = 'Republicar';
+    b.style.cssText = 'background:#e67e22;color:#fff;padding:8px 12px;border:none;border-radius:6px;font-size:.78rem;font-weight:bold;cursor:pointer;margin-right:6px;';
+    b.onclick = function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      republish(cid, b);
+    };
+    return b;
+  }
+
+  function injectAll(){
+    var cards = document.querySelectorAll('.card[data-cid]');
+    var n = 0;
+    for (var i = 0; i < cards.length; i++){
+      var card = cards[i];
+      if (card.querySelector('.btn-rep')) continue;
+      var cid = card.getAttribute('data-cid');
+      var actions = card.querySelector('.card-actions');
+      if (!actions) continue;
+      actions.insertBefore(makeBtn(cid), actions.firstChild);
+      n++;
+    }
+    return n;
+  }
+
+  function republish(cid, btn){
+    var orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    var LT = String.fromCharCode(60);
+    var SL = String.fromCharCode(47);
+    var DQ = String.fromCharCode(34);
+    var SCRIPT_OPEN = LT + 'script id=' + DQ + '__suspension_check__' + DQ + GT_VAR();
+    var SCRIPT_CLOSE = LT + SL + 'script' + GT_VAR();
+    var BODY_CLOSE = LT + SL + 'body' + GT_VAR();
+
+    function GT_VAR(){ return String.fromCharCode(62); }
+
+    var bloco = [
+      SCRIPT_OPEN,
+      '(function(){',
+      'var chId=(typeof CHANNEL_ID!==' + DQ + 'undefined' + DQ + ')?CHANNEL_ID:' + DQ + DQ + ';',
+      'if(!chId)return;',
+      'function init(){',
+      'if(typeof firebase===' + DQ + 'undefined' + DQ + '||!firebase.firestore)return setTimeout(init,500);',
+      'firebase.firestore().collection(' + DQ + 'channels' + DQ + ').doc(chId).onSnapshot(function(s){',
+      'if(!s.exists)return;',
+      'var d=s.data()||{};',
+      'var susp=d.suspended===true||d.accountSuspended===true;',
+      'var ov=document.getElementById(' + DQ + '__offlineOverlay' + DQ + ');',
+      'if(!susp){if(ov)ov.remove();return;}',
+      'if(ov)return;',
+      'try{var v=document.getElementById(' + DQ + 'myVideo' + DQ + ');if(v)v.pause();}catch(e){}',
+      'try{if(window.youtubePlayer&&youtubePlayer.pauseVideo)youtubePlayer.pauseVideo();}catch(e){}',
+      'var w=document.querySelector(' + DQ + '.video-wrapper' + DQ + ');',
+      'if(!w)return;',
+      'var ov=document.createElement(' + DQ + 'div' + DQ + ');',
+      'ov.id=' + DQ + '__offlineOverlay' + DQ + ';',
+      'ov.style.cssText=' + DQ + 'position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:2147483600;display:flex;flex-direction:column;align-items:center;justify-content:center;' + DQ + ';',
+      'var img=document.createElement(' + DQ + 'img' + DQ + ');',
+      'img.className=' + DQ + 'offline-image' + DQ + ';',
+      'img.src=' + DQ + 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png' + DQ + ';',
+      'img.alt=' + DQ + 'Canal fora do ar' + DQ + ';',
+      'ov.appendChild(img);',
+      'var msg=document.createElement(' + DQ + 'div' + DQ + ');',
+      'msg.className=' + DQ + 'offline-message' + DQ + ';',
+      'var h3=document.createElement(' + DQ + 'h3' + DQ + ');',
+      'h3.textContent=' + DQ + 'Canal Temporariamente Fora do Ar' + DQ + ';',
+      'msg.appendChild(h3);',
+      'var p1=document.createElement(' + DQ + 'p' + DQ + ');',
+      'p1.style.fontSize=' + DQ + '0.9rem' + DQ + ';',
+      'p1.textContent=' + DQ + 'Este canal esta passando por manutencao.' + DQ + ';',
+      'msg.appendChild(p1);',
+      'var p2=document.createElement(' + DQ + 'p' + DQ + ');',
+      'p2.style.fontSize=' + DQ + '0.9rem' + DQ + ';',
+      'p2.textContent=' + DQ + 'Tente novamente mais tarde.' + DQ + ';',
+      'msg.appendChild(p2);',
+      'ov.appendChild(msg);',
+      'w.appendChild(ov);',
+      '},function(e){console.warn(' + DQ + '[Susp]' + DQ + ',e.message);});',
+      '}',
+      'init();',
+      '})();',
+      SCRIPT_CLOSE
+    ].join('\n');
+
+    function strip(html){
+      var g = 0;
+      while (g++ < 30){
+        var i = html.indexOf(SCRIPT_OPEN);
+        if (i === -1) break;
+        var j = html.indexOf(SCRIPT_CLOSE, i);
+        if (j === -1) break;
+        html = html.slice(0, i) + html.slice(j + SCRIPT_CLOSE.length);
+      }
+      return html;
+    }
+
+    function inject(html){
+      html = strip(html);
+      var idx = html.lastIndexOf(BODY_CLOSE);
+      if (idx === -1) return null;
+      return html.slice(0, idx) + bloco + '\n' + html.slice(idx);
+    }
+
+    callCF('adminListAllChannels', {}).then(function(r){
+      var list = r.channels || [];
+      var ch = null;
+      for (var i = 0; i < list.length; i++){
+        if (list[i].channelId === cid){ ch = list[i]; break; }
+      }
+      if (!ch) throw new Error('canal nao encontrado');
+      if (!ch.url) throw new Error('canal sem URL');
+      window._v42_ch = ch;
+      return fetch(ch.url + '?_=' + Date.now(), { cache: 'no-store' });
+    }).then(function(resp){
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.text();
+    }).then(function(html){
+      var patched = inject(html);
+      if (!patched) throw new Error('sem body close');
+      var ch = window._v42_ch;
+      return callCF('adminGetChannelFull', { channelId: cid, ownerUid: ch.ownerUid })
+        .then(function(fd){ return { patched: patched, full: (fd && fd.channel) || {} }; })
+        .catch(function(){ return { patched: patched, full: {} }; });
+    }).then(function(data){
+      var ch = window._v42_ch;
+      return fetch('https://cool-cloud-e4adtv.playtronicpublisher.workers.dev', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({
+          nomeCanal: ch.name,
+          htmlContent: data.patched,
+          dadosConfig: data.full,
+          isNewChannel: false,
+          channelId: cid
+        })
+      });
+    }).then(function(w){
+      return w.json().catch(function(){ return {}; }).then(function(wd){
+        if (!w.ok || !wd.success) throw new Error(wd.error || ('Worker ' + w.status));
+        btn.textContent = 'OK';
+        btn.style.background = '#2ecc71';
+        console.log('[v42] OK ' + cid);
+        setTimeout(function(){ btn.textContent = orig; btn.disabled = false; btn.style.background = '#e67e22'; }, 1500);
+      });
+    }).catch(function(e){
+      console.error('[v42] FAIL:', e.message);
+      btn.textContent = 'Erro';
+      btn.style.background = '#e74c3c';
+      setTimeout(function(){ btn.textContent = orig; btn.disabled = false; btn.style.background = '#e67e22'; }, 1500);
+    });
+  }
+
+  var ticks = 0;
+  setInterval(function(){
+    ticks++;
+    var n = injectAll();
+    if (n > 0) console.log('[v42] tick ' + ticks + ': ' + n + ' botoes inseridos');
+  }, 500);
+
+  injectAll();
+  console.log('[v42] aguardando cards aparecerem...');
+})();
+
+</script>
 </body>
 </html>
