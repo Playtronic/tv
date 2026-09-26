@@ -762,69 +762,90 @@ function buildNewSuspensionBlock() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// SINCRONIZAÇÃO FORÇADA DE SUSPENSÃO — escreve direto no
-// doc raiz channels/{id} via Firestore client, para garantir
-// que o onSnapshot do canal publicado enxergue a mudança.
+
+  }
+  tryRun();
+})();
+
 // ═══════════════════════════════════════════════════════════
-async function forceSyncSuspensionToRoot(channelId, suspended, reason) {
+// SINCRONIZAÇÃO DE SUSPENSÃO v3 — escreve nos DOIS IDs
+// (Firestore ID e nome normalizado, que é o CHANNEL_ID do
+// canal publicado)
+// ═══════════════════════════════════════════════════════════
+function normalizarNomeCanal(nome) {
+  return String(nome || '').toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+async function forceSyncSuspensionToRoot(channelId, channelName, suspended, reason) {
   try {
-    const rootRef = firebase.firestore().collection('channels').doc(channelId);
-    await rootRef.set({
+    var fs = firebase.firestore();
+    var patch = {
       suspended: !!suspended,
       suspendReason: suspended ? (reason || 'Violacao dos termos de uso') : '',
       suspendedAt: suspended ? Date.now() : 0,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-    console.log('[SUSP] Root sincronizado para', channelId, '→ suspended =', suspended);
+    };
+
+    var wrote = [];
+
+    // 1) Escreve no ID do Firestore (usado pelo admin)
+    if (channelId) {
+      await fs.collection('channels').doc(channelId).set(patch, { merge: true });
+      wrote.push(channelId);
+    }
+
+    // 2) Escreve no NOME NORMALIZADO (usado pelo canal publicado)
+    var norm = normalizarNomeCanal(channelName);
+    if (norm && norm !== channelId) {
+      await fs.collection('channels').doc(norm).set(patch, { merge: true });
+      wrote.push(norm);
+    }
+
+    console.log('[SUSP] Escrito em: channels/' + wrote.join(' + channels/') + ' -> suspended=' + suspended);
     return true;
   } catch (e) {
-    console.error('[SUSP] Falha ao sincronizar root:', e);
+    console.error('[SUSP] Falha ao escrever:', e);
     return false;
   }
 }
 
-// Wrapper para o botão Suspend do admin — antes e depois da CF
+// Hook nos botões Suspender/Reativar do admin
 (function hookSuspendButtons(){
-  function patch() {
+  function patch(){
     if (typeof window.onAction !== 'function') return setTimeout(patch, 500);
-    if (window.__suspendPatched) return;
-    window.__suspendPatched = true;
+    if (window.__suspendPatchedV17) return;
+    window.__suspendPatchedV17 = true;
 
-    const original = window.onAction;
+    var original = window.onAction;
 
     window.onAction = async function(e){
-      const b = e.target.closest('button[data-a]');
+      var b = e.target.closest('button[data-a]');
       if (!b) return original.call(this, e);
-      const act = b.dataset.a;
-      const card = b.closest('.card');
-      const cid = card && card.dataset.cid;
+      var act = b.dataset.a;
+      var card = b.closest('.card');
+      var cid = card && card.dataset.cid;
+      var ch = cid ? (window.allChannels || []).find(function(x){ return x.channelId === cid; }) : null;
+      var nomeCanal = ch ? ch.name : '';
 
-      // Reforço: ao confirmar suspensão no modal, sincroniza root
       if (act === 'suspend' && cid) {
-        const ch = (window.allChannels || []).find(x => x.channelId === cid);
-        const originalConfirm = document.getElementById('btnConfirmSuspend');
-        if (originalConfirm && !originalConfirm.__patched) {
-          originalConfirm.__patched = true;
-          const oldHandler = originalConfirm.onclick;
-          originalConfirm.addEventListener('click', async function(){
-            // Depois do handler normal rodar, força sync
-            setTimeout(async () => {
-              try {
-                const reason = document.getElementById('suspendReason').value.trim() || 'Violacao dos termos de uso';
-                await forceSyncSuspensionToRoot(cid, true, reason);
-                console.log('[SUSP] Canal', cid, 'suspenso no root');
-              } catch(e) {
-                console.error('[SUSP] erro no reforço:', e);
-              }
-            }, 800);
+        var confirmBtn = document.getElementById('btnConfirmSuspend');
+        if (confirmBtn && !confirmBtn.__patchedV17) {
+          confirmBtn.__patchedV17 = true;
+          confirmBtn.addEventListener('click', function(){
+            setTimeout(async function(){
+              var reason = document.getElementById('suspendReason').value.trim() || 'Violacao dos termos de uso';
+              await forceSyncSuspensionToRoot(cid, nomeCanal, true, reason);
+            }, 1200);
           });
         }
       }
 
       if (act === 'unsuspend' && cid) {
-        // Reforça reativação no root após reativar
-        const result = await original.call(this, e);
-        setTimeout(() => forceSyncSuspensionToRoot(cid, false, ''), 800);
+        var result = await original.call(this, e);
+        setTimeout(function(){ forceSyncSuspensionToRoot(cid, nomeCanal, false, ''); }, 1200);
         return result;
       }
 
@@ -834,11 +855,9 @@ async function forceSyncSuspensionToRoot(channelId, suspended, reason) {
   patch();
 })();
 
-// Avarredura inicial: garante que canais suspensos em users/ tenham
-// reflexo no root channels/{id}
-(async function autoSyncSuspendedOnLoad(){
-  // Espera auth + dados carregarem
-  let tries = 0;
+// Auto-sync ao carregar o admin
+(function autoSyncSuspendedOnLoad(){
+  var tries = 0;
   function tryRun(){
     if (typeof currentUser === 'undefined' || !currentUser) {
       if (tries++ < 40) return setTimeout(tryRun, 500);
@@ -848,19 +867,64 @@ async function forceSyncSuspensionToRoot(channelId, suspended, reason) {
       if (tries++ < 40) return setTimeout(tryRun, 500);
       return;
     }
-    // Sync silencioso em background
     (async function run(){
-      let synced = 0;
-      for (const ch of allChannels) {
-        if (ch.suspended === true) {
-          const ok = await forceSyncSuspensionToRoot(ch.channelId, true, ch.suspendReason || '');
-          if (ok) synced++;
-        }
+      var synced = 0;
+      for (var i = 0; i < allChannels.length; i++) {
+        var ch = allChannels[i];
+        var isSusp = ch.suspended === true || ch.accountSuspended === true;
+        var ok = await forceSyncSuspensionToRoot(ch.channelId, ch.name, isSusp, ch.suspendReason || '');
+        if (ok && isSusp) synced++;
       }
-      if (synced > 0) console.log('[SUSP] Auto-sync: ' + synced + ' canal(is) suspenso(s) reforçado(s) no root');
+      console.log('[SUSP] Auto-sync completo: ' + synced + ' canal(is) suspenso(s) sincronizado(s)');
     })();
   }
   tryRun();
+})();
+
+// Botão manual de verificação
+(function addVerifyButton(){
+  function inject(){
+    if (document.getElementById('btnVerifySync')) return;
+    var filters = document.querySelector('.filters');
+    if (!filters) return setTimeout(inject, 500);
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'max-width:1400px;margin:0 auto 16px;text-align:right;';
+    var b = document.createElement('button');
+    b.id = 'btnVerifySync';
+    b.textContent = '🔍 Verificar status das suspensões';
+    b.style.cssText = 'background:#9b59b6;color:#fff;border:none;padding:10px 18px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;';
+    b.addEventListener('click', async function(){
+      var fs = firebase.firestore();
+      var resultados = [];
+      for (var i = 0; i < (window.allChannels || []).length; i++) {
+        var ch = window.allChannels[i];
+        var norm = normalizarNomeCanal(ch.name);
+        var info = { name: ch.name, firestoreId: ch.channelId, normalized: norm };
+        try {
+          var s1 = await fs.collection('channels').doc(ch.channelId).get();
+          info.idSusp = s1.exists ? s1.data().suspended : '(doc inexistente)';
+        } catch(e){ info.idSusp = 'ERRO: ' + e.message; }
+        try {
+          var s2 = await fs.collection('channels').doc(norm).get();
+          info.normSusp = s2.exists ? s2.data().suspended : '(doc inexistente)';
+        } catch(e){ info.normSusp = 'ERRO: ' + e.message; }
+        resultados.push(info);
+      }
+      console.log('=== Verificação de suspensão ===');
+      for (var j = 0; j < resultados.length; j++) {
+        var r = resultados[j];
+        console.log(r.name + ' | FirestoreID=' + r.firestoreId + ' susp=' + r.idSusp + ' | Norm=' + r.normalized + ' susp=' + r.normSusp);
+      }
+      alert('Resultado no console (F12)');
+    });
+    wrap.appendChild(b);
+    filters.parentNode.insertBefore(wrap, filters.nextSibling);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', inject);
+  } else {
+    inject();
+  }
 })();
 </script>
 </body>
