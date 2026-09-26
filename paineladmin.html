@@ -131,7 +131,7 @@ h1{color:#fdbb2d;font-size:1.6rem}
     <h1>🛡️ Painel de Administração</h1>
     <div class="user-badge">
       <span id="userLabel">…</span>
-      <button id="btnRepublishAll" style="background:#fdbb2d;color:#000;font-weight:bold;">Republicar Tudo</button> <button id="btnLogout">Sair</button>
+       <button id="btnLogout">Sair</button>
     </div>
   </header>
 
@@ -555,10 +555,7 @@ document.querySelectorAll('.modal-overlay').forEach(m => {
 
 
 // Botao Republicar Tudo
-document.getElementById('btnRepublishAll').addEventListener('click', function(){
-    if (!confirm('Republicar TODOS os canais de TODOS os usuarios?\n\nIsso vai regravar o HTML de todos os canais.\n\nContinuar?')) return;
-    window.open('https://canaisdetv.online/Gerador?republishAll=1', '_blank');
-});
+
 
 // ═══════════════════════════════════════════════════════════
 // REPUBLICAR TODOS OS CANAIS
@@ -762,6 +759,108 @@ function buildNewSuspensionBlock() {
   L.push(LT + SL + 'script' + GT);
   return L.join('\n');
 }
+
+// ═══════════════════════════════════════════════════════════
+// SINCRONIZAÇÃO FORÇADA DE SUSPENSÃO — escreve direto no
+// doc raiz channels/{id} via Firestore client, para garantir
+// que o onSnapshot do canal publicado enxergue a mudança.
+// ═══════════════════════════════════════════════════════════
+async function forceSyncSuspensionToRoot(channelId, suspended, reason) {
+  try {
+    const rootRef = firebase.firestore().collection('channels').doc(channelId);
+    await rootRef.set({
+      suspended: !!suspended,
+      suspendReason: suspended ? (reason || 'Violacao dos termos de uso') : '',
+      suspendedAt: suspended ? Date.now() : 0,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    console.log('[SUSP] Root sincronizado para', channelId, '→ suspended =', suspended);
+    return true;
+  } catch (e) {
+    console.error('[SUSP] Falha ao sincronizar root:', e);
+    return false;
+  }
+}
+
+// Wrapper para o botão Suspend do admin — antes e depois da CF
+(function hookSuspendButtons(){
+  function patch() {
+    if (typeof window.onAction !== 'function') return setTimeout(patch, 500);
+    if (window.__suspendPatched) return;
+    window.__suspendPatched = true;
+
+    const original = window.onAction;
+
+    window.onAction = async function(e){
+      const b = e.target.closest('button[data-a]');
+      if (!b) return original.call(this, e);
+      const act = b.dataset.a;
+      const card = b.closest('.card');
+      const cid = card && card.dataset.cid;
+
+      // Reforço: ao confirmar suspensão no modal, sincroniza root
+      if (act === 'suspend' && cid) {
+        const ch = (window.allChannels || []).find(x => x.channelId === cid);
+        const originalConfirm = document.getElementById('btnConfirmSuspend');
+        if (originalConfirm && !originalConfirm.__patched) {
+          originalConfirm.__patched = true;
+          const oldHandler = originalConfirm.onclick;
+          originalConfirm.addEventListener('click', async function(){
+            // Depois do handler normal rodar, força sync
+            setTimeout(async () => {
+              try {
+                const reason = document.getElementById('suspendReason').value.trim() || 'Violacao dos termos de uso';
+                await forceSyncSuspensionToRoot(cid, true, reason);
+                console.log('[SUSP] Canal', cid, 'suspenso no root');
+              } catch(e) {
+                console.error('[SUSP] erro no reforço:', e);
+              }
+            }, 800);
+          });
+        }
+      }
+
+      if (act === 'unsuspend' && cid) {
+        // Reforça reativação no root após reativar
+        const result = await original.call(this, e);
+        setTimeout(() => forceSyncSuspensionToRoot(cid, false, ''), 800);
+        return result;
+      }
+
+      return original.call(this, e);
+    };
+  }
+  patch();
+})();
+
+// Avarredura inicial: garante que canais suspensos em users/ tenham
+// reflexo no root channels/{id}
+(async function autoSyncSuspendedOnLoad(){
+  // Espera auth + dados carregarem
+  let tries = 0;
+  function tryRun(){
+    if (typeof currentUser === 'undefined' || !currentUser) {
+      if (tries++ < 40) return setTimeout(tryRun, 500);
+      return;
+    }
+    if (typeof allChannels === 'undefined' || !allChannels.length) {
+      if (tries++ < 40) return setTimeout(tryRun, 500);
+      return;
+    }
+    // Sync silencioso em background
+    (async function run(){
+      let synced = 0;
+      for (const ch of allChannels) {
+        if (ch.suspended === true) {
+          const ok = await forceSyncSuspensionToRoot(ch.channelId, true, ch.suspendReason || '');
+          if (ok) synced++;
+        }
+      }
+      if (synced > 0) console.log('[SUSP] Auto-sync: ' + synced + ' canal(is) suspenso(s) reforçado(s) no root');
+    })();
+  }
+  tryRun();
+})();
 </script>
 </body>
 </html>
