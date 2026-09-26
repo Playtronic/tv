@@ -1196,5 +1196,129 @@ function buildNewSuspensionBlock() {
 })();
 
 </script>
+
+<textarea id="suspTpl" style="display:none"><script id="__suspension_check__">
+(function(){
+var chId=(typeof CHANNEL_ID!=="undefined")?CHANNEL_ID:"";
+if(!chId)return;
+function init(){
+if(typeof firebase==="undefined"||!firebase.firestore)return setTimeout(init,500);
+firebase.firestore().collection("channels").doc(chId).onSnapshot(function(s){
+if(!s.exists)return;
+var d=s.data()||{};
+var susp=d.suspended===true||d.accountSuspended===true;
+var ov=document.getElementById("__offlineOverlay");
+if(!susp){if(ov)ov.remove();return;}
+if(ov)return;
+try{var v=document.getElementById("myVideo");if(v)v.pause();}catch(e){}
+try{if(window.youtubePlayer&&youtubePlayer.pauseVideo)youtubePlayer.pauseVideo();}catch(e){}
+var w=document.querySelector(".video-wrapper");
+if(!w)return;
+var ov=document.createElement("div");
+ov.id="__offlineOverlay";
+ov.style.cssText="position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:2147483600;display:flex;flex-direction:column;align-items:center;justify-content:center;";
+var img=document.createElement("img");
+img.className="offline-image";
+img.src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png";
+img.alt="Canal fora do ar";
+ov.appendChild(img);
+var msg=document.createElement("div");
+msg.className="offline-message";
+var h3=document.createElement("h3");
+h3.textContent="Canal Temporariamente Fora do Ar";
+msg.appendChild(h3);
+var p1=document.createElement("p");
+p1.style.fontSize="0.9rem";
+p1.textContent="Este canal esta passando por manutencao.";
+msg.appendChild(p1);
+var p2=document.createElement("p");
+p2.style.fontSize="0.9rem";
+p2.textContent="Tente novamente mais tarde.";
+msg.appendChild(p2);
+ov.appendChild(msg);
+w.appendChild(ov);
+},function(e){console.warn("[Susp]",e.message);});
+}
+init();
+})();
+
+(function(){
+var LT=String.fromCharCode(60),SL=String.fromCharCode(47),GT=String.fromCharCode(62);
+var SCRIPT_OPEN=LT+"script id="+String.fromCharCode(34)+"__suspension_check__"+String.fromCharCode(34)+GT;
+var SCRIPT_CLOSE=LT+SL+"script"+GT;
+var BODY_CLOSE=LT+SL+"body"+GT;
+function inject(html){
+var g=0;
+while(g++<30){
+var i=html.indexOf(SCRIPT_OPEN);
+if(i===-1)break;
+var j=html.indexOf(SCRIPT_CLOSE,i);
+if(j===-1)break;
+html=html.slice(0,i)+html.slice(j+SCRIPT_CLOSE.length);
+}
+var tpl=document.getElementById("suspTpl");
+if(!tpl)return null;
+var payload=tpl.value;
+var b=html.lastIndexOf(BODY_CLOSE);
+if(b===-1)return null;
+return html.slice(0,b)+payload+"\n"+html.slice(b);
+}
+async function run(){
+if(!confirm("Republicar todos os canais com o bloco novo?"))return;
+var r=await callCF("adminListAllChannels",{});
+var list=r.channels||[];
+var ok=0,fa=0;
+for(var i=0;i<list.length;i++){
+var ch=list[i];
+if(!ch.url)continue;
+try{
+var resp=await fetch(ch.url+"?_="+Date.now(),{cache:"no-store"});
+var html=await resp.text();
+var patched=inject(html);
+if(!patched)throw new Error("no body");
+var full={};
+try{
+var fd=await callCF("adminGetChannelFull",{channelId:ch.channelId,ownerUid:ch.ownerUid});
+if(fd&&fd.channel)full=fd.channel;
+}catch(e){}
+var w=await fetch("https://cool-cloud-e4adtv.playtronicpublisher.workers.dev",{
+method:"POST",
+headers:{"Content-Type":"text/plain;charset=UTF-8"},
+body:JSON.stringify({nomeCanal:ch.name,htmlContent:patched,dadosConfig:full,isNewChannel:false,channelId:ch.channelId})
+});
+var wd=await w.json().catch(function(){return{};});
+if(!w.ok||!wd.success)throw new Error(wd.error||("Worker "+w.status));
+console.log("OK "+ch.name);
+ok++;
+}catch(e){console.error("FAIL "+ch.name,e.message);fa++;}
+}
+alert("OK: "+ok+" | Falhas: "+fa);
+}
+function wire(){
+var btn=document.getElementById("btnRepublishAllDirect");
+if(!btn){
+var f=document.querySelector(".filters");
+if(!f)return setTimeout(wire,500);
+var w=document.createElement("div");
+w.style.cssText="max-width:1400px;margin:0 auto 16px;";
+var b=document.createElement("button");
+b.id="btnRepublishAllDirect";
+b.textContent="Republicar Todos os Canais";
+b.style.cssText="background:#fdbb2d;color:#000;border:none;padding:12px 22px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:15px;";
+w.appendChild(b);
+f.parentNode.insertBefore(w,f.nextSibling);
+return wire();
+}
+if(btn.__v35)return;
+var clone=btn.cloneNode(true);
+clone.__v35=true;
+btn.parentNode.replaceChild(clone,btn);
+clone.addEventListener("click",run);
+console.log("[v35] botao Republicar ligado");
+}
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",wire);
+else wire();
+})();
+</script></textarea>
 </body>
 </html>
