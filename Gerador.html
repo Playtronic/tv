@@ -8705,6 +8705,92 @@ adLog('API: window.__ads.diag()');
   }
 })();
 <\/script>
+<script id="__suspension_check__">
+(async function(){
+  try {
+    await new Promise(r => setTimeout(r, 500));
+
+    var chId = "${channelId}";
+    if (!chId) return;
+
+    var snap = await firebase.firestore().collection("channels").doc(chId).get();
+    if (!snap.exists) return;
+
+    var d = snap.data() || {};
+    var canalSuspenso = d.suspended === true;
+    var contaSuspensa = d.accountSuspended === true;
+
+    if (!canalSuspenso && !contaSuspensa) return;
+
+    try { var v = document.getElementById("myVideo"); if (v) { v.pause(); v.src = ""; } } catch(e){}
+    try { if (typeof youtubePlayer !== "undefined" && youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo(); } catch(e){}
+    try { var ov = document.querySelector(".autoplay-overlay"); if (ov) ov.style.display = "none"; } catch(e){}
+
+    var motivo = (canalSuspenso ? (d.suspendReason || "") : (d.accountSuspendReason || "")) || "Violacao dos termos de uso";
+    var titulo = contaSuspensa ? "Conta suspensa" : "Canal suspenso";
+    var desc = contaSuspensa
+      ? "Sua conta foi suspensa por violar os termos de uso. Todos os seus canais foram bloqueados."
+      : "Este canal foi suspenso pela administracao.";
+
+    var overlay = document.createElement("div");
+    overlay.id = "__suspend_overlay__";
+    overlay.style.cssText = "position:fixed;inset:0;background:linear-gradient(135deg,#1a0d0d,#2a0a0a,#0a0a0a);z-index:2147483600;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Arial,sans-serif;color:#fff;overflow-y:auto;";
+    overlay.innerHTML =
+      '<div style="max-width:520px;width:100%;background:rgba(0,0,0,.7);border:2px solid #e74c3c;border-radius:16px;padding:36px 30px;text-align:center;box-shadow:0 20px 60px rgba(231,76,60,.3);">' +
+        '<div style="font-size:3.5rem;margin-bottom:16px;">🚫</div>' +
+        '<h1 style="color:#e74c3c;font-size:1.7rem;margin-bottom:14px;">' + titulo + '</h1>' +
+        '<p style="font-size:1rem;line-height:1.6;opacity:.9;margin-bottom:14px;">' + desc + '</p>' +
+        '<div style="background:rgba(231,76,60,.15);border-left:4px solid #e74c3c;padding:12px 16px;border-radius:6px;text-align:left;margin-bottom:22px;font-size:.92rem;line-height:1.5;">' +
+          '<strong>Motivo:</strong> ' + String(motivo).replace(/[<>"']/g, "") +
+        '</div>' +
+        '<p style="font-size:.9rem;opacity:.75;line-height:1.5;margin-bottom:22px;">' +
+          'Voce pode baixar o HTML do canal (backup) ou exclui-lo permanentemente.' +
+        '</p>' +
+        '<button id="__sus_download__" style="display:block;width:100%;background:#3498db;color:#fff;border:none;padding:14px;border-radius:8px;font-size:1rem;font-weight:bold;cursor:pointer;margin-bottom:10px;">⬇️ Baixar HTML do canal</button>' +
+        '<button id="__sus_delete__" style="display:block;width:100%;background:#7f1d1d;color:#fff;border:none;padding:14px;border-radius:8px;font-size:1rem;font-weight:bold;cursor:pointer;">🗑️ Excluir canal permanentemente</button>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+
+    document.getElementById("__sus_download__").addEventListener("click", async function(){
+      try {
+        var resp = await fetch(window.location.href, { cache: "no-store" });
+        var html = await resp.text();
+        var blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = chId + ".html";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch(e) { alert("Erro ao baixar: " + e.message); }
+    });
+
+    document.getElementById("__sus_delete__").addEventListener("click", async function(){
+      if (!confirm("Tem certeza? Isso vai apagar o canal PERMANENTEMENTE.")) return;
+      if (!confirm("ULTIMA CHANCE. Apagar o canal definitivamente?")) return;
+      var btn = this;
+      btn.disabled = true; btn.textContent = "Apagando...";
+      try {
+        var u = firebase.auth().currentUser;
+        if (!u) { alert("Voce precisa estar logado para apagar."); btn.disabled = false; return; }
+        var token = await u.getIdToken(true);
+        var r = await fetch("https://us-central1-playtronic-tv.cloudfunctions.net/deleteOwnSuspendedChannel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify({ channelId: chId })
+        });
+        var res = await r.json();
+        if (!r.ok || !res.success) throw new Error(res.error || "Erro");
+        overlay.innerHTML = '<div style="text-align:center;padding:40px;"><h2 style="color:#2ecc71;">✅ Canal apagado</h2><p style="opacity:.8;margin-top:12px;">Voce pode fechar esta aba.</p></div>';
+      } catch(e) {
+        alert("Erro: " + e.message);
+        btn.disabled = false; btn.textContent = "🗑️ Excluir canal permanentemente";
+      }
+    });
+
+  } catch(e) { console.warn("[Suspension]", e); }
+})();
+<\/script>
 </body>
 </html>`;
             
