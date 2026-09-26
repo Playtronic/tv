@@ -1062,6 +1062,139 @@ function buildNewSuspensionBlock() {
   else wire();
 })();
 
+
+
+// v33 — Republica inline no proprio admin (sem abrir nova aba)
+(function(){
+  var LT = '<', SL = '/', DQ = '"', SQ = "'";
+  var SCRIPT_OPEN = LT + 'script id=' + DQ + '__suspension_check__' + DQ + '>';
+  var SCRIPT_CLOSE = LT + SL + 'script>';
+  var BODY_CLOSE = LT + SL + 'body>';
+  var OFFLINE = 'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png';
+
+  var BLOCO = [
+    SCRIPT_OPEN,
+    '(function(){',
+    'var chId=(typeof CHANNEL_ID!==\'' + 'undefined\')?CHANNEL_ID:\'\';',
+    'if(!chId)return;',
+    'var OFFLINE_IMG=\'' + OFFLINE + '\';',
+    'var applied=false;',
+    'function pauseAll(){try{var v=document.getElementById(\'myVideo\');if(v){v.pause();try{v.src=\'\';}catch(e){}}}catch(e){}try{if(typeof youtubePlayer!==\'' + 'undefined\'' + '&&youtubePlayer&&youtubePlayer.pauseVideo)youtubePlayer.pauseVideo();}catch(e){}}',
+    'function hideAll(){var sels=[\'.program-info\',\'.debug-info\',\'.custom-controls\',\'.like-dislike-container\',\'.autoplay-overlay\',\'.commercial-indicator\',\'.action-buttons-wrapper\',\'.social-media-links\',\'.contact-info\'];for(var i=0;i<sels.length;i++){var els=document.querySelectorAll(sels[i]);for(var j=0;j<els.length;j++)els[j].style.display=\'none\';}}',
+    'function showOffline(){if(applied)return;applied=true;pauseAll();hideAll();var vw=document.querySelector(\'.video-wrapper\');if(!vw)return;var h=\'\';h+=\'<img src=\"\'+OFFLINE_IMG+\'\" style=\"width:100%;height:100%;object-fit:cover;\">\';h+=\'<div style=\"position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:24px;border-radius:10px;text-align:center;color:#fff;max-width:420px;\">\';h+=\'<h3 style=\"margin-bottom:10px;\">Canal Temporariamente Fora do Ar</h3>\';h+=\'<p style=\"font-size:0.9rem;opacity:0.9;\">Este canal esta passando por manutencao.</p>\';h+=\'<p style=\"font-size:0.9rem;opacity:0.9;\">Tente novamente mais tarde.</p>\';h+=\'</div>\';vw.innerHTML=h;}',
+    'function init(){if(typeof firebase===\'' + 'undefined\'' + '||!firebase.firestore){setTimeout(init,500);return;}firebase.firestore().collection(\'channels\').doc(chId).onSnapshot(function(snap){if(!snap.exists)return;var d=snap.data()||{};if(d.suspended===true||d.accountSuspended===true)showOffline();else if(applied)location.reload();},function(err){console.warn(\'[Susp]\',err.message);});}',
+    'init();',
+    '})();',
+    SCRIPT_CLOSE
+  ].join('\n');
+
+  function strip(html){
+    var g=0;
+    while(g++<30){
+      var i=html.indexOf(SCRIPT_OPEN);
+      if(i===-1)break;
+      var j=html.indexOf(SCRIPT_CLOSE,i);
+      if(j===-1)break;
+      html=html.slice(0,i)+html.slice(j+SCRIPT_CLOSE.length);
+    }
+    return html;
+  }
+  function inject(html){
+    html=strip(html);
+    var idx=html.lastIndexOf(BODY_CLOSE);
+    if(idx===-1)return null;
+    return html.slice(0,idx)+BLOCO+'\n'+html.slice(idx);
+  }
+
+  async function run(){
+    if(!confirm('Republicar TODOS os canais com o bloco de suspensao atualizado?\n\nIsso vai baixar cada canal, corrigir o bloco e reenviar.'))return;
+
+    var modal=document.createElement('div');
+    modal.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    modal.innerHTML='<div style="background:linear-gradient(135deg,#1a0d33,#2a0d2a);border:2px solid #fdbb2d;border-radius:14px;padding:24px;max-width:680px;width:100%;color:#fff;font-family:Arial;">'
+      +'<h2 style="color:#fdbb2d;margin:0 0 12px;">Republicando canais (v33)</h2>'
+      +'<div style="background:rgba(255,255,255,0.08);border-radius:8px;padding:14px;margin-bottom:14px;">'
+      +'<div id="r33Pct" style="font-size:1.6rem;font-weight:bold;color:#fdbb2d;text-align:center;">0%</div>'
+      +'<div style="background:rgba(255,255,255,0.15);height:8px;border-radius:4px;overflow:hidden;margin-top:8px;"><div id="r33Bar" style="background:#fdbb2d;height:100%;width:0;transition:width .3s;"></div></div>'
+      +'<div id="r33Cur" style="font-size:13px;opacity:0.85;margin-top:10px;text-align:center;">Iniciando...</div>'
+      +'</div>'
+      +'<div id="r33Log" style="font-family:Consolas,monospace;font-size:12px;background:#000;border-radius:8px;padding:12px;max-height:280px;overflow-y:auto;line-height:1.6;"></div>'
+      +'<button id="r33Close" style="display:none;width:100%;margin-top:14px;background:#2ecc71;color:#fff;border:none;padding:12px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:15px;">Fechar</button>'
+      +'</div>';
+    document.body.appendChild(modal);
+
+    var P=document.getElementById('r33Pct'),B=document.getElementById('r33Bar'),C=document.getElementById('r33Cur'),L=document.getElementById('r33Log'),X=document.getElementById('r33Close');
+    function log(t,c){var d=document.createElement('div');d.style.color=c||'#ddd';d.textContent=t;L.appendChild(d);L.scrollTop=L.scrollHeight;}
+    X.onclick=function(){modal.remove();};
+
+    try{
+      log('Listando canais...','#fdbb2d');
+      var r=await callCF('adminListAllChannels',{});
+      var list=r.channels||[];
+      log('Total: '+list.length,'#fdbb2d');
+
+      var ok=0,fa=0,sk=0;
+      for(var i=0;i<list.length;i++){
+        var ch=list[i];
+        C.textContent=(i+1)+' / '+list.length+' — '+ch.name;
+        P.textContent=Math.round(i/list.length*100)+'%';
+        B.style.width=(i/list.length*100)+'%';
+        if(!ch.url){log('SEM URL: '+ch.name,'#888');sk++;continue;}
+        try{
+          var resp=await fetch(ch.url+'?_='+Date.now(),{cache:'no-store'});
+          if(!resp.ok)throw new Error('HTTP '+resp.status);
+          var html=await resp.text();
+          var patched=inject(html);
+          if(!patched)throw new Error('sem body');
+
+          var full={};
+          try{
+            var fd=await callCF('adminGetChannelFull',{channelId:ch.channelId,ownerUid:ch.ownerUid});
+            if(fd&&fd.channel)full=fd.channel;
+          }catch(e){}
+
+          var w=await fetch('https://cool-cloud-e4adtv.playtronicpublisher.workers.dev',{
+            method:'POST',
+            headers:{'Content-Type':'text/plain;charset=UTF-8'},
+            body:JSON.stringify({nomeCanal:ch.name,htmlContent:patched,dadosConfig:full,isNewChannel:false,channelId:ch.channelId})
+          });
+          var wd=await w.json().catch(function(){return{};});
+          if(!w.ok||!wd.success)throw new Error(wd.error||('Worker '+w.status));
+
+          log('OK '+ch.name,'#2ecc71');
+          ok++;
+        }catch(e){
+          log('FALHA '+ch.name+': '+e.message,'#ff6b6b');
+          fa++;
+        }
+      }
+
+      P.textContent='100%';B.style.width='100%';C.textContent='Concluido';
+      log('',' ');log('═══ Resultado ═══','#fdbb2d');
+      log('OK: '+ok,'#2ecc71');
+      log('Sem URL: '+sk,'#888');
+      log('Falhas: '+fa,fa>0?'#ff6b6b':'#fff');
+      X.style.display='block';
+    }catch(e){
+      log('ERRO FATAL: '+e.message,'#ff6b6b');
+      X.style.display='block';
+    }
+  }
+
+  function wire(){
+    var btn=document.getElementById('btnRepublishAllDirect');
+    if(!btn)return setTimeout(wire,500);
+    if(btn.__v33)return;
+    var clone=btn.cloneNode(true);
+    clone.__v33=true;
+    btn.parentNode.replaceChild(clone,btn);
+    clone.addEventListener('click',run);
+    console.log('[v33] Botao Republicar controlado pelo v33');
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',wire);
+  else wire();
+})();
+
 </script>
 </body>
 </html>
