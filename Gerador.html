@@ -6033,6 +6033,24 @@ function onYouTubePlayerReady(event) {
     console.log('Player do YouTube pronto');
     playerReady = true;
     
+    // 🎯 Seek para o ponto correto baseado na duração REAL do vídeo
+    try {
+        if (event.target && typeof event.target.getDuration === 'function') {
+            const dur = event.target.getDuration();
+            if (dur > 0) {
+                const pct = calcularPercentualSlot();
+                const SLOT_SEC = SLOT_DURATION * 60;
+                const slotElapsed = SLOT_SEC * pct;
+                const videoPos = slotElapsed % dur;
+                event.target.seekTo(videoPos, true);
+                console.log('[YouTube] Seek correto: ' + videoPos.toFixed(1) + 's ' +
+                    '(dur=' + dur.toFixed(1) + 's, slot=' + slotElapsed.toFixed(1) + 's, pct=' + (pct*100).toFixed(1) + '%)');
+            }
+        }
+    } catch(e) {
+        console.warn('[YouTube] Erro no seek inicial:', e);
+    }
+    
     // 🔇 Desliga legendas na carga
     _desligarLegendas(event.target);
     
@@ -6531,10 +6549,11 @@ function _carregarVideoYouTube_raw(url, iniciarNoPercentual = 0, autoplay = true
         return;
     }
     
-    // Calcular segundos iniciais
+    // Calcular segundos iniciais — usa duração real do slot (25 min)
     let startSeconds = 0;
     if (iniciarNoPercentual > 0 && iniciarNoPercentual < 1) {
-        startSeconds = Math.floor(300 * iniciarNoPercentual);
+        const SLOT_SEC = SLOT_DURATION * 60;
+        startSeconds = Math.floor(SLOT_SEC * iniciarNoPercentual);
     }
     
     console.log('Carregando YouTube:', videoId, 'start:', startSeconds);
@@ -7169,8 +7188,22 @@ var _ocultarYtInterval = setInterval(function() {
             }
             
             if (isYoutubeVideo && youtubePlayer && playerReady) {
+                // YouTube já foi carregado e passou pelo seek do onReady.
+                // Só damos play — NÃO recriamos o player.
+                try {
+                    const dur = youtubePlayer.getDuration();
+                    if (dur > 0) {
+                        const SLOT_SEC = SLOT_DURATION * 60;
+                        const slotElapsed = SLOT_SEC * percentualSlot;
+                        const videoPos = slotElapsed % dur;
+                        console.log('[YouTube] Ligar TV — seek final para ' + videoPos.toFixed(1) + 's');
+                        youtubePlayer.seekTo(videoPos, true);
+                    }
+                } catch(e) { console.warn(e); }
+                
                 youtubePlayer.playVideo();
             } else if (videoElement && videoElement.src) {
+                // HTML5: só damos play — o seek já foi feito no loadedmetadata
                 videoElement.muted = false;
                 const playPromise = videoElement.play();
                 if (playPromise !== undefined) {
@@ -7178,9 +7211,10 @@ var _ocultarYtInterval = setInterval(function() {
                         console.log('Erro ao dar play:', error);
                     });
                 }
+            } else {
+                // Não tinha nada carregado ainda — aí sim carrega
+                reproduzirPrograma(currentPlayingSlot, percentualSlot);
             }
-            
-            reproduzirPrograma(currentPlayingSlot, percentualSlot);
             
             showControls();
             resetControlsTimer();
