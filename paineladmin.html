@@ -1319,6 +1319,204 @@ console.log("[v35] botao Republicar ligado");
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",wire);
 else wire();
 })();
+
+(function(){
+  var LT = String.fromCharCode(60);
+  var SL = String.fromCharCode(47);
+  var GT = String.fromCharCode(62);
+  var DQ = String.fromCharCode(34);
+  var SQ = String.fromCharCode(39);
+  var BS = String.fromCharCode(92);
+
+  var SCRIPT_OPEN = LT + 'script id=' + DQ + '__suspension_check__' + DQ + GT;
+  var SCRIPT_CLOSE = LT + SL + 'script' + GT;
+  var BODY_CLOSE = LT + SL + 'body' + GT;
+
+  var NOVO_BLOCO = [
+    SCRIPT_OPEN,
+    '(function(){',
+    'var chId=(typeof CHANNEL_ID!==\'' + 'undefined\')?CHANNEL_ID:\'\';',
+    'if(!chId)return;',
+    'function init(){',
+    'if(typeof firebase===\'' + 'undefined\'' + '||!firebase.firestore)return setTimeout(init,500);',
+    'firebase.firestore().collection(\'channels\').doc(chId).onSnapshot(function(s){',
+    'if(!s.exists)return;',
+    'var d=s.data()||{};',
+    'var susp=d.suspended===true||d.accountSuspended===true;',
+    'var ov=document.getElementById(\'__offlineOverlay\');',
+    'if(!susp){if(ov)ov.remove();return;}',
+    'if(ov)return;',
+    'try{var v=document.getElementById(\'myVideo\');if(v)v.pause();}catch(e){}',
+    'try{if(window.youtubePlayer&&youtubePlayer.pauseVideo)youtubePlayer.pauseVideo();}catch(e){}',
+    'var w=document.querySelector(\'.video-wrapper\');',
+    'if(!w)return;',
+    'var ov=document.createElement(\'div\');',
+    'ov.id=\'__offlineOverlay\';',
+    'ov.style.cssText=\'position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:2147483600;display:flex;flex-direction:column;align-items:center;justify-content:center;\';',
+    'var img=document.createElement(\'img\');',
+    'img.className=\'offline-image\';',
+    'img.src=\'https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png\';',
+    'img.alt=\'Canal fora do ar\';',
+    'ov.appendChild(img);',
+    'var msg=document.createElement(\'div\');',
+    'msg.className=\'offline-message\';',
+    'var h3=document.createElement(\'h3\');',
+    'h3.textContent=\'Canal Temporariamente Fora do Ar\';',
+    'msg.appendChild(h3);',
+    'var p1=document.createElement(\'p\');',
+    'p1.style.fontSize=\'0.9rem\';',
+    'p1.textContent=\'Este canal esta passando por manutencao.\';',
+    'msg.appendChild(p1);',
+    'var p2=document.createElement(\'p\');',
+    'p2.style.fontSize=\'0.9rem\';',
+    'p2.textContent=\'Tente novamente mais tarde.\';',
+    'msg.appendChild(p2);',
+    'ov.appendChild(msg);',
+    'w.appendChild(ov);',
+    '},function(e){console.warn(\'[Susp]\',e.message);});',
+    '}',
+    'init();',
+    '})();',
+    SCRIPT_CLOSE
+  ].join('\n');
+
+  function stripOld(html){
+    var g = 0;
+    while (g++ < 30){
+      var i = html.indexOf(SCRIPT_OPEN);
+      if (i === -1) break;
+      var j = html.indexOf(SCRIPT_CLOSE, i);
+      if (j === -1) break;
+      html = html.slice(0, i) + html.slice(j + SCRIPT_CLOSE.length);
+    }
+    return html;
+  }
+
+  function inject(html){
+    html = stripOld(html);
+    var idx = html.lastIndexOf(BODY_CLOSE);
+    if (idx === -1) return null;
+    return html.slice(0, idx) + NOVO_BLOCO + '\n' + html.slice(idx);
+  }
+
+  var channelCache = null;
+  var cachePromise = null;
+
+  function getChannels(){
+    if (channelCache) return Promise.resolve(channelCache);
+    if (cachePromise) return cachePromise;
+    cachePromise = callCF('adminListAllChannels', {}).then(function(r){
+      channelCache = r.channels || [];
+      return channelCache;
+    });
+    return cachePromise;
+  }
+
+  function republishOne(cid, btn){
+    var original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Republicando...';
+    btn.style.background = '#e67e22';
+
+    getChannels().then(function(list){
+      var ch = null;
+      for (var i = 0; i < list.length; i++){
+        if (list[i].channelId === cid){ ch = list[i]; break; }
+      }
+      if (!ch) throw new Error('Canal nao encontrado');
+      if (!ch.url) throw new Error('Canal sem URL');
+      var chUrl = ch.url;
+
+      return fetch(chUrl + '?_=' + Date.now(), { cache: 'no-store' });
+    }).then(function(resp){
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.text();
+    }).then(function(html){
+      var patched = inject(html);
+      if (!patched) throw new Error('Sem body close');
+
+      return getChannels().then(function(list){
+        var ch = null;
+        for (var i = 0; i < list.length; i++){
+          if (list[i].channelId === cid){ ch = list[i]; break; }
+        }
+        var full = {};
+        return callCF('adminGetChannelFull', { channelId: cid, ownerUid: ch.ownerUid })
+          .then(function(fd){
+            if (fd && fd.channel) full = fd.channel;
+            return { ch: ch, patched: patched, full: full };
+          })
+          .catch(function(){ return { ch: ch, patched: patched, full: {} }; });
+      });
+    }).then(function(data){
+      return fetch('https://cool-cloud-e4adtv.playtronicpublisher.workers.dev', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({
+          nomeCanal: data.ch.name,
+          htmlContent: data.patched,
+          dadosConfig: data.full,
+          isNewChannel: false,
+          channelId: cid
+        })
+      });
+    }).then(function(w){
+      return w.json().catch(function(){ return {}; }).then(function(wd){
+        if (!w.ok || !wd.success) throw new Error(wd.error || ('Worker ' + w.status));
+        btn.textContent = 'OK';
+        btn.style.background = '#2ecc71';
+        setTimeout(function(){
+          btn.textContent = original;
+          btn.style.background = '#e67e22';
+          btn.disabled = false;
+        }, 1800);
+      });
+    }).catch(function(e){
+      console.error('Republicar falhou:', e);
+      btn.textContent = 'Erro';
+      btn.style.background = '#e74c3c';
+      setTimeout(function(){
+        btn.textContent = original;
+        btn.style.background = '#e67e22';
+        btn.disabled = false;
+      }, 1800);
+    });
+  }
+
+  function injectButtons(){
+    var cards = document.querySelectorAll('.card[data-cid]');
+    for (var i = 0; i < cards.length; i++){
+      var card = cards[i];
+      if (card.querySelector('.btn-republish-one')) continue;
+      var actions = card.querySelector('.card-actions');
+      if (!actions) continue;
+      var cid = card.getAttribute('data-cid');
+      var btn = document.createElement('button');
+      btn.className = 'btn-republish-one';
+      btn.textContent = 'Republicar';
+      btn.style.cssText = 'background:#e67e22;color:#fff;';
+      btn.addEventListener('click', (function(c){
+        return function(e){
+          e.preventDefault();
+          e.stopPropagation();
+          republishOne(c, this);
+        };
+      })(cid));
+      actions.insertBefore(btn, actions.firstChild);
+    }
+  }
+
+  var obs = new MutationObserver(function(){ injectButtons(); });
+  function start(){
+    injectButtons();
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+
+  console.log('[v40a] botao Republicar por canal instalado');
+})();
+
 </script></textarea>
 </body>
 </html>
