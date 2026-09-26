@@ -8904,66 +8904,48 @@ adLog('API: window.__ads.diag()');
 <\/script>
 <script id="__suspension_check__">
 (function(){
-  var chId = "${channelId}";
-  if (!chId) return;
-  var OFFLINE_IMG = "${OFFLINE_IMAGE}";
-  var __applied = false;
-
-  function pauseAll() {
-    try { var v = document.getElementById("myVideo"); if (v) { v.pause(); try { v.src = ""; } catch(e){} } } catch(e){}
-    try { if (typeof youtubePlayer !== "undefined" && youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo(); } catch(e){}
+var chId = "${channelId}";
+if (!chId) return;
+var OFFLINE_IMG = "${OFFLINE_IMAGE}";
+var applied = false;
+function pauseAll(){
+  try { var v = document.getElementById("myVideo"); if (v) { v.pause(); try { v.src = ""; } catch(e){} } } catch(e){}
+  try { if (typeof youtubePlayer !== "undefined" && youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo(); } catch(e){}
+}
+function hideAll(){
+  var sels = [".program-info",".debug-info",".custom-controls",".like-dislike-container",".autoplay-overlay",".commercial-indicator",".action-buttons-wrapper",".social-media-links",".contact-info"];
+  for (var i = 0; i < sels.length; i++){
+    var els = document.querySelectorAll(sels[i]);
+    for (var j = 0; j < els.length; j++) els[j].style.display = "none";
   }
-
-  function esconderTudo() {
-    var sels = [
-      ".program-info",
-      ".debug-info",
-      ".custom-controls",
-      ".like-dislike-container",
-      ".autoplay-overlay",
-      ".commercial-indicator",
-      ".action-buttons-wrapper",
-      ".social-media-links",
-      ".contact-info"
-    ];
-    for (var i = 0; i < sels.length; i++) {
-      var els = document.querySelectorAll(sels[i]);
-      for (var j = 0; j < els.length; j++) els[j].style.display = "none";
-    }
-  }
-
-  function mostrarForaDoAr() {
-    if (__applied) return;
-    __applied = true;
-    pauseAll();
-    esconderTudo();
-    var vw = document.querySelector(".video-wrapper");
-    if (!vw) return;
-    var imgTag = <img src="" + OFFLINE_IMG + "" class=""offline-image"" alt=""Canal fora do ar"" />;
-    var box = <div class=""offline-message""><h3>Canal Temporariamente Fora do Ar</h3><p style=""font-size:0.9rem;"">Este canal esta passando por manutencao.</p><p style=""font-size:0.9rem;"">Tente novamente mais tarde.</p></div>;
-    vw.innerHTML = imgTag + box;
-  }
-
-  var __tries = 0;
-  function initListener() {
-    if (typeof firebase === "undefined" || !firebase.firestore) {
-      if (__tries++ < 40) return setTimeout(initListener, 500);
-      return;
-    }
-    try {
-      firebase.firestore().collection("channels").doc(chId)
-        .onSnapshot(function(snap){
-          if (!snap.exists) return;
-          var d = snap.data() || {};
-          var susp = d.suspended === true || d.accountSuspended === true;
-          if (susp) { mostrarForaDoAr(); }
-          else if (__applied) { location.reload(); }
-        }, function(err){ console.warn("[Susp] " + err.message); });
-    } catch(e){}
-  }
-  initListener();
+}
+function showOffline(){
+  if (applied) return;
+  applied = true;
+  pauseAll();
+  hideAll();
+  var vw = document.querySelector(".video-wrapper");
+  if (!vw) return;
+  vw.innerHTML =
+    "<img src="" + OFFLINE_IMG + "" class=""offline-image"" alt=""Fora do ar"" />" +
+    "<div class=""offline-message""><h3>Canal Temporariamente Fora do Ar</h3><p style=""font-size:0.9rem;"">Este canal esta passando por manutencao.</p><p style=""font-size:0.9rem;"">Tente novamente mais tarde.</p></div>";
+}
+function initListener(){
+  if (typeof firebase === "undefined" || !firebase.firestore){ setTimeout(initListener, 500); return; }
+  try {
+    firebase.firestore().collection("channels").doc(chId)
+      .onSnapshot(function(snap){
+        if (!snap.exists) return;
+        var d = snap.data() || {};
+        var susp = d.suspended === true || d.accountSuspended === true;
+        if (susp) showOffline();
+        else if (applied) location.reload();
+      }, function(err){ console.warn("[Susp] ", err.message); });
+  } catch(e){ console.warn("[Susp] ", e); }
+}
+initListener();
 })();
-<\/script>
+</script>
 </body>
 </html>`;
             
@@ -12801,6 +12783,51 @@ console.log("%cMARKER__SANITIZER_V5__ATIVO", "color:#2ecc71;font-weight:bold;fon
   setTimeout(aplicar, 100);
 
   window.__validateName = aplicar;
+})();
+
+// v31 — Bulk republish por query string
+(function(){
+  function hook(){
+    if (typeof firebase === "undefined" || !firebase.auth) return setTimeout(hook, 300);
+    var params = new URLSearchParams(location.search);
+    if (params.get("republishAll") !== "1") return;
+    firebase.auth().onAuthStateChanged(function(user){
+      if (!user) return;
+      currentUser = user;
+      setTimeout(run, 800);
+    });
+  }
+  async function run(){
+    if (!confirm("Republicar todos os canais com o template atual?")) return;
+    var CF = "https://us-central1-playtronic-tv.cloudfunctions.net";
+    var token = await currentUser.getIdToken(true);
+    var r = await fetch(CF + "/adminListAllChannels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: "{}"
+    });
+    var data = await r.json();
+    if (!r.ok || !data.success) return alert("Erro: " + (data.error || "?"));
+    var list = data.channels || [];
+    var ok = 0, fa = 0;
+    for (var i = 0; i < list.length; i++){
+      var ch = list[i];
+      if (i % 5 === 0) console.log("Progresso: " + i + "/" + list.length);
+      try {
+        var doc = await db.collection("users").doc(ch.ownerUid).collection("channels").doc(ch.channelId).get();
+        if (!doc.exists) { fa++; continue; }
+        var norm = normalizarDadosCanal(doc.data());
+        try { var mon = await carregarConfiguracoesMonetizacao(ch.channelId); if (mon) norm.monetization = mon; } catch(e){}
+        currentChannelId = ch.channelId;
+        editingChannel = true;
+        tvData = Object.assign({}, norm);
+        await publicarCanal(norm.name, norm);
+        ok++;
+      } catch(e){ console.error(ch.name, e.message); fa++; }
+    }
+    alert("Republicacao concluida. OK: " + ok + " | Falhas: " + fa);
+  }
+  hook();
 })();
 </script>
 </body>
