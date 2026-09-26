@@ -7062,45 +7062,80 @@ var _ocultarYtInterval = setInterval(function() {
         });
     }
     
-    // Botão Ao Vivo
+    // Botão Ao Vivo — SÓ AVANÇA, nunca retrocede, nunca recarrega
     if (liveBtn) {
         liveBtn.addEventListener('click', function() {
             console.log('=== BOTÃO AO VIVO CLICADO ===');
-            console.log('PROGRAMMING_MODE:', PROGRAMMING_MODE);
-            console.log('currentPlayingSlot (atual):', currentPlayingSlot);
-            
+
+            // 1) Descobre o slot real e o percentual do momento
             let slotRealAgora;
             if (PROGRAMMING_MODE === 'grade') {
                 slotRealAgora = calcularSlotAtualGrade();
             } else {
                 slotRealAgora = calcularSlotAtualPlaylist();
             }
-            
-            console.log('slotRealAgora (calculado agora):', slotRealAgora);
-            
-            if (currentPlayingSlot !== slotRealAgora) {
-                console.log('❌ DIFERENTE! Recarregando página.');
-                sessionStorage.setItem('aoVivoRecarregado', 'true');
-                location.reload();
+            const percentualSlot = calcularPercentualSlot();
+            const TOLERANCIA_SEGUNDOS = 2;
+
+            console.log('Slot atual:', currentPlayingSlot, '| Slot real:', slotRealAgora, '| Percentual do slot:', (percentualSlot * 100).toFixed(1) + '%');
+
+            // 2) Determina se o slot real está À FRENTE ou ATRÁS
+            const totalSlots = (PROGRAMMING_MODE === 'grade') ? TOTAL_SLOTS : TV_PLAYLIST.length;
+            const diffSlots = (slotRealAgora - currentPlayingSlot + totalSlots) % totalSlots;
+
+            // diffSlots = 0           → mesmo slot
+            // diffSlots <= metade     → real à frente  → AVANÇA
+            // diffSlots >  metade     → real atrás     → NÃO FAZ NADA
+            const mesmoSlot = (currentPlayingSlot === slotRealAgora);
+            const realEstaAFrente = (!mesmoSlot && diffSlots > 0 && diffSlots <= totalSlots / 2);
+            const realEstaAtras = (!mesmoSlot && diffSlots > totalSlots / 2);
+
+            if (realEstaAtras) {
+                console.log('⏸ Slot real (' + slotRealAgora + ') está ATRÁS do atual (' + currentPlayingSlot + '). Não retrocede.');
+                showControls();
+                resetControlsTimer();
                 return;
             }
-            
-            console.log('✅ IGUAL! Ajustando tempo do vídeo.');
-            const percentualSlot = calcularPercentualSlot();
-            
+
+            if (realEstaAFrente) {
+                console.log('⏩ Slot real (' + slotRealAgora + ') está À FRENTE. Trocando de programa.');
+                currentPlayingSlot = slotRealAgora;
+                reproduzirPrograma(slotRealAgora, percentualSlot);
+                showControls();
+                resetControlsTimer();
+                return;
+            }
+
+            // 3) Mesmo slot → só avança o ponto se estiver atrás
+            console.log('▶ Mesmo slot. Verificando ponto do vídeo.');
+
             if (isYoutubeVideo && youtubePlayer && playerReady) {
                 const duration = youtubePlayer.getDuration();
                 if (duration > 0) {
-                    const novoTime = duration * percentualSlot;
-                    youtubePlayer.seekTo(novoTime, true);
+                    const tempoAtual = youtubePlayer.getCurrentTime();
+                    const tempoCorreto = duration * percentualSlot;
+                    const diff = tempoCorreto - tempoAtual;
+                    if (diff > TOLERANCIA_SEGUNDOS) {
+                        console.log('Avançando ' + diff.toFixed(1) + 's (' + tempoAtual.toFixed(1) + ' → ' + tempoCorreto.toFixed(1) + ')');
+                        youtubePlayer.seekTo(tempoCorreto, true);
+                    } else {
+                        console.log('Já está no ponto certo (diff: ' + diff.toFixed(1) + 's). Nada a fazer.');
+                    }
                 }
             } else if (videoElement && videoElement.readyState >= 1) {
                 if (videoElement.duration > 0) {
-                    const novoTime = videoElement.duration * percentualSlot;
-                    videoElement.currentTime = Math.min(novoTime, videoElement.duration - 1);
+                    const tempoAtual = videoElement.currentTime;
+                    const tempoCorreto = videoElement.duration * percentualSlot;
+                    const diff = tempoCorreto - tempoAtual;
+                    if (diff > TOLERANCIA_SEGUNDOS) {
+                        console.log('Avançando ' + diff.toFixed(1) + 's (' + tempoAtual.toFixed(1) + ' → ' + tempoCorreto.toFixed(1) + ')');
+                        videoElement.currentTime = Math.min(tempoCorreto, videoElement.duration - 1);
+                    } else {
+                        console.log('Já está no ponto certo (diff: ' + diff.toFixed(1) + 's). Nada a fazer.');
+                    }
                 }
             }
-            
+
             showControls();
             resetControlsTimer();
         });
