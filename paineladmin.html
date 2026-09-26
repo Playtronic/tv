@@ -765,44 +765,83 @@ function buildNewSuspensionBlock() {
 
 
 // ═══════════════════════════════════════════════════════════
-// SINCRONIZACAO DE SUSPENSAO v20
+// SINCRONIZACAO DE SUSPENSAO v21
 (function(){
-  function norm(n){return String(n||'').toLowerCase().replace(/[^a-z0-9]/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');}
-  window._syncSuspV20=async function(id,nome,susp,motivo){
+  function norm(n){
+    return String(n||'').toLowerCase()
+      .replace(/[^a-z0-9]/g,'-')
+      .replace(/-+/g,'-')
+      .replace(/^-|-$/g,'');
+  }
+
+  function nomeDoCard(cid){
+    var card = document.querySelector('[data-cid="'+cid+'"]');
+    if(!card) return '';
+    var el = card.querySelector('.card-name');
+    return el ? el.textContent.replace(/\s+/g,' ').trim() : '';
+  }
+
+  window._syncSuspV21 = async function(id, nome, susp, motivo){
     try{
-      var fs=firebase.firestore();
-      var p={suspended:!!susp,suspendReason:susp?(motivo||'Violacao'):'',suspendedAt:susp?Date.now():0,updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
-      if(id)await fs.collection('channels').doc(id).set(p,{merge:true});
-      var nm=norm(nome);
-      if(nm&&nm!==id)await fs.collection('channels').doc(nm).set(p,{merge:true});
-      console.log('[SUSP] OK '+id+'/'+nm+'='+susp);
-    }catch(e){console.error('[SUSP] erro',e);}
+      var fs = firebase.firestore();
+      var p = {
+        suspended: !!susp,
+        suspendReason: susp ? (motivo || 'Violacao dos termos de uso') : '',
+        suspendedAt: susp ? Date.now() : 0,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+      var escrita = [];
+      if (id){
+        await fs.collection('channels').doc(id).set(p, {merge:true});
+        escrita.push(id);
+      }
+      var nm = norm(nome);
+      if (nm && nm !== id){
+        await fs.collection('channels').doc(nm).set(p, {merge:true});
+        escrita.push(nm);
+      }
+      console.log('[SUSP] OK -> channels/' + escrita.join(' + channels/') + ' = ' + susp + ' (nome=' + nome + ')');
+    }catch(e){
+      console.error('[SUSP] erro:', e);
+    }
   };
+
   function hook(){
-    var b=document.getElementById('btnConfirmSuspend');
-    if(!b||b.__v20)return;
-    b.__v20=true;
-    b.addEventListener('click',function(){
+    var b = document.getElementById('btnConfirmSuspend');
+    if (!b || b.__v21) return;
+    b.__v21 = true;
+    b.addEventListener('click', function(){
       setTimeout(function(){
-        var cid=document.getElementById('suspendChannelId').value;
-        var ch=(window.allChannels||[]).find(function(x){return x.channelId===cid;});
-        var reason=document.getElementById('suspendReason').value.trim()||'Violacao';
-        window._syncSuspV20(cid,ch?ch.name:'',true,reason);
-      },1200);
+        var cid = document.getElementById('suspendChannelId').value;
+        var nome = nomeDoCard(cid);
+        var reason = document.getElementById('suspendReason').value.trim() || 'Violacao dos termos de uso';
+        console.log('[SUSP] suspendendo cid=' + cid + ' nome=' + nome);
+        window._syncSuspV21(cid, nome, true, reason);
+      }, 1500);
     });
   }
-  setTimeout(hook,1500);
-  var tries=0;
+  setTimeout(hook, 1500);
+
+  var tries = 0;
   function auto(){
-    if(typeof currentUser==='undefined'||!currentUser){if(tries++<40)setTimeout(auto,500);return;}
-    if(!window.allChannels||!window.allChannels.length){if(tries++<40)setTimeout(auto,500);return;}
-    var list=window.allChannels;
+    var cards = document.querySelectorAll('.card[data-cid]');
+    if (!cards.length){
+      if (tries++ < 40) return setTimeout(auto, 500);
+      return;
+    }
     (async function(){
-      for(var i=0;i<list.length;i++){
-        var ch=list[i];
-        await window._syncSuspV20(ch.channelId,ch.name,ch.suspended===true||ch.accountSuspended===true,ch.suspendReason||'');
+      var n = 0;
+      for (var i = 0; i < cards.length; i++){
+        var c = cards[i];
+        var cid = c.getAttribute('data-cid');
+        var nameEl = c.querySelector('.card-name');
+        var nome = nameEl ? nameEl.textContent.replace(/\s+/g,' ').trim() : '';
+        var isSusp = c.classList.contains('suspended') || c.classList.contains('acc-suspended');
+        if (!isSusp) continue;
+        await window._syncSuspV21(cid, nome, true, '');
+        n++;
       }
-      console.log('[SUSP] auto-sync concluido');
+      console.log('[SUSP] auto-sync concluido (' + n + ' canal(is) suspenso(s))');
     })();
   }
   auto();
