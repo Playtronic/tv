@@ -1102,6 +1102,39 @@
             font-weight: bold;
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
         }
+
+        /* 🔥 Suspensão de canal (admin) */
+        .status-suspended {
+            background: #e74c3c;
+            color: #fff;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.6);
+            animation: pulse 1.5s infinite;
+        }
+        .channel-card.suspended {
+            border: 2px solid #e74c3c;
+            background: rgba(231,76,60,0.15);
+        }
+        .channel-card.suspended .channel-logo-small {
+            filter: grayscale(100%) brightness(0.6);
+        }
+        .download-channel {
+            background: #3498db !important;
+            color: white !important;
+            border: 2px solid #2980b9 !important;
+        }
+        .download-channel:hover {
+            background: #2980b9 !important;
+        }
+        .suspend-reason {
+            font-size: 0.85rem;
+            color: #ffbbbb;
+            background: rgba(231,76,60,0.25);
+            padding: 6px 10px;
+            border-radius: 6px;
+            margin: 8px 0;
+            border-left: 3px solid #e74c3c;
+        }
         
         /* ÍCONES DE ESTADO */
         .state-icon {
@@ -5672,6 +5705,7 @@ if (slotIndex === currentPlayingSlot) {
                         const provider = new firebase.auth.GoogleAuthProvider();
                         provider.addScope('profile');
                         provider.addScope('email');
+                        provider.setCustomParameters({ prompt: 'select_account' });
                         
                         const result = await auth.signInWithPopup(provider);
                         console.log('Login bem-sucedido no canal:', result.user.email);
@@ -8706,25 +8740,22 @@ adLog('API: window.__ads.diag()');
 })();
 <\/script>
 <script id="__suspension_check__">
-(async function(){
-  try {
-    await new Promise(r => setTimeout(r, 500));
+(function(){
+  var chId = "${channelId}";
+  if (!chId) return;
 
-    var chId = "${channelId}";
-    if (!chId) return;
+  var __overlayShown = false;
 
-    var snap = await firebase.firestore().collection("channels").doc(chId).get();
-    if (!snap.exists) return;
-
-    var d = snap.data() || {};
-    var canalSuspenso = d.suspended === true;
-    var contaSuspensa = d.accountSuspended === true;
-
-    if (!canalSuspenso && !contaSuspensa) return;
-
-    try { var v = document.getElementById("myVideo"); if (v) { v.pause(); v.src = ""; } } catch(e){}
+  function pausePlayer() {
+    try { var v = document.getElementById("myVideo"); if (v) { v.pause(); } } catch(e){}
     try { if (typeof youtubePlayer !== "undefined" && youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo(); } catch(e){}
     try { var ov = document.querySelector(".autoplay-overlay"); if (ov) ov.style.display = "none"; } catch(e){}
+  }
+
+  function showOverlay(canalSuspenso, contaSuspensa, d) {
+    if (__overlayShown) return;
+    __overlayShown = true;
+    pausePlayer();
 
     var motivo = (canalSuspenso ? (d.suspendReason || "") : (d.accountSuspendReason || "")) || "Violacao dos termos de uso";
     var titulo = contaSuspensa ? "Conta suspensa" : "Canal suspenso";
@@ -8787,8 +8818,39 @@ adLog('API: window.__ads.diag()');
         btn.disabled = false; btn.textContent = "🗑️ Excluir canal permanentemente";
       }
     });
+  }
 
-  } catch(e) { console.warn("[Suspension]", e); }
+  function hideOverlay() {
+    var ov = document.getElementById("__suspend_overlay__");
+    if (ov) { ov.remove(); __overlayShown = false; }
+  }
+
+  var __tries = 0;
+  function initListener() {
+    if (typeof firebase === "undefined" || !firebase.firestore) {
+      if (__tries++ < 40) return setTimeout(initListener, 500);
+      return;
+    }
+    try {
+      firebase.firestore().collection("channels").doc(chId)
+        .onSnapshot(function(snap){
+          if (!snap.exists) return;
+          var d = snap.data() || {};
+          var canalSuspenso  = d.suspended === true;
+          var contaSuspensa  = d.accountSuspended === true;
+          if (canalSuspenso || contaSuspensa) {
+            showOverlay(canalSuspenso, contaSuspensa, d);
+          } else {
+            hideOverlay();
+          }
+        }, function(err){
+          console.warn("[Suspension] listener erro:", err.message);
+        });
+    } catch(e) {
+      console.warn("[Suspension] init falhou:", e);
+    }
+  }
+  initListener();
 })();
 <\/script>
 </body>
@@ -9276,7 +9338,13 @@ async function carregarConfiguracoesMonetizacao(channelId) {
     updatedAt: channelData.updatedAt || null,
     // 🔥 NOVO: Dados de monetização
     monetization: channelData.monetization || null,
-    version: channelData.version || '1.0.0.0'
+    version: channelData.version || '1.0.0.0',
+    // 🔥 NOVO: campos de suspensão (admin)
+    suspended: channelData.suspended === true,
+    suspendReason: channelData.suspendReason || '',
+    suspendedAt: channelData.suspendedAt || 0,
+    accountSuspended: channelData.accountSuspended === true,
+    accountSuspendReason: channelData.accountSuspendReason || ''
             };
             
             return dadosNormalizados;
@@ -9725,6 +9793,40 @@ async function iniciarPublicacao() {
         // ==================== FUNÇÕES DE CARREGAMENTO DE CANAIS ====================
 
         // Função para carregar todos os canais
+        // 🔥 Baixa o HTML do canal como arquivo
+        async function baixarHtmlCanal(url, nomeCanal, btnEl) {
+            const originalText = btnEl ? btnEl.textContent : '';
+            if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Baixando...'; }
+
+            const nomeArquivo = String(nomeCanal).toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-') + '.html';
+
+            try {
+                const resp = await fetch(url, { cache: 'no-store' });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const html = await resp.text();
+                const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = nomeArquivo;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(a.href), 500);
+            } catch (e) {
+                console.warn('[Baixar] fetch falhou, abrindo em nova aba:', e);
+                try { window.open(url, '_blank'); } catch(e2) {
+                    alert('Erro ao baixar canal: ' + e.message + '\n\nDica: use Ctrl+S na aba que abrir.');
+                }
+            } finally {
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.textContent = originalText || 'Baixar canal';
+                }
+            }
+        }
+
         async function carregarCanais() {
             try {
                 console.log("🔄 Carregando canais do banco de dados...");
@@ -9916,9 +10018,18 @@ async function iniciarPublicacao() {
                                 }, 100);
                             }
 
+                            const isSuspended = channel.suspended === true;
+                            const isAccountSuspended = channel.accountSuspended === true;
+
                             let statusText = '';
                             let statusClass = '';
-                            if (isOffline) {
+                            if (isAccountSuspended) {
+                                statusText = 'CONTA SUSPENSA';
+                                statusClass = 'status-suspended';
+                            } else if (isSuspended) {
+                                statusText = 'SUSPENSO';
+                                statusClass = 'status-suspended';
+                            } else if (isOffline) {
                                 statusText = 'Fora do ar';
                                 statusClass = 'status-offline';
                             } else if (!isPublished) {
@@ -9940,6 +10051,29 @@ console.log('🔥 Nome formatado:', channelIdForFirebase);
 console.log('🔥 URL do canal:', channel.url);
 console.log('---');
 
+                            // 🔥 Aplica classe visual de suspensão
+                            if (isSuspended || isAccountSuspended) {
+                                channelCard.classList.add('suspended');
+                            }
+
+                            // 🔥 Botões do card conforme estado de suspensão
+                            const actionButtonsHTML = (isSuspended || isAccountSuspended)
+                                ? `<button class="download-channel" data-id="${channel.id}" data-url="${urlCanal}" data-name="${channel.name}">Baixar canal</button>
+                                   <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>`
+                                : `${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ?
+                                    `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
+                                   <button class="edit-channel" data-id="${channel.id}">Editar</button>
+                                   <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
+                                   <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
+                                       ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
+                                   </button>
+                                   <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>`;
+
+                            // 🔥 Motivo da suspensão
+                            const suspendReasonHTML = (isSuspended || isAccountSuspended)
+                                ? `<div class="suspend-reason">⚠️ ${isAccountSuspended ? 'Conta suspensa: ' : 'Motivo: '}${(isAccountSuspended ? (channel.accountSuspendReason || '') : (channel.suspendReason || '')) || 'Violação dos termos de uso'}</div>`
+                                : '';
+
                             channelCard.innerHTML = `
     ${channel.logo && channel.logo !== DEFAULT_LOGO ? `<img src="${channel.logo}" class="channel-logo-small" alt="Logo">` : `<img src="${DEFAULT_LOGO}" class="channel-logo-small" alt="Logo Padrão">`}
     <div class="channel-name-with-emoji">
@@ -9948,7 +10082,7 @@ console.log('---');
     ${visibilityIcon}
     ${adultIcon}
     ${monetizationIconHTML}
-
+    ${suspendReasonHTML}
 
 <p class="spectators" id="spectators-${channel.id}">
     <span style="display:inline-block; width:8px; height:8px; background:#ff4444; border-radius:50%; margin-right:5px; animation:pulse 1.5s infinite;"></span>
@@ -9956,15 +10090,8 @@ console.log('---');
 </p>
     <div class="channel-status ${statusClass}">${statusText}</div>
     <div class="channel-actions">
-    ${urlCanal && urlCanal !== 'https://canaisdetv.online/canais/.html' ? 
-        `<button class="watch-channel" data-id="${channel.id}" data-url="${urlCanal}">Abrir ${channel.name}</button>` : ''}
-    <button class="edit-channel" data-id="${channel.id}">Editar</button>
-    <button class="monetize-channel" data-id="${channel.id}">Monetizar</button>
-    <button class="toggle-offline-channel" data-id="${channel.id}" data-offline="${isOffline}">
-        ${isOffline ? 'Reativar Canal' : 'Tirar do Ar'}
-    </button>
-    <button class="delete-channel delete-button" data-id="${channel.id}">Apagar</button>
-</div>
+        ${actionButtonsHTML}
+    </div>
 `;
                             
                             // Adicionar identificador ao card para localizar depois
@@ -10017,10 +10144,23 @@ console.log('---');
                                         }
                                     }
 
+                                    let __lastSusp = isSuspended;
+                                    let __lastAccSusp = isAccountSuspended;
+
                                     const _unsub = chRef.onSnapshot(snap => {
                                         if (!snap.exists) return;
                                         const d = snap.data() || {};
                                         applyProtection(d.paidCommercialsActiveUntil || 0);
+
+                                        // 🔥 SUSPENSÃO EM TEMPO REAL — recarrega a lista se mudou
+                                        const nowSusp = d.suspended === true;
+                                        const nowAccSusp = d.accountSuspended === true;
+                                        if (nowSusp !== __lastSusp || nowAccSusp !== __lastAccSusp) {
+                                            __lastSusp = nowSusp;
+                                            __lastAccSusp = nowAccSusp;
+                                            console.log('[SUSP] estado mudou — recarregando cards');
+                                            setTimeout(() => carregarCanais(), 100);
+                                        }
                                     }, err => {
                                         console.warn('Listener de proteção falhou:', err.message);
                                     });
@@ -10076,6 +10216,16 @@ if (!isOffline && isPublished) {
 }
 
                             
+                            // 🔥 Botão Baixar canal (aparece só em canais suspensos)
+                            const downloadBtn = channelCard.querySelector('.download-channel');
+                            if (downloadBtn) {
+                                downloadBtn.addEventListener('click', function() {
+                                    const url = this.getAttribute('data-url');
+                                    const name = this.getAttribute('data-name') || 'canal';
+                                    baixarHtmlCanal(url, name, this);
+                                });
+                            }
+
                             const watchBtn = channelCard.querySelector('.watch-channel');
                             const editBtn = channelCard.querySelector('.edit-channel');
                             const toggleBtn = channelCard.querySelector('.toggle-offline-channel');
@@ -11320,6 +11470,7 @@ console.log("Preenchendo formulário...");
                 const provider = new firebase.auth.GoogleAuthProvider();
                 provider.addScope('profile');
                 provider.addScope('email');
+                provider.setCustomParameters({ prompt: 'select_account' });
                 
                 const result = await auth.signInWithPopup(provider);
                 console.log('Login bem-sucedido:', result.user.email);
