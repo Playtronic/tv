@@ -1706,7 +1706,7 @@
                     <option value="youtube_live">Live do YouTube</option>
                 </select>
                 <div class="programming-mode-info" id="programmingModeInfo">
-                    Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Espelha uma conta do YouTube. Quando ela entra ao vivo, o canal exibe a live; fora dela, toca os vídeos recentes ou fica Fora do Ar.<br>Modo Live do YouTube: Espelha uma conta do YouTube. Quando ela entra ao vivo, o canal exibe a live; fora dela, toca os vídeos recentes ou fica Fora do Ar.
+                    Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.
                 </div>
             </div>
             
@@ -1731,8 +1731,8 @@
                                 <div id="youtubeLiveModeContainer" style="display:none;">
                     <div class="form-group">
                         <label for="youtubeChannelUrl">URL do canal do YouTube:</label>
-                        <input type="url" id="youtubeChannelUrl" placeholder="https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxx">
-                        <div class="field-info">Cole a URL do canal que começa com <b>/channel/UC...</b></div>
+                        <input type="url" id="youtubeChannelUrl" placeholder="https://www.youtube.com/@handle ou /channel/UC...">
+                        <div class="field-info">Aceita <b>/channel/UC...</b>, <b>@handle</b>, <b>/c/nome</b> ou <b>/user/nome</b>.</div>
                         <div id="youtubeChannelError" style="color:#ff6b6b;font-size:13px;margin-top:6px;display:none;"></div>
                         <div id="youtubeChannelStatus" style="margin-top:8px;font-size:13px;color:#fdbb2d;display:none;"></div>
                     </div>
@@ -10968,11 +10968,11 @@ showScreen('screen6');
             if (selectedMode === 'grade') {
                 gradeModeContainer.style.display = 'block';
                 playlistModeContainer.style.display = 'none';
-                programmingModeInfo.innerHTML = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Espelha uma conta do YouTube. Quando ela entra ao vivo, o canal exibe a live; fora dela, toca os vídeos recentes ou fica Fora do Ar.<br>Modo Live do YouTube: Espelha uma conta do YouTube. Quando ela entra ao vivo, o canal exibe a live; fora dela, toca os vídeos recentes ou fica Fora do Ar.';
+                programmingModeInfo.innerHTML = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.';
             } else {
                 gradeModeContainer.style.display = 'none';
                 playlistModeContainer.style.display = 'block';
-                programmingModeInfo.innerHTML = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Espelha uma conta do YouTube. Quando ela entra ao vivo, o canal exibe a live; fora dela, toca os vídeos recentes ou fica Fora do Ar.<br>Modo Live do YouTube: Espelha uma conta do YouTube. Quando ela entra ao vivo, o canal exibe a live; fora dela, toca os vídeos recentes ou fica Fora do Ar.';
+                programmingModeInfo.innerHTML = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.';
             }
             
             updateCounters();
@@ -12456,8 +12456,8 @@ toScreen3Btn.addEventListener('click', () => {
 
 
 (function(){
-  var TEXTO_3_MODOS = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Espelha uma conta do YouTube. Quando ela entra ao vivo, o canal exibe a live; fora dela, toca os vídeos recentes ou fica Fora do Ar.';
-  var TEXTO_3_MODOS_HTML = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Espelha uma conta do YouTube. Quando ela entra ao vivo, o canal exibe a live; fora dela, toca os vídeos recentes ou fica Fora do Ar.';
+  var TEXTO_3_MODOS = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.';
+  var TEXTO_3_MODOS_HTML = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.';
 
   function extractYT(u){
     var m = String(u || '').match(/youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{20,})/);
@@ -12507,64 +12507,163 @@ toScreen3Btn.addEventListener('click', () => {
   window.__v49_applyVisibility = applyVisibility;
 
   // Re-habilita botão continuamente + mantém erros escondidos
+  setInterval
+(function(){
+  var CF_RESOLVE = 'https://us-central1-playtronic-tv.cloudfunctions.net/resolveYouTubeChannel';
+  var resolveCache = {};
+  var lastResolve = '';
+  var resolveTimer = null;
+
+  function extractLocal(u){
+    if (!u) return '';
+    var s = String(u).trim();
+    var m = s.match(/^(UC[a-zA-Z0-9_-]{20,})$/);
+    if (m) return m[1];
+    m = s.match(/\/channel\/(UC[a-zA-Z0-9_-]{20,})/);
+    if (m) return m[1];
+    return '';
+  }
+
+  function setStatus(msg, isError){
+    var err = document.getElementById('youtubeChannelError');
+    var st = document.getElementById('youtubeChannelStatus');
+    if (isError){
+      if (err){ err.textContent = msg; err.style.display = 'block'; }
+      if (st){ st.style.display = 'none'; }
+    } else {
+      if (err){ err.style.display = 'none'; }
+      if (st){ st.textContent = msg; st.style.display = 'block'; }
+    }
+  }
+
+  function applyChannelId(id){
+    if (!id) return;
+    window.__v50_channelId = id;
+    try { tvData.youtubeChannelId = id; } catch(e){}
+    var btn = document.getElementById('toScreen4');
+    if (btn) btn.disabled = false;
+    setStatus('Canal detectado: ' + id, false);
+  }
+
+  function resolveInput(){
+    var inp = document.getElementById('youtubeChannelUrl');
+    if (!inp) return;
+    var raw = inp.value.trim();
+    if (!raw) return;
+
+    var local = extractLocal(raw);
+    if (local){ applyChannelId(local); return; }
+
+    if (resolveCache[raw]){ applyChannelId(resolveCache[raw]); return; }
+
+    if (lastResolve === raw) return;
+    lastResolve = raw;
+
+    setStatus('Verificando URL...', false);
+    fetch(CF_RESOLVE + '?url=' + encodeURIComponent(raw))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d && d.success && d.channelId){
+          resolveCache[raw] = d.channelId;
+          applyChannelId(d.channelId);
+        } else {
+          window.__v50_channelId = '';
+          try { tvData.youtubeChannelId = ''; } catch(e){}
+          var btn = document.getElementById('toScreen4');
+          if (btn) btn.disabled = true;
+          setStatus(d && d.error ? ('Erro: ' + d.error) : 'URL não reconhecida', true);
+        }
+      })
+      .catch(function(){
+        var btn = document.getElementById('toScreen4');
+        if (btn) btn.disabled = true;
+        setStatus('Erro ao verificar URL', true);
+      });
+  }
+
+  function applyVisibility(){
+    var sel = document.getElementById('programmingMode');
+    var c = document.getElementById('youtubeLiveModeContainer');
+    if (!sel || !c) return;
+    if (sel.value === 'youtube_live'){
+      c.style.display = 'block';
+      var g = document.getElementById('gradeModeContainer');
+      var p = document.getElementById('playlistModeContainer');
+      if (g) g.style.display = 'none';
+      if (p) p.style.display = 'none';
+      var pe = document.getElementById('playlistError');
+      var pr = document.getElementById('programsError');
+      if (pe) pe.style.display = 'none';
+      if (pr) pr.style.display = 'none';
+      var url = document.getElementById('youtubeChannelUrl');
+      if (url && typeof tvData !== 'undefined' && tvData.youtubeChannelId && !url.value){
+        url.value = 'https://www.youtube.com/channel/' + tvData.youtubeChannelId;
+        applyChannelId(tvData.youtubeChannelId);
+      }
+      var b = (typeof tvData !== 'undefined' && tvData.youtubeOfflineBehavior) || 'videos';
+      var radios = document.getElementsByName('ytOfflineBehavior');
+      for (var i = 0; i < radios.length; i++) radios[i].checked = (radios[i].value === b);
+    } else {
+      c.style.display = 'none';
+    }
+  }
+  window.__v50_applyVisibility = applyVisibility;
+
+  // Mantém o botão sincronizado + esconde erros de programas/playlist
   setInterval(function(){
     var sel = document.getElementById('programmingMode');
     if (!sel || sel.value !== 'youtube_live') return;
-    var inp = document.getElementById('youtubeChannelUrl');
-    var btn = document.getElementById('toScreen4');
-    if (!inp || !btn) return;
-    var id = extractYT(inp.value);
-    if (id && btn.disabled){
-      btn.disabled = false;
-    }
     var pe = document.getElementById('playlistError');
     var pr = document.getElementById('programsError');
     if (pe) pe.style.display = 'none';
     if (pr) pr.style.display = 'none';
+    var btn = document.getElementById('toScreen4');
+    if (btn && window.__v50_channelId && btn.disabled) btn.disabled = false;
   }, 300);
 
   function wire(){
     var sel = document.getElementById('programmingMode');
     if (!sel) return false;
     sel.addEventListener('change', function(){ setTimeout(applyVisibility, 0); }, false);
+
+    var inp = document.getElementById('youtubeChannelUrl');
+    if (inp){
+      inp.addEventListener('input', function(){
+        if (resolveTimer) clearTimeout(resolveTimer);
+        resolveTimer = setTimeout(resolveInput, 600);
+      });
+      inp.addEventListener('blur', resolveInput);
+    }
+
     var radios = document.getElementsByName('ytOfflineBehavior');
     for (var i = 0; i < radios.length; i++){
       radios[i].addEventListener('change', function(){
-        window.__v49_behavior = this.value;
+        window.__v50_behavior = this.value;
         try { tvData.youtubeOfflineBehavior = this.value; } catch(e){}
       });
     }
+
     var btn4 = document.getElementById('toScreen4');
     if (btn4){
       btn4.addEventListener('click', function(e){
         if (sel.value !== 'youtube_live') return;
-        var inp = document.getElementById('youtubeChannelUrl');
-        var err = document.getElementById('youtubeChannelError');
-        var st = document.getElementById('youtubeChannelStatus');
-        var id = extractYT(inp.value);
-        if (!id){
+        if (!window.__v50_channelId){
           e.preventDefault();
           e.stopImmediatePropagation();
-          err.textContent = 'Cole uma URL válida (youtube.com/channel/UC...)';
-          err.style.display = 'block';
-          st.style.display = 'none';
+          setStatus('Cole uma URL válida do YouTube', true);
           return false;
         }
-        err.style.display = 'none';
-        st.textContent = 'Canal detectado: ' + id;
-        st.style.display = 'block';
-        window.__v49_channelId = id;
-        try { tvData.youtubeChannelId = id; } catch(x){}
         try { tvData.programmingMode = 'youtube_live'; } catch(x){}
         var rs = document.getElementsByName('ytOfflineBehavior');
         for (var j = 0; j < rs.length; j++){
           if (rs[j].checked){
-            window.__v49_behavior = rs[j].value;
+            window.__v50_behavior = rs[j].value;
             try { tvData.youtubeOfflineBehavior = rs[j].value; } catch(x){}
           }
         }
       }, true);
     }
+
     setTimeout(applyVisibility, 300);
     return true;
   }
@@ -12573,32 +12672,27 @@ toScreen3Btn.addEventListener('click', () => {
   window.fetch = function(input, init){
     try {
       var url = (typeof input === 'string') ? input : (input && input.url) || '';
-      if (url.indexOf('playtronicpublisher.workers.dev') !== -1 && init && init.body && window.__v49_channelId){
+      if (url.indexOf('playtronicpublisher.workers.dev') !== -1 && init && init.body && window.__v50_channelId){
         var body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
         if (body && body.htmlContent){
           var tpl = document.getElementById('__liveTpl');
           if (tpl){
             var live = tpl.innerHTML
-              .replace('__YT_CHANNEL_ID__', window.__v49_channelId)
-              .replace('__YT_OFFLINE_BEHAVIOR__', window.__v49_behavior || 'videos');
+              .replace('__YT_CHANNEL_ID__', window.__v50_channelId)
+              .replace('__YT_OFFLINE_BEHAVIOR__', window.__v50_behavior || 'videos');
             var bc = String.fromCharCode(60) + '/body' + String.fromCharCode(62);
             body.htmlContent = body.htmlContent.replace(bc, live + '\n' + bc);
             init.body = JSON.stringify(body);
-            console.log('[v49] bloco live injetado');
           }
         }
       }
-    } catch(e){ console.warn('[v49] fetch intercept:', e.message); }
+    } catch(e){}
     return _origFetch.apply(this, arguments);
   };
 
-  function boot(){
-    if (!wire()) setTimeout(boot, 300);
-  }
+  function boot(){ if (!wire()) setTimeout(boot, 300); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
-
-  console.log('[v49] modo Live do YouTube instalado');
 })();
 </script>
 
@@ -13016,6 +13110,7 @@ toScreen3Btn.addEventListener('click', () => {
 
 
 
+
 <template id="__liveTpl"><script>
 (function(){
   var CF = 'https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus';
@@ -13099,7 +13194,7 @@ toScreen3Btn.addEventListener('click', () => {
         if (BEHAVIOR === 'offline'){ renderOffline(); scheduleRecheck(); }
         else { renderVideo(); }
       }
-    }).catch(function(e){ console.warn('[Live]', e.message); });
+    }).catch(function(){});
   }
   function boot(){
     if (booted) return; booted = true;
