@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.3">
+    <meta name="version" content="1.0.0.4">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="OdondgJiOpPFKJjQ0rcs">
     <meta name="channel-name" content="ICL Notícias">
@@ -1232,7 +1232,7 @@
         
  <div class="contact-info">Contato: acmebrasil@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.3
+            Versão 1.0.0.4
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2415,7 +2415,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-27";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.3";
+        const CHANNEL_VERSION = "1.0.0.4";
         const CHANNEL_ID = "OdondgJiOpPFKJjQ0rcs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6038,16 +6038,29 @@ init();
       },
       events: {
         onReady: function(e){
-          try { if (userStarted) e.target.playVideo(); } catch(x){}
+          try {
+            if (userStarted){
+              if (isLiveStream){
+                try { var d = e.target.getDuration(); if (d && d > 0) e.target.seekTo(d, true); } catch(x){}
+              }
+              e.target.playVideo();
+            }
+          } catch(x){}
           bindCustomControls();
           refreshVolumeIcon();
           setTimeout(addMasks, 800);
         },
         onStateChange: function(e){
-          if (e.data === 0 && !isLiveStream && userStarted) proximo();
+          if (e.data === 0){
+            if (!isLiveStream){
+              try { proximo(); } catch(x){}
+            }
+          }
         },
         onError: function(){
-          if (!isLiveStream && userStarted) proximo();
+          if (!isLiveStream){
+            try { proximo(); } catch(x){}
+          }
         }
       }
     });
@@ -6081,28 +6094,22 @@ init();
 
   function bindCustomControls(){
     var r10 = document.getElementById('rewind10Btn');
-    if (r10 && !r10.__v63){
-      r10.__v63 = true;
-      r10.onclick = function(){ try { var t = player.getCurrentTime(); player.seekTo(t > 10 ? t - 10 : 0, true); } catch(e){} };
-    }
+    if (r10 && !r10.__v64){ r10.__v64 = true; r10.onclick = function(){ try { var t = player.getCurrentTime(); player.seekTo(t > 10 ? t - 10 : 0, true); } catch(e){} }; }
     var rst = document.getElementById('restartBtn');
-    if (rst && !rst.__v63){
-      rst.__v63 = true;
-      rst.onclick = function(){ try { player.seekTo(0, true); } catch(e){} };
-    }
+    if (rst && !rst.__v64){ rst.__v64 = true; rst.onclick = function(){ try { player.seekTo(0, true); } catch(e){} }; }
     var lv = document.getElementById('liveBtn');
-    if (lv && !lv.__v63){
-      lv.__v63 = true;
+    if (lv && !lv.__v64){
+      lv.__v64 = true;
       lv.onclick = function(){
         try {
-          if (isLiveStream){ player.seekTo(0, true); player.playVideo(); }
-          else { var d = player.getDuration(); var off = d * 0.05; if (d > off + 1) player.seekTo(d - off, true); }
+          if (isLiveStream){ var d = player.getDuration(); if (d > 0) player.seekTo(d, true); player.playVideo(); }
+          else { var dur = player.getDuration(); var off = dur * 0.05; if (dur > off + 1) player.seekTo(dur - off, true); }
         } catch(e){}
       };
     }
     var vb = document.getElementById('volumeBtn');
-    if (vb && !vb.__v63){
-      vb.__v63 = true;
+    if (vb && !vb.__v64){
+      vb.__v64 = true;
       vb.onclick = function(){
         try {
           var v = player.getVolume();
@@ -6113,13 +6120,10 @@ init();
       };
     }
     var vs = document.getElementById('volumeSlider');
-    if (vs && !vs.__v63){
-      vs.__v63 = true;
-      vs.oninput = function(){ try { player.setVolume(parseFloat(this.value) * 100); refreshVolumeIcon(); } catch(e){} };
-    }
+    if (vs && !vs.__v64){ vs.__v64 = true; vs.oninput = function(){ try { player.setVolume(parseFloat(this.value) * 100); refreshVolumeIcon(); } catch(e){} }; }
     var fsb = document.getElementById('fullscreenBtn');
-    if (fsb && !fsb.__v63){
-      fsb.__v63 = true;
+    if (fsb && !fsb.__v64){
+      fsb.__v64 = true;
       fsb.onclick = function(){
         var wrap = getWrap();
         if (!wrap) return;
@@ -6149,12 +6153,18 @@ init();
     var btn = document.getElementById('autoplayButton');
     var ov = document.getElementById('autoplayOverlay');
     if (!btn || !ov) return;
-    if (btn.__v63) return;
-    btn.__v63 = true;
+    if (btn.__v64) return;
+    btn.__v64 = true;
     btn.onclick = function(){
       userStarted = true;
       ov.classList.add('hidden');
-      try { player.playVideo(); } catch(e){}
+      try {
+        if (isLiveStream && player){
+          var d = player.getDuration();
+          if (d && d > 0) player.seekTo(d, true);
+        }
+        if (player) player.playVideo();
+      } catch(e){}
       bindCustomControls();
       addMasks();
     };
@@ -6184,6 +6194,16 @@ init();
   function scheduleRecheck(){
     if (recheckTimer) clearTimeout(recheckTimer);
     recheckTimer = setTimeout(function(){ fetchStatus(true); }, 120000);
+  }
+
+  function proximo(){
+    if (isLiveStream) return;
+    idx++;
+    if (idx >= videos.length){ idx = 0; shuffle(videos); }
+    if (videos.length){
+      mountPlayer(videos[idx].id, false);
+    }
+    setTimeout(function(){ fetchStatus(false); }, 500);
   }
 
   function fetchStatus(force){
@@ -6222,13 +6242,6 @@ init();
         }
       }
     }).catch(function(){});
-  }
-
-  function proximo(){
-    if (isLiveStream || !userStarted) return;
-    idx++;
-    if (idx >= videos.length){ idx = 0; shuffle(videos); fetchStatus(true); }
-    else { fetchStatus(false); }
   }
 
   function boot(){
