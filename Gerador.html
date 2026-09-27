@@ -12694,6 +12694,184 @@ toScreen3Btn.addEventListener('click', () => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
+
+(function(){
+  var CF_RESOLVE = 'https://us-central1-playtronic-tv.cloudfunctions.net/resolveYouTubeChannel';
+  var resolveCache = {};
+  var lastResolve = '';
+  var resolveTimer = null;
+
+  function extractLocal(u){
+    if (!u) return '';
+    var s = String(u).trim();
+    var m = s.match(/^(UC[a-zA-Z0-9_-]{20,})$/);
+    if (m) return m[1];
+    m = s.match(/\/channel\/(UC[a-zA-Z0-9_-]{20,})/);
+    if (m) return m[1];
+    return '';
+  }
+  function setStatus(msg, isError){
+    var err = document.getElementById('youtubeChannelError');
+    var st = document.getElementById('youtubeChannelStatus');
+    if (isError){
+      if (err){ err.textContent = msg; err.style.display = 'block'; }
+      if (st){ st.style.display = 'none'; }
+    } else {
+      if (err){ err.style.display = 'none'; }
+      if (st){ st.textContent = msg; st.style.display = 'block'; }
+    }
+  }
+  function applyChannelId(id){
+    if (!id) return;
+    window.__v51_channelId = id;
+    try { tvData.youtubeChannelId = id; } catch(e){}
+    var btn = document.getElementById('toScreen4');
+    if (btn) btn.disabled = false;
+    setStatus('Canal detectado: ' + id, false);
+  }
+  function resolveInput(){
+    var inp = document.getElementById('youtubeChannelUrl');
+    if (!inp) return;
+    var raw = inp.value.trim();
+    if (!raw) return;
+    var local = extractLocal(raw);
+    if (local){ applyChannelId(local); return; }
+    if (resolveCache[raw]){ applyChannelId(resolveCache[raw]); return; }
+    if (lastResolve === raw) return;
+    lastResolve = raw;
+    setStatus('Verificando URL...', false);
+    fetch(CF_RESOLVE + '?url=' + encodeURIComponent(raw))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d && d.success && d.channelId){
+          resolveCache[raw] = d.channelId;
+          applyChannelId(d.channelId);
+        } else {
+          window.__v51_channelId = '';
+          try { tvData.youtubeChannelId = ''; } catch(e){}
+          var btn = document.getElementById('toScreen4');
+          if (btn) btn.disabled = true;
+          setStatus(d && d.error ? ('Erro: ' + d.error) : 'URL não reconhecida', true);
+        }
+      })
+      .catch(function(){
+        var btn = document.getElementById('toScreen4');
+        if (btn) btn.disabled = true;
+        setStatus('Erro ao verificar URL', true);
+      });
+  }
+  function applyVisibility(){
+    var sel = document.getElementById('programmingMode');
+    var c = document.getElementById('youtubeLiveModeContainer');
+    if (!sel || !c) return;
+    if (sel.value === 'youtube_live'){
+      c.style.display = 'block';
+      var g = document.getElementById('gradeModeContainer');
+      var p = document.getElementById('playlistModeContainer');
+      if (g) g.style.display = 'none';
+      if (p) p.style.display = 'none';
+      var pe = document.getElementById('playlistError');
+      var pr = document.getElementById('programsError');
+      if (pe) pe.style.display = 'none';
+      if (pr) pr.style.display = 'none';
+      var url = document.getElementById('youtubeChannelUrl');
+      if (url && typeof tvData !== 'undefined' && tvData.youtubeChannelId && !url.value){
+        url.value = 'https://www.youtube.com/channel/' + tvData.youtubeChannelId;
+        applyChannelId(tvData.youtubeChannelId);
+      }
+      var b = (typeof tvData !== 'undefined' && tvData.youtubeOfflineBehavior) || 'videos';
+      var radios = document.getElementsByName('ytOfflineBehavior');
+      for (var i = 0; i < radios.length; i++) radios[i].checked = (radios[i].value === b);
+    } else {
+      c.style.display = 'none';
+    }
+  }
+  window.__v51_applyVisibility = applyVisibility;
+
+  setInterval(function(){
+    var sel = document.getElementById('programmingMode');
+    if (!sel || sel.value !== 'youtube_live') return;
+    var pe = document.getElementById('playlistError');
+    var pr = document.getElementById('programsError');
+    if (pe) pe.style.display = 'none';
+    if (pr) pr.style.display = 'none';
+    var btn = document.getElementById('toScreen4');
+    if (btn && window.__v51_channelId && btn.disabled) btn.disabled = false;
+  }, 300);
+
+  function wire(){
+    var sel = document.getElementById('programmingMode');
+    if (!sel) return false;
+    sel.addEventListener('change', function(){ setTimeout(applyVisibility, 0); }, false);
+
+    var inp = document.getElementById('youtubeChannelUrl');
+    if (inp){
+      inp.addEventListener('input', function(){
+        if (resolveTimer) clearTimeout(resolveTimer);
+        resolveTimer = setTimeout(resolveInput, 600);
+      });
+      inp.addEventListener('blur', resolveInput);
+    }
+
+    var radios = document.getElementsByName('ytOfflineBehavior');
+    for (var i = 0; i < radios.length; i++){
+      radios[i].addEventListener('change', function(){
+        window.__v51_behavior = this.value;
+        try { tvData.youtubeOfflineBehavior = this.value; } catch(e){}
+      });
+    }
+
+    var btn4 = document.getElementById('toScreen4');
+    if (btn4){
+      btn4.addEventListener('click', function(e){
+        if (sel.value !== 'youtube_live') return;
+        if (!window.__v51_channelId){
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          setStatus('Cole uma URL válida do YouTube', true);
+          return false;
+        }
+        try { tvData.programmingMode = 'youtube_live'; } catch(x){}
+        var rs = document.getElementsByName('ytOfflineBehavior');
+        for (var j = 0; j < rs.length; j++){
+          if (rs[j].checked){
+            window.__v51_behavior = rs[j].value;
+            try { tvData.youtubeOfflineBehavior = rs[j].value; } catch(x){}
+          }
+        }
+      }, true);
+    }
+
+    setTimeout(applyVisibility, 300);
+    return true;
+  }
+
+  var _origFetch = window.fetch;
+  window.fetch = function(input, init){
+    try {
+      var url = (typeof input === 'string') ? input : (input && input.url) || '';
+      if (url.indexOf('playtronicpublisher.workers.dev') !== -1 && init && init.body && window.__v51_channelId){
+        var body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
+        if (body && body.htmlContent){
+          var tpl = document.getElementById('__liveTpl');
+          if (tpl){
+            var live = tpl.innerHTML
+              .replace('__YT_CHANNEL_ID__', window.__v51_channelId)
+              .replace('__YT_OFFLINE_BEHAVIOR__', window.__v51_behavior || 'videos');
+            var bc = String.fromCharCode(60) + '/body' + String.fromCharCode(62);
+            body.htmlContent = body.htmlContent.replace(bc, live + '\n' + bc);
+            init.body = JSON.stringify(body);
+          }
+        }
+      }
+    } catch(e){}
+    return _origFetch.apply(this, arguments);
+  };
+
+  function boot(){ if (!wire()) setTimeout(boot, 300); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
 </script>
 
                     
@@ -13107,10 +13285,6 @@ toScreen3Btn.addEventListener('click', () => {
 })();
 
 </script>
-
-
-
-
 <template id="__liveTpl"><script>
 (function(){
   var CF = 'https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus';
@@ -13208,5 +13382,10 @@ toScreen3Btn.addEventListener('click', () => {
   setTimeout(boot, 1500);
 })();
 </script></template>
+
+
+
+
+
 </body>
 </html>
