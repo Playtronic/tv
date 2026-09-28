@@ -13387,7 +13387,60 @@ function buscarTitulo(vid, el, fallback){
     };
   }
 
-  function renderOffline(){
+  var __v88_retries = 0;
+var __v88_rssTried = false;
+function __v88_loading(){
+  var w = getWrap();
+  if (!w) return;
+  var old = document.getElementById("__liveOffline");
+  if (old) old.remove();
+  var oldL = document.getElementById("__liveLoading");
+  if (oldL) return;
+  if (!document.getElementById("__v88_css")){
+    var s = document.createElement("style");
+    s.id = "__v88_css";
+    s.textContent = "@keyframes __v88spin{to{transform:rotate(360deg)}}";
+    document.head.appendChild(s);
+  }
+  var m = document.createElement("div");
+  m.id = "__liveLoading";
+  m.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px;";
+  m.innerHTML = '<div style="width:40px;height:40px;border:4px solid rgba(255,255,255,0.3);border-top-color:#fdbb2d;border-radius:50%;animation:__v88spin 1s linear infinite;margin-bottom:16px;"></div><p style="font-size:0.9rem;opacity:0.85;">Carregando vídeos do YouTube...<br><small style="opacity:0.6;">Tentativa ' + __v88_retries + '</small></p>';
+  w.appendChild(m);
+}
+function __v88_rss(){
+  if (__v88_rssTried) return;
+  __v88_rssTried = true;
+  var proxy = "https://api.allorigins.win/raw?url=" + encodeURIComponent("https://www.youtube.com/feeds/videos.xml?channel_id=" + CH);
+  fetch(proxy).then(function(r){ return r.text(); }).then(function(xml){
+    var re = /<yt:videoId>([a-zA-Z0-9_-]{11})</yt:videoId>/g;
+    var novos = []; var seen = {}; var m;
+    while ((m = re.exec(xml)) !== null){ if (!seen[m[1]]){ seen[m[1]]=1; novos.push({id:m[1],title:""}); } }
+    if (novos.length){
+      videos = novos; idx = 0;
+      var oldL = document.getElementById("__liveLoading");
+      if (oldL) oldL.remove();
+      mountPlayer(videos[0].id, false);
+    } else {
+      __v88_retries = 9999;
+      renderOffline();
+    }
+  }).catch(function(){ __v88_retries = 9999; renderOffline(); });
+}
+function renderOffline(){
+  if (BEHAVIOR === "videos"){
+    if (__v88_retries < 6){
+      __v88_retries++;
+      __v88_loading();
+      setTimeout(function(){ fetchStatus(true); }, 4000);
+      return;
+    }
+    if (!__v88_rssTried){
+      __v88_loading();
+      __v88_rss();
+      return;
+    }
+  }
     injectStyle();
     var wrap = getWrap();
     if (!wrap) return;
