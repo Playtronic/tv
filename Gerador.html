@@ -13304,484 +13304,211 @@ window.fetch = function(input, init){
 })();
 </script>
 <template id="__liveTpl"><script>
+// [v19 Live Sync] — script inline que os canais antigos usam
 (function(){
-var CF = "https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus";
-var CH = "__YT_CHANNEL_ID__";
-var BEHAVIOR = "__YT_OFFLINE_BEHAVIOR__";
-var videos = [], idx = 0, player = null, isLiveStream = false, currentLiveId = "", booted = false;
-var recheckTimer = null;
-var userStarted = false;
-var firstPlayDone = false;
-var playerReady = false;
-var playerInstanceId = 0;
-var rejectedIds = {};
-
-function log(){ try { var a=[].slice.call(arguments); a.unshift("[V16]"); console.log.apply(console,a); } catch(e){} }
-function warn(){ try { var a=[].slice.call(arguments); a.unshift("[V16]"); console.warn.apply(console,a); } catch(e){} }
-
-function shuffle(a){ for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;} return a; }
-function getWrap(){ return document.querySelector(".video-wrapper"); }
-function getSlotPct(){ try { if (typeof calcularPercentualSlot === "function"){ var p = calcularPercentualSlot(); if (typeof p === "number" && p >= 0 && p <= 1) return p; } } catch(e){} return 0; }
-function getSliderVal(){ var vs = document.getElementById("volumeSlider"); if (!vs) return 1; var v = parseFloat(vs.value); return isNaN(v) ? 1 : v; }
-function setVolIcon(v){ var vb = document.getElementById("volumeBtn"); if (!vb) return; vb.removeAttribute("title"); vb.textContent = v === 0 ? String.fromCharCode(0xD83D,0xDD07) : (v < 0.5 ? String.fromCharCode(0xD83D,0xDD08) : String.fromCharCode(0xD83D,0xDD0A)); }
-function applyVolume(){ if (!player || !playerReady) return; try { var v = getSliderVal(); if (v === 0){ player.mute(); player.setVolume(0); } else { player.unMute(); player.setVolume(v * 100); } } catch(e){} }
-
-function injectStyle(){
-  if (document.getElementById("__v71_css")) return;
-  var s = document.createElement("style");
-  s.id = "__v71_css";
-  s.textContent = ".video-wrapper{position:relative !important;width:100% !important;max-width:800px !important;margin:20px auto !important;background:#000 !important;border-radius:12px !important;overflow:hidden !important;aspect-ratio:16/9 !important;height:auto !important;display:block !important;}.youtube-container{position:absolute !important;top:0 !important;left:0 !important;width:100% !important;height:100% !important;display:block !important;pointer-events:none !important;}.youtube-container iframe{width:100% !important;height:100% !important;border:0 !important;pointer-events:none !important;}.video-wrapper #myVideo{display:none !important;}.video-wrapper .autoplay-overlay{z-index:2147483000 !important;display:flex !important;pointer-events:auto !important;}.video-wrapper .autoplay-overlay.hidden{display:none !important;}#volumeBtn{background:transparent !important;border:0 !important;padding:5px !important;font-size:1.5rem !important;line-height:1 !important;width:44px !important;height:44px !important;display:inline-flex !important;align-items:center !important;justify-content:center !important;color:#fff !important;box-shadow:none !important;overflow:hidden !important;}#volumeBtn::before,#volumeBtn::after{content:none !important;}";
-  document.head.appendChild(s);
-}
-
-function destroyPlayer(){
-  playerReady = false;
-  if (player){ try { player.destroy(); } catch(e){} player = null; }
-  var yc = document.getElementById("youtubeContainer");
-  if (yc) yc.innerHTML = "";
-}
-
-function addMasks(){
-  var yc = document.getElementById("youtubeContainer");
-  if (!yc) return;
-  if (!document.getElementById("__v71_topmask")){
-    var t = document.createElement("div"); t.id = "__v71_topmask";
-    t.style.cssText = "position:absolute;top:0;left:0;right:0;height:80px;background:linear-gradient(180deg,#000 0%,rgba(0,0,0,0.85) 55%,transparent 100%);z-index:5;pointer-events:none;";
-    yc.appendChild(t);
+  "use strict";
+  var CF = "https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus";
+  var CH = "__YT_CHANNEL_ID__";
+  var BEHAVIOR = "__YT_OFFLINE_BEHAVIOR__";
+  var SLOT_SEC = 1500;
+  var EPOCH_MS = Date.parse("2025-01-01T06:00:00Z");
+  var videos = [];
+  var isLive = false;
+  var currentLiveId = "";
+  var loadedVideoId = null;
+  var loadedSlotKey = "";
+  var booted = false;
+  var titleCache = {};
+  var liveCheckInterval = null;
+  var tickInterval = null;
+  function _oembedFetch(id){
+    if (!id) return Promise.resolve("");
+    if (titleCache[id]) return Promise.resolve(titleCache[id]);
+    var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + id) + "&format=json";
+    return fetch(u).then(function(r){ return r.json(); }).then(function(d){
+      if (d && d.title){ titleCache[id] = d.title; return d.title; }
+      return "";
+    }).catch(function(){ return ""; });
   }
-  if (!document.getElementById("__v71_botmask")){
-    var b = document.createElement("div"); b.id = "__v71_botmask";
-    b.style.cssText = "position:absolute;bottom:0;left:0;right:0;height:50px;background:linear-gradient(0deg,#000 0%,rgba(0,0,0,0.85) 55%,transparent 100%);z-index:5;pointer-events:none;";
-    yc.appendChild(b);
+  function setText(id, t){ var el = document.getElementById(id); if (el && t) el.textContent = t; }
+  function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
+  function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
+  function computeCurrentSlot(){
+    var now = Date.now();
+    var elapsed = Math.floor((now - EPOCH_MS) / 1000);
+    if (elapsed < 0) elapsed = 0;
+    var n = videos.length || 1;
+    var slotIdx = Math.floor(elapsed / SLOT_SEC) % n;
+    var secInSlot = elapsed % SLOT_SEC;
+    return { idx: slotIdx, seek: secInSlot };
   }
-}
-
-function doPlay(){
-  if (!player || !playerReady) return;
-  var tent = 0;
-  function retry(){
-    if (!player || !userStarted) return;
-    tent++;
+  function updateInfoTitles(idxNow){
+    if (!videos.length) return;
+    var c = videos[idxNow % videos.length];
+    var nv = videos[(idxNow + 1) % videos.length];
+    var av = videos[(idxNow + 2) % videos.length];
+    setText("currentProgram", (c && (c.title || c.name)) || "Carregando...");
+    setText("nextProgram", (nv && (nv.title || nv.name)) || "Carregando...");
+    setText("afterNextProgram", (av && (av.title || av.name)) || "Carregando...");
+    if (c && !c.title && c.id) _oembedFetch(c.id).then(function(t){ if (t) setText("currentProgram", t); });
+    if (nv && !nv.title && nv.id) _oembedFetch(nv.id).then(function(t){ if (t) setText("nextProgram", t); });
+    if (av && !av.title && av.id) _oembedFetch(av.id).then(function(t){ if (t) setText("afterNextProgram", t); });
+  }
+  function ensureVisible(){ var pi = document.querySelector(".program-info"); if (pi) pi.style.display = ""; var di = document.querySelector(".debug-info"); if (di) di.style.display = ""; }
+  function playWhenReady(){
+    var tries = 0;
+    var iv = setInterval(function(){
+      tries++;
+      if (tries > 40) { clearInterval(iv); return; }
+      try {
+        if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady){
+          if (youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() !== 1) youtubePlayer.playVideo();
+          clearInterval(iv);
+        }
+      } catch(e){ clearInterval(iv); }
+    }, 500);
+  }
+  function seekToSlotPosition(seekSec){
+    var tries = 0;
+    var iv = setInterval(function(){
+      tries++;
+      if (tries > 60) { clearInterval(iv); return; }
+      try {
+        if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady){
+          var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
+          if (dur > 0){ var pos = seekSec % dur; if (pos > 0.5) youtubePlayer.seekTo(pos, true); clearInterval(iv); }
+        }
+      } catch(e){ clearInterval(iv); }
+    }, 500);
+  }
+  function loadIntoPlayer(videoId, seekSec, autoPlay){
+    if (typeof criarPlayerYouTube !== "function") return false;
     try {
-      var st = player.getPlayerState();
-      if (st === 1 || st === 3) return;
-      player.mute();
-      player.playVideo();
-    } catch(e){}
-    if (tent < 20) setTimeout(retry, 300);
+      criarPlayerYouTube(videoId, 0, autoPlay);
+      isYoutubeVideo = true;
+      loadedVideoId = videoId;
+      if (seekSec > 0) seekToSlotPosition(seekSec);
+      if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
+      return true;
+    } catch(e){ console.warn("[v19] falha:", e); return false; }
   }
-  retry();
-  setTimeout(function(){ if (!userStarted || !playerReady) return; applyVolume(); setVolIcon(getSliderVal()); }, 400);
-  setTimeout(function(){
-    if (!userStarted || !playerReady) return;
+  function loadLive(vid){
+    if (!vid) return;
+    if (loadedVideoId === vid && loadedSlotKey === "live:" + vid) return;
+    if (typeof criarPlayerYouTube !== "function") return setTimeout(function(){ loadLive(vid); }, 300);
+    var off = document.getElementById("__liveOffline"); if (off) off.remove();
+    var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "block";
+    loadedSlotKey = "live:" + vid;
+    loadIntoPlayer(vid, 0, typeof userStartedPlayback !== "undefined" && userStartedPlayback);
+    setText("currentProgram", "AO VIVO: Transmissão em tempo real");
+    setText("nextProgram", "Ao Vivo");
+    setText("afterNextProgram", "Ao Vivo");
+    setLiveBadge(true);
+  }
+  function loadRecentForCurrentSlot(force){
+    if (!videos.length){ mostrarOffline(); return; }
+    var s = computeCurrentSlot();
+    var v = videos[s.idx];
+    if (!v || !v.id) return;
+    if (typeof criarPlayerYouTube !== "function") return setTimeout(loadRecentForCurrentSlot, 300);
+    var key = "recent:" + s.idx;
+    if (!force && loadedSlotKey === key && loadedVideoId === v.id) return;
+    var off = document.getElementById("__liveOffline"); if (off) off.remove();
+    var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "block";
+    loadedSlotKey = key;
+    loadIntoPlayer(v.id, s.seek, typeof userStartedPlayback !== "undefined" && userStartedPlayback);
+    updateInfoTitles(s.idx);
+  }
+  function mostrarOffline(){
+    var w = document.querySelector(".video-wrapper"); if (!w) return;
+    if (document.getElementById("__liveOffline")) return;
+    var h = document.getElementById("myVideo"); if (h){ h.style.display = "none"; try{ h.pause(); }catch(e){} }
+    var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "none";
+    var m = document.createElement("div");
+    m.id = "__liveOffline";
+    m.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:50;";
+    var img = document.createElement("img");
+    img.src = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png";
+    img.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;";
+    m.appendChild(img);
+    var b = document.createElement("div");
+    b.className = "offline-message";
+    b.innerHTML = "<h3>Canal Temporariamente Fora do Ar</h3><p style='font-size:0.9rem;'>Este canal esta passando por manutencao.</p><p style='font-size:0.9rem;'>Tente novamente mais tarde.</p>";
+    m.appendChild(b);
+    w.appendChild(m);
+  }
+  function fetchStatus(force){
+    if (!CH) return;
+    var url = CF + "?channelId=" + encodeURIComponent(CH) + (force ? "&fresh=1" : "");
+    fetch(url).then(function(r){ return r.json(); }).then(function(d){
+      if (!d || !d.success) return;
+      var wasLive = isLive;
+      isLive = !!d.isLive;
+      currentLiveId = d.liveVideoId || "";
+      if (d.videos && d.videos.length){ if (!videos.length || d.videos.length !== videos.length){ videos = d.videos; } }
+      if (isLive){
+        setLiveBadge(true);
+        if (!wasLive || currentLiveId !== loadedVideoId){ loadLive(currentLiveId); }
+      } else {
+        setLiveBadge(false);
+        if (BEHAVIOR === "offline"){ mostrarOffline(); }
+        else {
+          if (wasLive){ loadedSlotKey = ""; loadedVideoId = null; }
+          loadRecentForCurrentSlot(wasLive);
+        }
+      }
+    }).catch(function(e){ console.warn("[v19] status:", e); });
+  }
+  function tickSlot(){
+    if (isLive) return;
+    if (!videos.length) return;
+    if (BEHAVIOR === "offline") return;
+    var s = computeCurrentSlot();
+    var v = videos[s.idx];
+    if (!v || !v.id) return;
+    var key = "recent:" + s.idx;
+    if (loadedSlotKey !== key){ loadRecentForCurrentSlot(true); return; }
     try {
-      var d = player.getDuration();
-      if (d && d > 0){
-        if (isLiveStream){ player.seekTo(d, true); }
-        else if (!firstPlayDone){
-          var pct = getSlotPct();
-          if (pct > 0 && pct < 1) player.seekTo(d * pct, true);
-          firstPlayDone = true;
+      if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady){
+        if (youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0){
+          var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
+          if (dur > 0){ var pos = s.seek % dur; youtubePlayer.seekTo(pos, true); youtubePlayer.playVideo(); }
         }
       }
     } catch(e){}
-  }, 800);
-}
-
-function rejeitaLive(badId){
-  warn("rejeitaLive:", badId);
-  rejectedIds[badId] = 1;
-  try { if (player && player.destroy) player.destroy(); } catch(e){}
-  player = null; playerReady = false;
-  var nextId = null;
-  if (videos && videos.length){
-    for (var i = 0; i < videos.length; i++){
-      if (videos[i] && videos[i].id && !rejectedIds[videos[i].id]) { nextId = videos[i].id; break; }
-    }
   }
-  if (nextId){
-    log("tentando alternativa:", nextId);
-    currentLiveId = nextId;
-    isLiveStream = true;
-    mountPlayer(nextId, true);
-  } else {
-    warn("sem alternativas - offline");
-    isLiveStream = false;
-    try { renderOffline(); } catch(e){}
+  function boot(){
+    if (booted) return;
+    if (!CH) return;
+    if (typeof criarPlayerYouTube !== "function") return setTimeout(boot, 300);
+    booted = true;
+    ensureVisible();
+    fixModePanel();
+    setInterval(fixModePanel, 5000);
+    fetchStatus(false);
+    if (liveCheckInterval) clearInterval(liveCheckInterval);
+    liveCheckInterval = setInterval(function(){ fetchStatus(true); }, 120000);
+    if (tickInterval) clearInterval(tickInterval);
+    tickInterval = setInterval(tickSlot, 1000);
+    setTimeout(ensureVisible, 3000);
+    setTimeout(ensureVisible, 6000);
   }
-}
-
-function instalaWatchdog(thisInst, vid){
-  log("watchdog para", vid);
-  setTimeout(function(){
-    if (thisInst !== playerInstanceId) return;
-    if (!player) { log("tick 4s: player null"); return; }
+  setTimeout(boot, 1500);
+  function isFallback(t){ if (!t) return true; var c = String(t).trim(); return c === "" || c === "-" || c === "Video" || c === "Video:" || c === "Vídeo" || c === "Vídeo:"; }
+  function getPlayerTitle(){
     try {
-      var st = player.getPlayerState ? player.getPlayerState() : "?";
-      var cur = player.getCurrentTime ? player.getCurrentTime() : "?";
-      log("tick 4s: st=" + st + " cur=" + cur);
-    } catch(e){}
-  }, 4000);
-  setTimeout(function(){
-    if (thisInst !== playerInstanceId) return;
-    if (!player) return;
-    var st = -1, cur = 0;
-    try { st = player.getPlayerState ? player.getPlayerState() : -1; } catch(e){}
-    try { cur = player.getCurrentTime ? player.getCurrentTime() : 0; } catch(e){}
-    log("tick 10s: st=" + st + " cur=" + cur + " started=" + userStarted);
-    if (userStarted && st !== 1 && st !== 3){
-      warn("tick 10s: travado - REJEITANDO", vid);
-      rejeitaLive(vid);
-    }
-  }, 10000);
-  setTimeout(function(){
-    if (thisInst !== playerInstanceId) return;
-    if (!player) return;
-    var st = -1;
-    try { st = player.getPlayerState ? player.getPlayerState() : -1; } catch(e){}
-    log("tick 18s: st=" + st);
-    if (st !== 1 && st !== 3){
-      warn("tick 18s: AINDA travado - REJEITANDO", vid);
-      rejeitaLive(vid);
-    }
-  }, 18000);
-}
-
-/* ===== [V20] monta live via iframe oficial do YouTube ===== */
-function mountLiveStream(){
-  injectStyle();
-  var wrap = getWrap();
-  if (!wrap) return;
-  try { destroyPlayer(); } catch(_e){}
-  var yc = document.getElementById("youtubeContainer");
-  if (!yc){
-    yc = document.createElement("div");
-    yc.id = "youtubeContainer";
-    yc.className = "youtube-container";
-    wrap.insertBefore(yc, wrap.firstChild);
+      if (typeof youtubePlayer === "undefined" || !youtubePlayer) return "";
+      if (typeof playerReady === "undefined" || !playerReady) return "";
+      var d = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null;
+      if (!d || !d.title) return "";
+      return (d.isLive ? "AO VIVO: " : "") + d.title;
+    } catch(e){ return ""; }
   }
-  yc.style.display = "block";
-  var srcUrl = "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(CH)
-    + "&autoplay=1&playsinline=1&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&cc_load_policy=0";
-  yc.innerHTML = '<iframe id="__liveIframe" src="' + srcUrl + '" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen style="width:100%;height:100%;border:0;pointer-events:none;background:#000;"></iframe>';
-  isLiveStream = true;
-  playerInstanceId++;
-  var thisInst = playerInstanceId;
-  log("[V20] mountLiveStream via iframe, CH=" + CH);
-  updateProgramPanel("live_stream", true);
-  addMasks();
-  /* Watchdog: se em 20s o iframe não estiver "vivo", cai pra fallback */
-  setTimeout(function(){
-    if (thisInst !== playerInstanceId) return;
-    var ifr = document.getElementById("__liveIframe");
-    if (!ifr) return;
-    /* Não dá pra ler cross-origin, mas se ainda existe tá ok */
-    log("[V20] iframe presente após 20s, mantendo");
-  }, 20000);
-}
-/* ===== fim [V20] ===== */
-function mountPlayer(videoId, live){
-  injectStyle();
-  var wrap = getWrap();
-  if (!wrap) { warn("mountPlayer: sem .video-wrapper"); return; }
-  destroyPlayer();
-  var yc = document.getElementById("youtubeContainer");
-  if (!yc){
-    yc = document.createElement("div");
-    yc.id = "youtubeContainer";
-    yc.className = "youtube-container";
-    wrap.insertBefore(yc, wrap.firstChild);
-  }
-  yc.style.display = "block";
-  yc.innerHTML = '<div id="__ytMount" style="width:100%;height:100%"></div>';
-  isLiveStream = !!live;
-  playerInstanceId++;
-  var thisInstance = playerInstanceId;
-  log("mountPlayer(" + videoId + ", live=" + live + ") inst=" + thisInstance);
-  player = new YT.Player("__ytMount", {
-    videoId: videoId,
-    width: "100%",
-    height: "100%",
-    playerVars: { autoplay: 0, controls: 0, disablekb: 1, fs: 0,
-      iv_load_policy: 3, modestbranding: 1, playsinline: 1, rel: 0, showinfo: 0 },
-    events: {
-      onReady: function(e){
-        if (thisInstance !== playerInstanceId) return;
-        log("onReady", videoId);
-        playerReady = true;
-        bindCustomControls();
-        addMasks();
-        setVolIcon(getSliderVal());
-        applyVolume();
-        if (userStarted) doPlay();
-
-        /* ===== [V19] só aceita se o player TOCAR de verdade ===== */
-        var _v19_inst = playerInstanceId;
-        var _v19_vid = videoId;
-        var _v19_checks = 0;
-        var _v19_t = setInterval(function(){
-          if (_v19_inst !== playerInstanceId){ clearInterval(_v19_t); return; }
-          if (!player){ clearInterval(_v19_t); return; }
-          /* Só começa a checar DEPOIS que o usuário clicou Ligar TV */
-          if (!userStarted) return;
-          _v19_checks++;
-          try {
-            var vd = player.getVideoData() || {};
-            var st = -1;
-            try { st = player.getPlayerState ? player.getPlayerState() : -1; } catch(_e){}
-            var cur = 0;
-            try { cur = player.getCurrentTime ? player.getCurrentTime() : 0; } catch(_e){}
-            log("v19 #" + _v19_checks + " isLive=" + vd.isLive + " st=" + st + " cur=" + cur.toFixed(1));
-
-            /* SÓ considera OK se está tocando de verdade */
-            if (st === 1 && cur > 1) {
-              log("V19 OK - " + _v19_vid + " TOCANDO (isLive=" + vd.isLive + ")");
-              if (vd.isLive === true) {
-                isLiveStream = true;
-                currentLiveId = _v19_vid;
-                try { updateProgramPanel(_v19_vid, true); } catch(_e){}
-              } else {
-                isLiveStream = false;
-              }
-              clearInterval(_v19_t);
-              return;
-            }
-
-            /* Se passaram ~9s (6 checagens de 1.5s) e não tocou, rejeita */
-            if (_v19_checks >= 6) {
-              clearInterval(_v19_t);
-              warn("v19 travado - rejeitando " + _v19_vid + " (st=" + st + " cur=" + cur + ")");
-              rejectedIds[_v19_vid] = 1;
-              try { if (player && player.destroy) player.destroy(); } catch(_e){}
-              player = null; playerReady = false;
-              var _v19_next = null, _v19_idx = -1;
-              if (videos && videos.length){
-                for (var _v19_k = 0; _v19_k < videos.length; _v19_k++){
-                  if (videos[_v19_k] && videos[_v19_k].id && !rejectedIds[videos[_v19_k].id]){
-                    _v19_next = videos[_v19_k].id; _v19_idx = _v19_k; break;
-                  }
-                }
-              }
-              if (_v19_next){
-                idx = _v19_idx;
-                isLiveStream = false;
-                log("v19 tentando: " + _v19_next);
-                mountPlayer(_v19_next, false);
-              } else {
-                warn("v19 sem alternativas - offline");
-                try { renderOffline(); } catch(_e){}
-              }
-            }
-          } catch(_e){ clearInterval(_v19_t); }
-        }, 1500);
-        setTimeout(function(){ try { clearInterval(_v19_t); } catch(_e){} }, 120000);
-        /* ===== fim [V19] ===== */
-      },
-      onStateChange: function(e){
-        if (thisInstance !== playerInstanceId) return;
-        log("stateChange:", e.data);
-        if (e.data === 0 && !isLiveStream){ try { proximo(); } catch(x){} }
-      },
-      onError: function(ev){
-        if (thisInstance !== playerInstanceId) return;
-        warn("onError:", ev && ev.data);
-        if (!isLiveStream){ try { proximo(); } catch(x){} }
-        else { rejeitaLive(videoId); }
-      }
-    }
-  });
-  updateProgramPanel(videoId, live);
-  if (live) instalaWatchdog(thisInstance, videoId);
-}
-
-function updateProgramPanel(videoId, live){
-  var el = document.getElementById("currentProgram");
-  if (!el) return;
-  if (live){
-    el.textContent = "Transmissao ao vivo do YouTube";
-    var n = document.getElementById("nextProgram");
-    var a = document.getElementById("afterNextProgram");
-    if (n) n.textContent = "Ao vivo";
-    if (a) a.textContent = "-";
-  } else {
-    var v = null;
-    for (var i = 0; i < videos.length; i++){ if (videos[i].id === videoId){ v = videos[i]; break; } }
-    el.textContent = (v && v.title) ? v.title : "Video";
-    var nx = videos[(idx+1) % videos.length];
-    var ax = videos[(idx+2) % videos.length];
-    var nEl = document.getElementById("nextProgram");
-    var aEl = document.getElementById("afterNextProgram");
-    if (nEl) nEl.textContent = (nx && nx.title) ? nx.title : "-";
-    if (aEl) aEl.textContent = (ax && ax.title) ? ax.title : "-";
-  }
-  var dpm = document.getElementById("programmingModeDisplay");
-  if (dpm) dpm.textContent = "Live do YouTube";
-}
-
-function bindCustomControls(){
-  var r10 = document.getElementById("rewind10Btn");
-  if (r10 && !r10.__v71){ r10.__v71 = true; r10.onclick = function(){ try { var t = player.getCurrentTime(); player.seekTo(t > 10 ? t - 10 : 0, true); } catch(e){} }; }
-  var rst = document.getElementById("restartBtn");
-  if (rst && !rst.__v71){ rst.__v71 = true; rst.onclick = function(){ try { player.seekTo(0, true); } catch(e){} }; }
-  var lv = document.getElementById("liveBtn");
-  if (lv && !lv.__v71){
-    lv.__v71 = true;
-    lv.onclick = function(){
-      try {
-        if (isLiveStream){ var d = player.getDuration(); if (d > 0) player.seekTo(d, true); player.playVideo(); }
-        else { var dur = player.getDuration(); var off = dur * 0.05; if (dur > off + 1) player.seekTo(dur - off, true); }
-      } catch(e){}
-    };
-  }
-  var vb = document.getElementById("volumeBtn");
-  if (vb && !vb.__v71){
-    vb.__v71 = true;
-    vb.onclick = function(){
-      var vs = document.getElementById("volumeSlider");
-      if (!vs) return;
-      var cur = parseFloat(vs.value);
-      if (isNaN(cur)) cur = 1;
-      if (cur > 0){ vs.value = 0; try { if (player){ player.mute(); player.setVolume(0); } } catch(e){} }
-      else { vs.value = 1; try { if (player){ player.unMute(); player.setVolume(100); } } catch(e){} }
-      setVolIcon(parseFloat(vs.value));
-    };
-  }
-  var vs2 = document.getElementById("volumeSlider");
-  if (vs2 && !vs2.__v71){
-    vs2.__v71 = true;
-    vs2.oninput = function(){
-      var v = parseFloat(this.value);
-      if (isNaN(v)) v = 1;
-      try { if (player){ if (v === 0){ player.mute(); player.setVolume(0); } else { player.unMute(); player.setVolume(v * 100); } } } catch(e){}
-      setVolIcon(v);
-    };
-  }
-  var fsb = document.getElementById("fullscreenBtn");
-  if (fsb && !fsb.__v71){
-    fsb.__v71 = true;
-    fsb.onclick = function(){
-      var wrap = getWrap();
-      if (!wrap) return;
-      if (!document.fullscreenElement){
-        if (wrap.requestFullscreen) wrap.requestFullscreen();
-        else if (wrap.webkitRequestFullscreen) wrap.webkitRequestFullscreen();
-      } else {
-        if (document.exitFullscreen) document.exitFullscreen();
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-      }
-    };
-  }
-}
-
-function bindStartOverlay(){
-  var btn = document.getElementById("autoplayButton");
-  var ov = document.getElementById("autoplayOverlay");
-  if (!btn || !ov) return;
-  if (btn.__v71) return;
-  btn.__v71 = true;
-  btn.onclick = function(){
-    userStarted = true;
-    ov.classList.add("hidden");
-    /* [V21] forca autoplay do iframe apos interacao do usuario */
-    var _ifr = document.getElementById("__liveIframe");
-    if (_ifr) { var _s = _ifr.src; _ifr.src = "about:blank"; setTimeout(function(){ _ifr.src = _s; }, 60); }
-    doPlay();
-    bindCustomControls();
-    addMasks();
-    setVolIcon(getSliderVal());
-  };
-}
-
-function renderOffline(){
-  injectStyle();
-  var wrap = getWrap();
-  if (!wrap) return;
-  destroyPlayer();
-  var old = document.getElementById("__liveOffline");
-  if (old) old.remove();
-  var m = document.createElement("div");
-  m.id = "__liveOffline";
-  m.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;";
-  var img = document.createElement("img");
-  img.src = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png";
-  img.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;";
-  m.appendChild(img);
-  var box = document.createElement("div");
-  box.style.cssText = "position:relative;z-index:2;background:rgba(0,0,0,0.85);padding:24px;border-radius:10px;text-align:center;color:#fff;max-width:420px;";
-  box.innerHTML = "<h3>Canal Temporariamente Fora do Ar</h3><p style=\"font-size:0.9rem;opacity:0.9;\">Este canal esta passando por manutencao.</p><p style=\"font-size:0.9rem;opacity:0.9;\">Tente novamente mais tarde.</p>";
-  m.appendChild(box);
-  wrap.appendChild(m);
-}
-
-function scheduleRecheck(){
-  if (recheckTimer) clearTimeout(recheckTimer);
-  recheckTimer = setTimeout(function(){ fetchStatus(true); }, 120000);
-}
-
-function proximo(){
-  if (isLiveStream) return;
-  idx++;
-  if (idx >= videos.length){ idx = 0; shuffle(videos); }
-  if (videos.length) mountPlayer(videos[idx].id, false);
-  setTimeout(function(){ /* [V21] fetchStatus removido do boot */ }, 500);
-}
-
-function fetchStatus(force){
-  /* [V21] em youtube_live o iframe cuida de tudo; CF nao interfere */
-  if (typeof CH !== "undefined" && CH) { try { log("[V21] fetchStatus ignorado"); } catch(_e){} return; }
-  if (!CH) return;
-  var url = CF + "?channelId=" + encodeURIComponent(CH) + (force ? "&fresh=1" : "");
-  fetch(url).then(function(r){return r.json();}).then(function(d){
-    if (!d || !d.success) return;
-    var wasLive = isLiveStream;
-    var newLive = !!d.isLive;
-    currentLiveId = d.liveVideoId || "";
-    if (d.videos && d.videos.length) videos = d.videos;
-    log("fetch: isLive=" + newLive + " liveId=" + currentLiveId + " videos=" + videos.length);
-    if (newLive){
-      if (!wasLive || force){
-        isLiveStream = true;
-        mountLiveStream();
-      }
-    } else if (wasLive){
-      isLiveStream = false;
-      idx = 0; shuffle(videos);
-      var old = document.getElementById("__liveOffline");
-      if (old) old.remove();
-      if (BEHAVIOR === "offline"){ renderOffline(); scheduleRecheck(); }
-      else if (videos.length){ mountPlayer(videos[idx].id, false); }
-      else { renderOffline(); }
-    } else {
-      var hasPlayer = player && document.getElementById("__ytMount");
-      var hasOffline = document.getElementById("__liveOffline");
-      if (!hasPlayer && !hasOffline){
-        if (BEHAVIOR === "offline"){ renderOffline(); scheduleRecheck(); }
-        else if (videos.length){ mountPlayer(videos[idx].id, false); }
-        else { renderOffline(); }
-      } else if (hasOffline && BEHAVIOR === "videos" && videos.length){
-        hasOffline.remove();
-        mountPlayer(videos[idx].id, false);
-      }
-    }
-  }).catch(function(e){ warn("fetch erro:", e); });
-}
-
-function boot(){
-  if (booted) return; booted = true;
-  /* [V21] YT API nao e mais exigida (iframe usa HTML) */
-  if (!CH) { warn("boot: CH vazio!"); return; }
-  log("boot OK, CH=" + CH);
-  /* [V20] tenta iframe oficial primeiro - é o único confiável pra live */
-  mountLiveStream();
-  /* [V20] em paralelo, dispara fetchStatus para os fallbacks (videos etc.) */
-  injectStyle();
-  bindStartOverlay();
-  fetchStatus(false);
-  setInterval(bindCustomControls, 800);
-  setInterval(function(){ setVolIcon(getSliderVal()); }, 500);
-}
-
-setTimeout(boot, 1500);
+  setInterval(function(){
+    var cur = document.getElementById("currentProgram");
+    if (cur && isFallback(cur.textContent)){ var t = getPlayerTitle(); if (t) cur.textContent = t; }
+  }, 1000);
+  window.__v19Status = function(){ return { isLive: isLive, videosCount: videos.length, loadedVideoId: loadedVideoId, loadedSlotKey: loadedSlotKey, currentSlot: computeCurrentSlot(), epochMs: EPOCH_MS }; };
 })();
 </script></template>
 <script>
