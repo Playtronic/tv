@@ -13304,6 +13304,7 @@ window.fetch = function(input, init){
 })();
 </script>
 <template id="__liveTpl"><script>
+// [v26] detecta live direto do browser via CORS proxy
 (function(){
   "use strict";
   var CF = "https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus";
@@ -13320,41 +13321,70 @@ window.fetch = function(input, init){
   var titleCache = {};
   var liveCheckInterval = null;
   var tickInterval = null;
+  var proxied = [
+    function(u){ return "https://corsproxy.io/?url=" + encodeURIComponent(u); },
+    function(u){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); },
+    function(u){ return "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u); },
+    function(u){ return "https://cors.eu.org/" + u; }
+  ];
+  function log(){try{var a=[].slice.call(arguments);a.unshift("[v26]");console.log.apply(console,a);}catch(e){}}
+  function warn(){try{var a=[].slice.call(arguments);a.unshift("[v26]");console.warn.apply(console,a);}catch(e){}}
 
-  function log(){try{var a=[].slice.call(arguments);a.unshift("[v25]");console.log.apply(console,a);}catch(e){}}
+  // 1) Tenta Piped via CORS proxy
+  function tryPiped(proxy, apiUrl){
+    return fetch(proxy(apiUrl), { cache: "no-store" })
+      .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function(d){
+        if (d && d.isLive === true && d.videoId){
+          log("Piped OK via proxy -> " + d.videoId);
+          return d.videoId;
+        }
+        throw new Error("not live");
+      });
+  }
 
-  // [v25] Busca live via Piped usando proxy CORS publico
-  function _v25_findLive(){
-    var proxied = [
-      function(u){ return "https://corsproxy.io/?url=" + encodeURIComponent(u); },
-      function(u){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); },
-      function(u){ return "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u); }
-    ];
-    var apis = [
+  // 2) Tenta oEmbed do YouTube pra "watch" especifico (fallback)
+  function tryOembed(videoId){
+    var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + videoId) + "&format=json";
+    return fetch(u).then(function(r){ return r.json(); });
+  }
+
+  // 3) Scrape do /live page do YouTube via CORS proxy
+  function tryScrapeLivePage(proxy){
+    var url = "https://www.youtube.com/channel/" + CH + "/live";
+    return fetch(proxy(url), { cache: "no-store" })
+      .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+      .then(function(html){
+        // Procura por "videoId":"XXX" numa area com "isLive":true
+        var m = html.match(/"isLiveNow":true[\s\S]{0,800}?"videoId":"([a-zA-Z0-9_-]{11})"/);
+        if (!m) m = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"[\s\S]{0,800}?"isLiveNow":true/);
+        if (!m) m = html.match(/"canonicalBaseUrl":"\/watch\?v=([a-zA-Z0-9_-]{11})"/);
+        if (m && m[1]){ log("scrape OK -> " + m[1]); return m[1]; }
+        throw new Error("no videoId");
+      });
+  }
+
+  // 4) Orquestrador: tenta todos os métodos em sequência
+  function findLive(){
+    var pipedUrls = [
       "https://pipedapi.kavin.rocks/streams/" + CH,
-      "https://pipedapi.adminforge.de/streams/" + CH
+      "https://pipedapi.adminforge.de/streams/" + CH,
+      "https://pipedapi.reallyaweso.me/streams/" + CH
     ];
     var tries = [];
-    apis.forEach(function(apiUrl){
-      proxied.forEach(function(proxy){
-        tries.push(function(){
-          return fetch(proxy(apiUrl), { cache: "no-store" })
-            .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-            .then(function(d){
-              if (d && d.isLive === true && d.videoId){
-                log("LIVE via proxy -> " + d.videoId);
-                return d.videoId;
-              }
-              throw new Error("not live");
-            });
-        });
+    pipedUrls.forEach(function(pu){
+      proxied.forEach(function(pr){
+        tries.push(function(){ return tryPiped(pr, pu); });
       });
+    });
+    proxied.forEach(function(pr){
+      tries.push(function(){ return tryScrapeLivePage(pr); });
     });
     var idx = 0;
     function passo(){
       if (idx >= tries.length) return Promise.resolve(null);
       var f = tries[idx++];
-      return f().catch(function(){ return passo(); });
+      return f().catch(function(e){ return passo(); });
     }
     return passo();
   }
@@ -13376,9 +13406,7 @@ window.fetch = function(input, init){
     var elapsed = Math.floor((now - EPOCH_MS) / 1000);
     if (elapsed < 0) elapsed = 0;
     var n = videos.length || 1;
-    var slotIdx = Math.floor(elapsed / SLOT_SEC) % n;
-    var secInSlot = elapsed % SLOT_SEC;
-    return { idx: slotIdx, seek: secInSlot };
+    return { idx: Math.floor(elapsed / SLOT_SEC) % n, seek: elapsed % SLOT_SEC };
   }
   function updateInfoTitles(idxNow){
     if (!videos.length) return;
@@ -13428,7 +13456,7 @@ window.fetch = function(input, init){
       if (seekSec > 0) seekToSlotPosition(seekSec);
       if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
       return true;
-    } catch(e){ console.warn("[v25] falha:", e); return false; }
+    } catch(e){ warn("falha load:", e); return false; }
   }
   function loadLive(vid){
     if (!vid) return;
@@ -13477,23 +13505,22 @@ window.fetch = function(input, init){
     m.appendChild(b);
     w.appendChild(m);
   }
-  function fetchVideosFromCF(){
+  function fetchVideos(){
     return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1")
       .then(function(r){ return r.json(); })
       .then(function(d){ if (d && d.videos && d.videos.length) videos = d.videos; return videos; })
       .catch(function(){ return []; });
   }
   function fetchStatus(force){
-    fetchVideosFromCF().then(function(){
-      // Depois de ter videos[], tenta achar live via proxy
-      return _v25_findLive().then(function(vid){
-        if (vid){ loadLive(vid); return; }
-        // Sem live no proxy -> cai no CF
-        fetch(CF + "?channelId=" + encodeURIComponent(CH))
+    log("buscando...");
+    fetchVideos().then(function(){
+      return findLive().then(function(vid){
+        if (vid){ log("live encontrada: " + vid); loadLive(vid); return; }
+        log("nenhuma API retornou live; tentando CF");
+        fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1")
           .then(function(r){ return r.json(); })
           .then(function(d){
-            if (!d || !d.success) { loadRecentForCurrentSlot(true); return; }
-            if (d.isLive && d.liveVideoId){ loadLive(d.liveVideoId); }
+            if (d && d.success && d.isLive && d.liveVideoId){ loadLive(d.liveVideoId); }
             else { setLiveBadge(false); if (BEHAVIOR === "offline"){ mostrarOffline(); } else { loadRecentForCurrentSlot(true); } }
           }).catch(function(){ loadRecentForCurrentSlot(true); });
       });
@@ -13508,14 +13535,6 @@ window.fetch = function(input, init){
     if (!v || !v.id) return;
     var key = "recent:" + s.idx;
     if (loadedSlotKey !== key){ loadRecentForCurrentSlot(true); return; }
-    try {
-      if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady){
-        if (youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0){
-          var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
-          if (dur > 0){ var pos = s.seek % dur; youtubePlayer.seekTo(pos, true); youtubePlayer.playVideo(); }
-        }
-      }
-    } catch(e){}
   }
   function boot(){
     if (booted) return;
@@ -13533,7 +13552,7 @@ window.fetch = function(input, init){
     tickInterval = setInterval(tickSlot, 1000);
   }
   setTimeout(boot, 1500);
-  function isFallback(t){ if (!t) return true; var c = String(t).trim(); return c === "" || c === "-" || c === "Video" || c === "Video:" || c === "Vídeo" || c === "Vídeo:"; }
+  function isFallback(t){ if (!t) return true; var c = String(t).trim(); return c === "" || c === "-" || c === "Video" || c === "Video:" || c === "Vídeo" || c === "Vídeo:" || c === "Carregando..."; }
   function getPlayerTitle(){
     try {
       if (typeof youtubePlayer === "undefined" || !youtubePlayer) return "";
@@ -13547,7 +13566,6 @@ window.fetch = function(input, init){
     var cur = document.getElementById("currentProgram");
     if (cur && isFallback(cur.textContent)){ var t = getPlayerTitle(); if (t) cur.textContent = t; }
   }, 1000);
-  window.__v25Status = function(){ return { isLive: isLive, videosCount: videos.length, loadedVideoId: loadedVideoId, loadedSlotKey: loadedSlotKey }; };
 })();
 </script></template>
 <script>
