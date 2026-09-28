@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.3.1">
+    <meta name="version" content="1.0.3.2">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.3.1
+            Versão 1.0.3.2
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.3.1";
+        const CHANNEL_VERSION = "1.0.3.2";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6261,6 +6261,39 @@ function instalaWatchdog(thisInst, vid){
   }, 18000);
 }
 
+/* ===== [V20] monta live via iframe oficial do YouTube ===== */
+function mountLiveStream(){
+  injectStyle();
+  var wrap = getWrap();
+  if (!wrap) return;
+  try { destroyPlayer(); } catch(_e){}
+  var yc = document.getElementById("youtubeContainer");
+  if (!yc){
+    yc = document.createElement("div");
+    yc.id = "youtubeContainer";
+    yc.className = "youtube-container";
+    wrap.insertBefore(yc, wrap.firstChild);
+  }
+  yc.style.display = "block";
+  var srcUrl = "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(CH)
+    + "&autoplay=1&playsinline=1&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&cc_load_policy=0";
+  yc.innerHTML = '<iframe id="__liveIframe" src="' + srcUrl + '" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen style="width:100%;height:100%;border:0;pointer-events:none;background:#000;"></iframe>';
+  isLiveStream = true;
+  playerInstanceId++;
+  var thisInst = playerInstanceId;
+  log("[V20] mountLiveStream via iframe, CH=" + CH);
+  updateProgramPanel("live_stream", true);
+  addMasks();
+  /* Watchdog: se em 20s o iframe não estiver "vivo", cai pra fallback */
+  setTimeout(function(){
+    if (thisInst !== playerInstanceId) return;
+    var ifr = document.getElementById("__liveIframe");
+    if (!ifr) return;
+    /* Não dá pra ler cross-origin, mas se ainda existe tá ok */
+    log("[V20] iframe presente após 20s, mantendo");
+  }, 20000);
+}
+/* ===== fim [V20] ===== */
 function mountPlayer(videoId, live){
   injectStyle();
   var wrap = getWrap();
@@ -6517,7 +6550,7 @@ function fetchStatus(force){
     if (newLive){
       if (!wasLive || force){
         isLiveStream = true;
-        mountPlayer(currentLiveId, true);
+        mountLiveStream();
       }
     } else if (wasLive){
       isLiveStream = false;
@@ -6547,6 +6580,9 @@ function boot(){
   if (typeof YT === "undefined" || !YT.Player){ booted = false; return setTimeout(boot, 500); }
   if (!CH) { warn("boot: CH vazio!"); return; }
   log("boot OK, CH=" + CH);
+  /* [V20] tenta iframe oficial primeiro - é o único confiável pra live */
+  mountLiveStream();
+  /* [V20] em paralelo, dispara fetchStatus para os fallbacks (videos etc.) */
   injectStyle();
   bindStartOverlay();
   fetchStatus(false);
