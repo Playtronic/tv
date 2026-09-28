@@ -9621,6 +9621,22 @@ async function iniciarPublicacao() {
         console.log(`Novo canal com versão: ${tvData.version}`);
     }
     
+    // PATCH v10 capturar YT
+    try {
+        var _pmS = document.getElementById("programmingMode");
+        if (_pmS && _pmS.value) tvData.programmingMode = _pmS.value;
+        if (tvData.programmingMode === "youtube_live") {
+            var _ytI = document.getElementById("youtubeChannelUrl");
+            if (_ytI && _ytI.value) {
+                var _raw = _ytI.value.trim();
+                var _m = _raw.match(/\/channel\/(UC[a-zA-Z0-9_-]{20,})/);
+                if (!_m) _m = _raw.match(/^(UC[a-zA-Z0-9_-]{20,})$/);
+                if (_m) { tvData.youtubeChannelId = _m[1] || _m[0]; window.__v53_id = tvData.youtubeChannelId; }
+            } else if (window.__v53_id) { tvData.youtubeChannelId = window.__v53_id; }
+            var _rs2 = document.getElementsByName("ytOfflineBehavior");
+            for (var _j2 = 0; _j2 < _rs2.length; _j2++) { if (_rs2[_j2].checked) tvData.youtubeOfflineBehavior = _rs2[_j2].value; }
+        }
+    } catch(e) { console.warn("[v10] catch5:", e); }
     const dadosNormalizados = normalizarDadosCanal(tvData);
     
     // Carregar monetização se existir
@@ -10863,170 +10879,92 @@ showScreen('screen6');
 
         // Função para validar navegação da tela 3
         function validateScreen3Navigation() {
-            const toScreen4Btn = document.getElementById('toScreen4');
-            const programsError = document.getElementById('programsError');
-            const playlistError = document.getElementById('playlistError');
-            
-            programsError.style.display = 'none';
-            playlistError.style.display = 'none';
-            
-                        // 🎯 [PATCH Live do YouTube] — trata o modo youtube_live antes do grade/playlist
-            if (tvData.programmingMode === 'youtube_live') {
-                const ytError = document.getElementById('youtubeChannelError');
-                const ytStatus = document.getElementById('youtubeChannelStatus');
-                
-                // Descobre o ID do canal: prioriza tvData, depois variáveis globais do resolver
-                let ytId = tvData.youtubeChannelId || window.__v53_id || window.__v56_id || window.__v58_id || '';
-                if (!ytId) {
-                    const inp = document.getElementById('youtubeChannelUrl');
-                    if (inp) {
-                        const raw = inp.value.trim();
-                        let m = raw.match(/\/channel\/(UC[a-zA-Z0-9_-]{20,})/);
-                        if (m) ytId = m[1];
-                        if (!ytId) { m = raw.match(/^(UC[a-zA-Z0-9_-]{20,})$/); if (m) ytId = m[0]; }
-                    }
-                }
-                
-                if (!ytId) {
-                    toScreen4Btn.disabled = true;
-                    if (ytError) {
-                        ytError.textContent = 'Cole uma URL válida do YouTube (o canal precisa ser detectado).';
-                        ytError.style.display = 'block';
-                    }
-                    if (ytStatus) ytStatus.style.display = 'none';
-                    return false;
-                }
-                
-                // Canal OK — guarda no tvData e lê a preferência offline
-                tvData.youtubeChannelId = ytId;
-                const rs = document.getElementsByName('ytOfflineBehavior');
-                for (let j = 0; j < rs.length; j++) {
-                    if (rs[j].checked) tvData.youtubeOfflineBehavior = rs[j].value;
-                }
-                if (ytError) ytError.style.display = 'none';
-                toScreen4Btn.disabled = false;
-                return true;
-            }
-            
-            if (tvData.programmingMode === 'grade') {
-                if (tvData.programs.length === 0) {
-                    toScreen4Btn.disabled = true;
-                    programsError.textContent = '⚠️ Atenção: É necessário adicionar pelo menos um programa.';
-                    programsError.style.display = 'block';
-                    return false;
-                }
-                
-                let hasErrors = false;
-                let errorMessages = [];
-                
-                tvData.programs.forEach((program, index) => {
-                    if (!program.name || program.name.trim() === '') {
-                        hasErrors = true;
-                        errorMessages.push(`Programa ${index + 1} está sem nome.`);
-                        
-                        const programId = program.id;
-                        const nameError = document.getElementById(`${programId}-name-error`);
-                        if (nameError) nameError.style.display = 'block';
-                    }
-                    
-                    if (!program.videos || program.videos.length === 0) {
-                        hasErrors = true;
-                        errorMessages.push(`Programa "${program.name || index + 1}" não tem vídeos.`);
-                        
-                        const programId = program.id;
-                        const videosError = document.getElementById(`${programId}-videos-error`);
-                        if (videosError) videosError.style.display = 'block';
-                    }
-                });
-                
-                if (hasErrors) {
-                    toScreen4Btn.disabled = true;
-                    programsError.textContent = `⚠️ Atenção: ${errorMessages.join(' ')}`;
-                    programsError.style.display = 'block';
-                    return false;
-                } else {
-                    toScreen4Btn.disabled = false;
-                    programsError.style.display = 'none';
-                    return true;
-                }
-            } else {
-                if (tvData.playlistVideos.length === 0) {
-                    toScreen4Btn.disabled = true;
-                    playlistError.textContent = '⚠️ Atenção: É necessário adicionar pelo menos um vídeo.';
-                    playlistError.style.display = 'block';
-                    return false;
-                }
-                
-                let hasErrors = false;
-                let errorMessages = [];
-                
-                tvData.playlistVideos.forEach((video, index) => {
-                    if (!video.name || video.name.trim() === '') {
-                        hasErrors = true;
-                        errorMessages.push(`Vídeo ${index + 1} está sem nome.`);
-                        
-                        const videoId = video.id;
-                        const nameError = document.getElementById(`${videoId}-name-error`);
-                        if (nameError) nameError.style.display = 'block';
-                    }
-                    
-                    if (!video.url || video.url.trim() === '' || !isValidUrl(video.url.trim())) {
-                        hasErrors = true;
-                        errorMessages.push(`Vídeo "${video.name || index + 1}" não tem uma URL válida.`);
-                        
-                        const videoId = video.id;
-                        const urlError = document.getElementById(`${videoId}-url-error`);
-                        if (urlError) urlError.style.display = 'block';
-                    }
-                });
-                
-                if (hasErrors) {
-                    toScreen4Btn.disabled = true;
-                    playlistError.textContent = `⚠️ Atenção: ${errorMessages.join(' ')}`;
-                    playlistError.style.display = 'block';
-                    return false;
-                } else {
-                    toScreen4Btn.disabled = false;
-                    playlistError.style.display = 'none';
-                    return true;
-                }
-            }
+    var toScreen4Btn = document.getElementById("toScreen4");
+    var programsError = document.getElementById("programsError");
+    var playlistError = document.getElementById("playlistError");
+    if (programsError) programsError.style.display = "none";
+    if (playlistError) playlistError.style.display = "none";
+
+    if (tvData.programmingMode === "youtube_live") {
+        var ytError = document.getElementById("youtubeChannelError");
+        var ytStatus = document.getElementById("youtubeChannelStatus");
+        var ytId = "";
+        var inp = document.getElementById("youtubeChannelUrl");
+        if (inp && inp.value.trim()) {
+            var raw = inp.value.trim();
+            var m = raw.match(/\/channel\/(UC[a-zA-Z0-9_-]{20,})/);
+            if (!m) m = raw.match(/^(UC[a-zA-Z0-9_-]{20,})$/);
+            if (m) ytId = m[1] || m[0];
         }
+        if (!ytId) ytId = tvData.youtubeChannelId || "";
+        if (!ytId) {
+            toScreen4Btn.disabled = true;
+            if (ytError) { ytError.textContent = "Cole uma URL valida do YouTube."; ytError.style.display = "block"; }
+            if (ytStatus) ytStatus.style.display = "none";
+            return false;
+        }
+        tvData.youtubeChannelId = ytId;
+        var rs = document.getElementsByName("ytOfflineBehavior");
+        for (var j = 0; j < rs.length; j++) { if (rs[j].checked) tvData.youtubeOfflineBehavior = rs[j].value; }
+        if (ytError) ytError.style.display = "none";
+        toScreen4Btn.disabled = false;
+        return true;
+    }
+
+    if (tvData.programmingMode === "grade") {
+        if (tvData.programs.length === 0) {
+            toScreen4Btn.disabled = true;
+            if (programsError) { programsError.textContent = "Adicione ao menos 1 programa."; programsError.style.display = "block"; }
+            return false;
+        }
+        for (var k = 0; k < tvData.programs.length; k++) {
+            var p = tvData.programs[k];
+            if (!p.name || !p.name.trim()) { toScreen4Btn.disabled = true; return false; }
+            if (!p.videos || p.videos.length === 0) { toScreen4Btn.disabled = true; return false; }
+        }
+        toScreen4Btn.disabled = false;
+        return true;
+    }
+
+    if (tvData.playlistVideos.length === 0) {
+        toScreen4Btn.disabled = true;
+        if (playlistError) { playlistError.textContent = "Adicione ao menos 1 video."; playlistError.style.display = "block"; }
+        return false;
+    }
+    toScreen4Btn.disabled = false;
+    return true;
+}
 
         // Alternar entre modos de programação na tela 3
         // [PATCH v7] alternarModoProgramacao reconstruída
                 function alternarModoProgramacao() {
-            const programmingModeSelect = document.getElementById('programmingMode');
-            const gradeModeContainer = document.getElementById('gradeModeContainer');
-            const playlistModeContainer = document.getElementById('playlistModeContainer');
-            const programmingModeInfo = document.getElementById('programmingModeInfo');
-            const youtubeLiveModeContainer = document.getElementById('youtubeLiveModeContainer');
-            
-            const selectedMode = programmingModeSelect.value;
-            tvData.programmingMode = selectedMode;
-            
-            const MODE_INFO = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.';
-            
-            if (selectedMode === 'grade') {
-                gradeModeContainer.style.display = 'block';
-                playlistModeContainer.style.display = 'none';
-                if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = 'none';
-                programmingModeInfo.innerHTML = MODE_INFO;
-            } else if (selectedMode === 'youtube_live') {
-                gradeModeContainer.style.display = 'none';
-                playlistModeContainer.style.display = 'none';
-                if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = 'block';
-                programmingModeInfo.innerHTML = MODE_INFO;
-            } else {
-                gradeModeContainer.style.display = 'none';
-                playlistModeContainer.style.display = 'block';
-                if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = 'none';
-                programmingModeInfo.innerHTML = MODE_INFO;
-            }
-            
-            updateCounters();
-            validateScreen3Navigation();
-        }
+    var programmingModeSelect = document.getElementById("programmingMode");
+    var gradeModeContainer = document.getElementById("gradeModeContainer");
+    var playlistModeContainer = document.getElementById("playlistModeContainer");
+    var programmingModeInfo = document.getElementById("programmingModeInfo");
+    var youtubeLiveModeContainer = document.getElementById("youtubeLiveModeContainer");
+    var selectedMode = programmingModeSelect.value;
+    tvData.programmingMode = selectedMode;
+    var MODE_INFO = "Modo Grade: 58 programas fixos, cada programa tem videos para cada dia.<br>Modo Playlist: Lista de videos em sequencia continua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.";
+    if (selectedMode === "grade") {
+        gradeModeContainer.style.display = "block";
+        playlistModeContainer.style.display = "none";
+        if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = "none";
+        programmingModeInfo.innerHTML = MODE_INFO;
+    } else if (selectedMode === "youtube_live") {
+        gradeModeContainer.style.display = "none";
+        playlistModeContainer.style.display = "none";
+        if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = "block";
+        programmingModeInfo.innerHTML = MODE_INFO;
+    } else {
+        gradeModeContainer.style.display = "none";
+        playlistModeContainer.style.display = "block";
+        if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = "none";
+        programmingModeInfo.innerHTML = MODE_INFO;
+    }
+    updateCounters();
+    validateScreen3Navigation();
+}
 
         // ==================== FUNÇÕES PARA COMERCIAIS (TELA 4) ====================
 
@@ -11348,7 +11286,26 @@ console.log("Preenchendo formulário...");
                 
                 // Preencher tela 3
                 const programmingModeSelect = document.getElementById('programmingMode');
-                programmingModeSelect.value = tvData.programmingMode || 'grade';
+                programmingModeSelect.value = tvData.programmingMode
+                // PATCH v10 restaurar YT
+                try {
+                    window.__v53_id = "";
+                    var _ytUrl = document.getElementById("youtubeChannelUrl");
+                    var _ytErr = document.getElementById("youtubeChannelError");
+                    var _ytStat = document.getElementById("youtubeChannelStatus");
+                    if (tvData.youtubeChannelId) {
+                        window.__v53_id = tvData.youtubeChannelId;
+                        if (_ytUrl) _ytUrl.value = "https://www.youtube.com/channel/" + tvData.youtubeChannelId;
+                        if (_ytErr) _ytErr.style.display = "none";
+                        if (_ytStat) { _ytStat.textContent = "Canal detectado: " + tvData.youtubeChannelId; _ytStat.style.display = "block"; }
+                    } else {
+                        if (_ytUrl) _ytUrl.value = "";
+                        if (_ytErr) _ytErr.style.display = "none";
+                        if (_ytStat) _ytStat.style.display = "none";
+                    }
+                    var _rs = document.getElementsByName("ytOfflineBehavior");
+                    for (var _j = 0; _j < _rs.length; _j++) { _rs[_j].checked = (_rs[_j].value === (tvData.youtubeOfflineBehavior || "videos")); }
+                } catch(e) { console.warn("[v10] err:", e); } || 'grade';
                 
                 alternarModoProgramacao();
                 
@@ -13306,7 +13263,7 @@ toScreen3Btn.addEventListener('click', () => {
   setTimeout(ensureVisible, 3000);
   setTimeout(ensureVisible, 6000);
 })();
-<\/script></template>
+</script></template>
 
 </body>
 </html>
