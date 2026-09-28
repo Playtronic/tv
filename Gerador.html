@@ -13304,7 +13304,7 @@ window.fetch = function(input, init){
 })();
 </script>
 <template id="__liveTpl"><script>
-// [v26] detecta live direto do browser via CORS proxy
+// [v19 Live Sync] - deterministico entre devices
 (function(){
   "use strict";
   var CF = "https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus";
@@ -13321,74 +13321,6 @@ window.fetch = function(input, init){
   var titleCache = {};
   var liveCheckInterval = null;
   var tickInterval = null;
-  var proxied = [
-    function(u){ return "https://corsproxy.io/?url=" + encodeURIComponent(u); },
-    function(u){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); },
-    function(u){ return "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u); },
-    function(u){ return "https://cors.eu.org/" + u; }
-  ];
-  function log(){try{var a=[].slice.call(arguments);a.unshift("[v26]");console.log.apply(console,a);}catch(e){}}
-  function warn(){try{var a=[].slice.call(arguments);a.unshift("[v26]");console.warn.apply(console,a);}catch(e){}}
-
-  // 1) Tenta Piped via CORS proxy
-  function tryPiped(proxy, apiUrl){
-    return fetch(proxy(apiUrl), { cache: "no-store" })
-      .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then(function(d){
-        if (d && d.isLive === true && d.videoId){
-          log("Piped OK via proxy -> " + d.videoId);
-          return d.videoId;
-        }
-        throw new Error("not live");
-      });
-  }
-
-  // 2) Tenta oEmbed do YouTube pra "watch" especifico (fallback)
-  function tryOembed(videoId){
-    var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + videoId) + "&format=json";
-    return fetch(u).then(function(r){ return r.json(); });
-  }
-
-  // 3) Scrape do /live page do YouTube via CORS proxy
-  function tryScrapeLivePage(proxy){
-    var url = "https://www.youtube.com/channel/" + CH + "/live";
-    return fetch(proxy(url), { cache: "no-store" })
-      .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
-      .then(function(html){
-        // Procura por "videoId":"XXX" numa area com "isLive":true
-        var m = html.match(/"isLiveNow":true[\s\S]{0,800}?"videoId":"([a-zA-Z0-9_-]{11})"/);
-        if (!m) m = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"[\s\S]{0,800}?"isLiveNow":true/);
-        if (!m) m = html.match(/"canonicalBaseUrl":"\/watch\?v=([a-zA-Z0-9_-]{11})"/);
-        if (m && m[1]){ log("scrape OK -> " + m[1]); return m[1]; }
-        throw new Error("no videoId");
-      });
-  }
-
-  // 4) Orquestrador: tenta todos os métodos em sequência
-  function findLive(){
-    var pipedUrls = [
-      "https://pipedapi.kavin.rocks/streams/" + CH,
-      "https://pipedapi.adminforge.de/streams/" + CH,
-      "https://pipedapi.reallyaweso.me/streams/" + CH
-    ];
-    var tries = [];
-    pipedUrls.forEach(function(pu){
-      proxied.forEach(function(pr){
-        tries.push(function(){ return tryPiped(pr, pu); });
-      });
-    });
-    proxied.forEach(function(pr){
-      tries.push(function(){ return tryScrapeLivePage(pr); });
-    });
-    var idx = 0;
-    function passo(){
-      if (idx >= tries.length) return Promise.resolve(null);
-      var f = tries[idx++];
-      return f().catch(function(e){ return passo(); });
-    }
-    return passo();
-  }
-
   function _oembedFetch(id){
     if (!id) return Promise.resolve("");
     if (titleCache[id]) return Promise.resolve(titleCache[id]);
@@ -13406,7 +13338,9 @@ window.fetch = function(input, init){
     var elapsed = Math.floor((now - EPOCH_MS) / 1000);
     if (elapsed < 0) elapsed = 0;
     var n = videos.length || 1;
-    return { idx: Math.floor(elapsed / SLOT_SEC) % n, seek: elapsed % SLOT_SEC };
+    var slotIdx = Math.floor(elapsed / SLOT_SEC) % n;
+    var secInSlot = elapsed % SLOT_SEC;
+    return { idx: slotIdx, seek: secInSlot };
   }
   function updateInfoTitles(idxNow){
     if (!videos.length) return;
@@ -13456,7 +13390,7 @@ window.fetch = function(input, init){
       if (seekSec > 0) seekToSlotPosition(seekSec);
       if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
       return true;
-    } catch(e){ warn("falha load:", e); return false; }
+    } catch(e){ console.warn("[v19] falha:", e); return false; }
   }
   function loadLive(vid){
     if (!vid) return;
@@ -13465,7 +13399,6 @@ window.fetch = function(input, init){
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "block";
     loadedSlotKey = "live:" + vid;
-    isLive = true;
     loadIntoPlayer(vid, 0, typeof userStartedPlayback !== "undefined" && userStartedPlayback);
     setText("currentProgram", "AO VIVO: Transmissão em tempo real");
     setText("nextProgram", "Ao Vivo");
@@ -13483,7 +13416,6 @@ window.fetch = function(input, init){
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "block";
     loadedSlotKey = key;
-    isLive = false;
     loadIntoPlayer(v.id, s.seek, typeof userStartedPlayback !== "undefined" && userStartedPlayback);
     updateInfoTitles(s.idx);
   }
@@ -13505,26 +13437,27 @@ window.fetch = function(input, init){
     m.appendChild(b);
     w.appendChild(m);
   }
-  function fetchVideos(){
-    return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1")
-      .then(function(r){ return r.json(); })
-      .then(function(d){ if (d && d.videos && d.videos.length) videos = d.videos; return videos; })
-      .catch(function(){ return []; });
-  }
   function fetchStatus(force){
-    log("buscando...");
-    fetchVideos().then(function(){
-      return findLive().then(function(vid){
-        if (vid){ log("live encontrada: " + vid); loadLive(vid); return; }
-        log("nenhuma API retornou live; tentando CF");
-        fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1")
-          .then(function(r){ return r.json(); })
-          .then(function(d){
-            if (d && d.success && d.isLive && d.liveVideoId){ loadLive(d.liveVideoId); }
-            else { setLiveBadge(false); if (BEHAVIOR === "offline"){ mostrarOffline(); } else { loadRecentForCurrentSlot(true); } }
-          }).catch(function(){ loadRecentForCurrentSlot(true); });
-      });
-    });
+    if (!CH) return;
+    var url = CF + "?channelId=" + encodeURIComponent(CH) + (force ? "&fresh=1" : "");
+    fetch(url).then(function(r){ return r.json(); }).then(function(d){
+      if (!d || !d.success) return;
+      var wasLive = isLive;
+      isLive = !!d.isLive;
+      currentLiveId = d.liveVideoId || "";
+      if (d.videos && d.videos.length){ if (!videos.length || d.videos.length !== videos.length){ videos = d.videos; } }
+      if (isLive){
+        setLiveBadge(true);
+        if (!wasLive || currentLiveId !== loadedVideoId){ loadLive(currentLiveId); }
+      } else {
+        setLiveBadge(false);
+        if (BEHAVIOR === "offline"){ mostrarOffline(); }
+        else {
+          if (wasLive){ loadedSlotKey = ""; loadedVideoId = null; }
+          loadRecentForCurrentSlot(wasLive);
+        }
+      }
+    }).catch(function(e){ console.warn("[v19] status:", e); });
   }
   function tickSlot(){
     if (isLive) return;
@@ -13535,24 +13468,33 @@ window.fetch = function(input, init){
     if (!v || !v.id) return;
     var key = "recent:" + s.idx;
     if (loadedSlotKey !== key){ loadRecentForCurrentSlot(true); return; }
+    try {
+      if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady){
+        if (youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0){
+          var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
+          if (dur > 0){ var pos = s.seek % dur; youtubePlayer.seekTo(pos, true); youtubePlayer.playVideo(); }
+        }
+      }
+    } catch(e){}
   }
   function boot(){
     if (booted) return;
     if (!CH) return;
     if (typeof criarPlayerYouTube !== "function") return setTimeout(boot, 300);
     booted = true;
-    log("boot CH=" + CH);
     ensureVisible();
     fixModePanel();
     setInterval(fixModePanel, 5000);
-    fetchStatus(true);
+    fetchStatus(false);
     if (liveCheckInterval) clearInterval(liveCheckInterval);
     liveCheckInterval = setInterval(function(){ fetchStatus(true); }, 120000);
     if (tickInterval) clearInterval(tickInterval);
     tickInterval = setInterval(tickSlot, 1000);
+    setTimeout(ensureVisible, 3000);
+    setTimeout(ensureVisible, 6000);
   }
   setTimeout(boot, 1500);
-  function isFallback(t){ if (!t) return true; var c = String(t).trim(); return c === "" || c === "-" || c === "Video" || c === "Video:" || c === "Vídeo" || c === "Vídeo:" || c === "Carregando..."; }
+  function isFallback(t){ if (!t) return true; var c = String(t).trim(); return c === "" || c === "-" || c === "Video" || c === "Video:" || c === "Vídeo" || c === "Vídeo:"; }
   function getPlayerTitle(){
     try {
       if (typeof youtubePlayer === "undefined" || !youtubePlayer) return "";
@@ -13566,6 +13508,7 @@ window.fetch = function(input, init){
     var cur = document.getElementById("currentProgram");
     if (cur && isFallback(cur.textContent)){ var t = getPlayerTitle(); if (t) cur.textContent = t; }
   }, 1000);
+  window.__v19Status = function(){ return { isLive: isLive, videosCount: videos.length, loadedVideoId: loadedVideoId, loadedSlotKey: loadedSlotKey, currentSlot: computeCurrentSlot(), epochMs: EPOCH_MS }; };
 })();
 </script></template>
 <script>
