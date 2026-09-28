@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.3.4">
+    <meta name="version" content="1.0.3.5">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.3.4
+            Versão 1.0.3.5
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.3.4";
+        const CHANNEL_VERSION = "1.0.3.5";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6118,7 +6118,7 @@ init();
 })();
 </script>
 <script>
-// [v19 Live Sync] — script inline que os canais antigos usam
+// [v24] busca live via Piped/Invidious + fallback slot
 (function(){
   "use strict";
   var CF = "https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus";
@@ -6135,6 +6135,59 @@ init();
   var titleCache = {};
   var liveCheckInterval = null;
   var tickInterval = null;
+
+  // ─── [v24] Descobre live via APIs publicas ───
+  function _v24_findLive(){
+    var pipeds = [
+      "https://pipedapi.kavin.rocks",
+      "https://pipedapi.adminforge.de",
+      "https://pipedapi.reallyaweso.me",
+      "https://pipedapi.drgns.space",
+      "https://api.piped.private.coffee"
+    ];
+    var invidious = [
+      "https://inv.nadeko.net",
+      "https://invidious.nerdvpn.de",
+      "https://invidious.privacyredirect.com",
+      "https://yewtu.be",
+      "https://iv.melmac.space"
+    ];
+    var tries = [];
+    pipeds.forEach(function(base){
+      tries.push(function(){
+        return fetch(base + "/streams/" + CH, { cache: "no-store", mode: "cors" })
+          .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+          .then(function(d){
+            if (d && d.isLive === true && d.videoId){
+              console.log("[v24] LIVE via " + base + " -> " + d.videoId);
+              return d.videoId;
+            }
+            throw new Error("not live");
+          });
+      });
+    });
+    invidious.forEach(function(base){
+      tries.push(function(){
+        return fetch(base + "/api/v1/channels/" + CH + "/live", { cache: "no-store", mode: "cors" })
+          .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+          .then(function(d){
+            if (d && d.videoId){
+              console.log("[v24] LIVE via " + base + " -> " + d.videoId);
+              return d.videoId;
+            }
+            throw new Error("not live");
+          });
+      });
+    });
+    var idx = 0;
+    function passo(){
+      if (idx >= tries.length) return Promise.resolve(null);
+      var f = tries[idx++];
+      return f().catch(function(){ return passo(); });
+    }
+    return passo();
+  }
+
   function _oembedFetch(id){
     if (!id) return Promise.resolve("");
     if (titleCache[id]) return Promise.resolve(titleCache[id]);
@@ -6164,9 +6217,6 @@ init();
     setText("currentProgram", (c && (c.title || c.name)) || "Carregando...");
     setText("nextProgram", (nv && (nv.title || nv.name)) || "Carregando...");
     setText("afterNextProgram", (av && (av.title || av.name)) || "Carregando...");
-    if (c && !c.title && c.id) _oembedFetch(c.id).then(function(t){ if (t) setText("currentProgram", t); });
-    if (nv && !nv.title && nv.id) _oembedFetch(nv.id).then(function(t){ if (t) setText("nextProgram", t); });
-    if (av && !av.title && av.id) _oembedFetch(av.id).then(function(t){ if (t) setText("afterNextProgram", t); });
   }
   function ensureVisible(){ var pi = document.querySelector(".program-info"); if (pi) pi.style.display = ""; var di = document.querySelector(".debug-info"); if (di) di.style.display = ""; }
   function playWhenReady(){
@@ -6204,7 +6254,7 @@ init();
       if (seekSec > 0) seekToSlotPosition(seekSec);
       if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
       return true;
-    } catch(e){ console.warn("[v19] falha:", e); return false; }
+    } catch(e){ console.warn("[v24] falha:", e); return false; }
   }
   function loadLive(vid){
     if (!vid) return;
@@ -6213,6 +6263,7 @@ init();
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "block";
     loadedSlotKey = "live:" + vid;
+    isLive = true;
     loadIntoPlayer(vid, 0, typeof userStartedPlayback !== "undefined" && userStartedPlayback);
     setText("currentProgram", "AO VIVO: Transmissão em tempo real");
     setText("nextProgram", "Ao Vivo");
@@ -6230,6 +6281,7 @@ init();
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "block";
     loadedSlotKey = key;
+    isLive = false;
     loadIntoPlayer(v.id, s.seek, typeof userStartedPlayback !== "undefined" && userStartedPlayback);
     updateInfoTitles(s.idx);
   }
@@ -6251,27 +6303,43 @@ init();
     m.appendChild(b);
     w.appendChild(m);
   }
+  function fetchVideosFromCF(){
+    return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1")
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d && d.videos && d.videos.length) videos = d.videos; return videos; })
+      .catch(function(){ return []; });
+  }
   function fetchStatus(force){
-    if (!CH) return;
-    var url = CF + "?channelId=" + encodeURIComponent(CH) + (force ? "&fresh=1" : "");
-    fetch(url).then(function(r){ return r.json(); }).then(function(d){
-      if (!d || !d.success) return;
-      var wasLive = isLive;
-      isLive = !!d.isLive;
-      currentLiveId = d.liveVideoId || "";
-      if (d.videos && d.videos.length){ if (!videos.length || d.videos.length !== videos.length){ videos = d.videos; } }
-      if (isLive){
-        setLiveBadge(true);
-        if (!wasLive || currentLiveId !== loadedVideoId){ loadLive(currentLiveId); }
-      } else {
-        setLiveBadge(false);
-        if (BEHAVIOR === "offline"){ mostrarOffline(); }
-        else {
-          if (wasLive){ loadedSlotKey = ""; loadedVideoId = null; }
-          loadRecentForCurrentSlot(wasLive);
-        }
+    // [v24] primeiro tenta Piped/Invidious pra achar live
+    _v24_findLive().then(function(vid){
+      if (vid){
+        console.log("[v24] live detectada via API publica: " + vid);
+        loadLive(vid);
+        // Em paralelo, pega a lista de videos pra fallback
+        fetchVideosFromCF();
+        return;
       }
-    }).catch(function(e){ console.warn("[v19] status:", e); });
+      console.log("[v24] nenhuma API publica retornou live, usando CF");
+      // Sem live -> cai no CF
+      fetchVideosFromCF().then(function(){
+        // Tenta CF com isLive
+        fetch(CF + "?channelId=" + encodeURIComponent(CH))
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d || !d.success) return;
+            if (d.isLive && d.liveVideoId){
+              loadLive(d.liveVideoId);
+            } else {
+              setLiveBadge(false);
+              if (BEHAVIOR === "offline"){ mostrarOffline(); }
+              else { loadRecentForCurrentSlot(true); }
+            }
+          }).catch(function(){ loadRecentForCurrentSlot(true); });
+      });
+    }).catch(function(){
+      console.log("[v24] erro na busca, usando CF");
+      fetchVideosFromCF().then(function(){ loadRecentForCurrentSlot(true); });
+    });
   }
   function tickSlot(){
     if (isLive) return;
@@ -6282,47 +6350,24 @@ init();
     if (!v || !v.id) return;
     var key = "recent:" + s.idx;
     if (loadedSlotKey !== key){ loadRecentForCurrentSlot(true); return; }
-    try {
-      if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady){
-        if (youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0){
-          var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
-          if (dur > 0){ var pos = s.seek % dur; youtubePlayer.seekTo(pos, true); youtubePlayer.playVideo(); }
-        }
-      }
-    } catch(e){}
   }
   function boot(){
     if (booted) return;
     if (!CH) return;
     if (typeof criarPlayerYouTube !== "function") return setTimeout(boot, 300);
     booted = true;
+    console.log("[v24] boot CH=" + CH);
     ensureVisible();
     fixModePanel();
     setInterval(fixModePanel, 5000);
-    fetchStatus(false);
+    fetchStatus(true);
     if (liveCheckInterval) clearInterval(liveCheckInterval);
     liveCheckInterval = setInterval(function(){ fetchStatus(true); }, 120000);
     if (tickInterval) clearInterval(tickInterval);
     tickInterval = setInterval(tickSlot, 1000);
-    setTimeout(ensureVisible, 3000);
-    setTimeout(ensureVisible, 6000);
   }
   setTimeout(boot, 1500);
-  function isFallback(t){ if (!t) return true; var c = String(t).trim(); return c === "" || c === "-" || c === "Video" || c === "Video:" || c === "Vídeo" || c === "Vídeo:"; }
-  function getPlayerTitle(){
-    try {
-      if (typeof youtubePlayer === "undefined" || !youtubePlayer) return "";
-      if (typeof playerReady === "undefined" || !playerReady) return "";
-      var d = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null;
-      if (!d || !d.title) return "";
-      return (d.isLive ? "AO VIVO: " : "") + d.title;
-    } catch(e){ return ""; }
-  }
-  setInterval(function(){
-    var cur = document.getElementById("currentProgram");
-    if (cur && isFallback(cur.textContent)){ var t = getPlayerTitle(); if (t) cur.textContent = t; }
-  }, 1000);
-  window.__v19Status = function(){ return { isLive: isLive, videosCount: videos.length, loadedVideoId: loadedVideoId, loadedSlotKey: loadedSlotKey, currentSlot: computeCurrentSlot(), epochMs: EPOCH_MS }; };
+  window.__v24Status = function(){ return { isLive: isLive, videosCount: videos.length, loadedVideoId: loadedVideoId, loadedSlotKey: loadedSlotKey }; };
 })();
 </script>
 </body>
