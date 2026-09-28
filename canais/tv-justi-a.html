@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.3.0">
+    <meta name="version" content="1.0.3.1">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.3.0
+            Versão 1.0.3.1
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.3.0";
+        const CHANNEL_VERSION = "1.0.3.1";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6296,62 +6296,67 @@ function mountPlayer(videoId, live){
         applyVolume();
         if (userStarted) doPlay();
 
-        /* ===== [V18] procura live quando o CF disse isLive=false ===== */
-        if (!isLiveStream) {
-          var _v18_inst = playerInstanceId;
-          var _v18_vid = videoId;
-          var _v18_checks = 0;
-          var _v18_t = setInterval(function(){
-            if (_v18_inst !== playerInstanceId){ clearInterval(_v18_t); return; }
-            if (!player){ clearInterval(_v18_t); return; }
-            if (!userStarted) return;
-            try {
-              var vd = player.getVideoData() || {};
-              var st = -1;
-              try { st = player.getPlayerState ? player.getPlayerState() : -1; } catch(_e){}
-              log("v18 check #" + _v18_checks + " isLive=" + vd.isLive + " st=" + st);
+        /* ===== [V19] só aceita se o player TOCAR de verdade ===== */
+        var _v19_inst = playerInstanceId;
+        var _v19_vid = videoId;
+        var _v19_checks = 0;
+        var _v19_t = setInterval(function(){
+          if (_v19_inst !== playerInstanceId){ clearInterval(_v19_t); return; }
+          if (!player){ clearInterval(_v19_t); return; }
+          /* Só começa a checar DEPOIS que o usuário clicou Ligar TV */
+          if (!userStarted) return;
+          _v19_checks++;
+          try {
+            var vd = player.getVideoData() || {};
+            var st = -1;
+            try { st = player.getPlayerState ? player.getPlayerState() : -1; } catch(_e){}
+            var cur = 0;
+            try { cur = player.getCurrentTime ? player.getCurrentTime() : 0; } catch(_e){}
+            log("v19 #" + _v19_checks + " isLive=" + vd.isLive + " st=" + st + " cur=" + cur.toFixed(1));
 
+            /* SÓ considera OK se está tocando de verdade */
+            if (st === 1 && cur > 1) {
+              log("V19 OK - " + _v19_vid + " TOCANDO (isLive=" + vd.isLive + ")");
               if (vd.isLive === true) {
-                log("LIVE ENCONTRADO:", _v18_vid);
                 isLiveStream = true;
-                currentLiveId = _v18_vid;
-                clearInterval(_v18_t);
-                try { updateProgramPanel(_v18_vid, true); } catch(_e){}
-                return;
+                currentLiveId = _v19_vid;
+                try { updateProgramPanel(_v19_vid, true); } catch(_e){}
+              } else {
+                isLiveStream = false;
               }
+              clearInterval(_v19_t);
+              return;
+            }
 
-              _v18_checks++;
-              if (_v18_checks >= 2) {
-                clearInterval(_v18_t);
-                warn("não é live, tentando próximo:", _v18_vid);
-                rejectedIds[_v18_vid] = 1;
-                try { if (player && player.destroy) player.destroy(); } catch(_e){}
-                player = null; playerReady = false;
-                var _v18_next = null;
-                var _v18_idx = -1;
-                if (videos && videos.length){
-                  for (var _v18_i = 0; _v18_i < videos.length; _v18_i++){
-                    if (videos[_v18_i] && videos[_v18_i].id && !rejectedIds[videos[_v18_i].id]){
-                      _v18_next = videos[_v18_i].id;
-                      _v18_idx = _v18_i;
-                      break;
-                    }
+            /* Se passaram ~9s (6 checagens de 1.5s) e não tocou, rejeita */
+            if (_v19_checks >= 6) {
+              clearInterval(_v19_t);
+              warn("v19 travado - rejeitando " + _v19_vid + " (st=" + st + " cur=" + cur + ")");
+              rejectedIds[_v19_vid] = 1;
+              try { if (player && player.destroy) player.destroy(); } catch(_e){}
+              player = null; playerReady = false;
+              var _v19_next = null, _v19_idx = -1;
+              if (videos && videos.length){
+                for (var _v19_k = 0; _v19_k < videos.length; _v19_k++){
+                  if (videos[_v19_k] && videos[_v19_k].id && !rejectedIds[videos[_v19_k].id]){
+                    _v19_next = videos[_v19_k].id; _v19_idx = _v19_k; break;
                   }
                 }
-                if (_v18_next){
-                  idx = _v18_idx;
-                  log("tentando:", _v18_next);
-                  mountPlayer(_v18_next, false);
-                } else {
-                  warn("não achou live nos vídeos");
-                  try { renderOffline(); } catch(_e){}
-                }
               }
-            } catch(_e){ clearInterval(_v18_t); }
-          }, 2500);
-          setTimeout(function(){ try { clearInterval(_v18_t); } catch(_e){} }, 90000);
-        }
-        /* ===== fim [V18] ===== */
+              if (_v19_next){
+                idx = _v19_idx;
+                isLiveStream = false;
+                log("v19 tentando: " + _v19_next);
+                mountPlayer(_v19_next, false);
+              } else {
+                warn("v19 sem alternativas - offline");
+                try { renderOffline(); } catch(_e){}
+              }
+            }
+          } catch(_e){ clearInterval(_v19_t); }
+        }, 1500);
+        setTimeout(function(){ try { clearInterval(_v19_t); } catch(_e){} }, 120000);
+        /* ===== fim [V19] ===== */
       },
       onStateChange: function(e){
         if (thisInstance !== playerInstanceId) return;
