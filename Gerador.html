@@ -10870,6 +10870,44 @@ showScreen('screen6');
             programsError.style.display = 'none';
             playlistError.style.display = 'none';
             
+                        // 🎯 [PATCH Live do YouTube] — trata o modo youtube_live antes do grade/playlist
+            if (tvData.programmingMode === 'youtube_live') {
+                const ytError = document.getElementById('youtubeChannelError');
+                const ytStatus = document.getElementById('youtubeChannelStatus');
+                
+                // Descobre o ID do canal: prioriza tvData, depois variáveis globais do resolver
+                let ytId = tvData.youtubeChannelId || window.__v53_id || window.__v56_id || window.__v58_id || '';
+                if (!ytId) {
+                    const inp = document.getElementById('youtubeChannelUrl');
+                    if (inp) {
+                        const raw = inp.value.trim();
+                        let m = raw.match(/\/channel\/(UC[a-zA-Z0-9_-]{20,})/);
+                        if (m) ytId = m[1];
+                        if (!ytId) { m = raw.match(/^(UC[a-zA-Z0-9_-]{20,})$/); if (m) ytId = m[0]; }
+                    }
+                }
+                
+                if (!ytId) {
+                    toScreen4Btn.disabled = true;
+                    if (ytError) {
+                        ytError.textContent = 'Cole uma URL válida do YouTube (o canal precisa ser detectado).';
+                        ytError.style.display = 'block';
+                    }
+                    if (ytStatus) ytStatus.style.display = 'none';
+                    return false;
+                }
+                
+                // Canal OK — guarda no tvData e lê a preferência offline
+                tvData.youtubeChannelId = ytId;
+                const rs = document.getElementsByName('ytOfflineBehavior');
+                for (let j = 0; j < rs.length; j++) {
+                    if (rs[j].checked) tvData.youtubeOfflineBehavior = rs[j].value;
+                }
+                if (ytError) ytError.style.display = 'none';
+                toScreen4Btn.disabled = false;
+                return true;
+            }
+            
             if (tvData.programmingMode === 'grade') {
                 if (tvData.programs.length === 0) {
                     toScreen4Btn.disabled = true;
@@ -10957,27 +10995,27 @@ showScreen('screen6');
 
         // Alternar entre modos de programação na tela 3
         function alternarModoProgramacao() {
-            const programmingModeSelect = document.getElementById('programmingMode');
-            const gradeModeContainer = document.getElementById('gradeModeContainer');
-            const playlistModeContainer = document.getElementById('playlistModeContainer');
-            const programmingModeInfo = document.getElementById('programmingModeInfo');
-            
-            const selectedMode = programmingModeSelect.value;
-            tvData.programmingMode = selectedMode;
+            // 🎯 [PATCH Live do YouTube] — exibe o container correto por modo
+            const youtubeLiveModeContainer = document.getElementById('youtubeLiveModeContainer');
+            const MODE_INFO = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.';
             
             if (selectedMode === 'grade') {
                 gradeModeContainer.style.display = 'block';
                 playlistModeContainer.style.display = 'none';
-                programmingModeInfo.innerHTML = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.';
+                if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = 'none';
+                programmingModeInfo.innerHTML = MODE_INFO;
+            } else if (selectedMode === 'youtube_live') {
+                gradeModeContainer.style.display = 'none';
+                playlistModeContainer.style.display = 'none';
+                if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = 'block';
+                programmingModeInfo.innerHTML = MODE_INFO;
             } else {
                 gradeModeContainer.style.display = 'none';
                 playlistModeContainer.style.display = 'block';
-                programmingModeInfo.innerHTML = 'Modo Grade: 58 programas fixos, cada programa tem vídeos para cada dia.<br>Modo Playlist: Lista de vídeos em sequência contínua.<br>Modo Live do YouTube: Retransmite um canal ao vivo.';
+                if (youtubeLiveModeContainer) youtubeLiveModeContainer.style.display = 'none';
+                programmingModeInfo.innerHTML = MODE_INFO;
             }
-            
-            updateCounters();
-            validateScreen3Navigation();
-        }
+            }
 
         // ==================== FUNÇÕES PARA COMERCIAIS (TELA 4) ====================
 
@@ -12223,15 +12261,16 @@ toScreen3Btn.addEventListener('click', () => {
     showScreen('screen3');
 });
             
-            toScreen4Btn.addEventListener('click', () => {
-                if (validateScreen3Navigation()) {
+            if (validateScreen3Navigation()) {
                     tvData.programmingMode = programmingModeSelect.value;
                     
+                    // 🎯 [PATCH Live do YouTube] — não chamar updatePlaylistVideos em youtube_live
                     if (tvData.programmingMode === 'grade') {
                         updatePrograms();
-                    } else {
+                    } else if (tvData.programmingMode === 'playlist') {
                         updatePlaylistVideos();
                     }
+                    // youtube_live: nenhum update local (usa o ID do canal)
                     
                     showScreen('screen4');
                 }
