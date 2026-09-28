@@ -13123,40 +13123,115 @@ toScreen3Btn.addEventListener('click', () => {
   }
 
   var _f = window.fetch;
-  window.fetch = function(input, init){
+window.fetch = function(input, init){
+  try {
+    var url = (typeof input === "string") ? input : (input && input.url) || "";
+    if (url.indexOf("playtronicpublisher.workers.dev") === -1) {
+      return _f.apply(this, arguments);
+    }
+    if (!init || !init.body) {
+      return _f.apply(this, arguments);
+    }
+
+    // Detecta modo youtube_live em multiplas fontes
+    var isYtLive = false;
     try {
-      var url = (typeof input === 'string') ? input : (input && input.url) || '';
-      if (url.indexOf('playtronicpublisher.workers.dev') !== -1 && init && init.body && window.__v53_id){
-        var body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
-        if (body && body.htmlContent){
-          var tpl = document.getElementById('__liveTpl');
-          if (tpl){
-            var live = tpl.innerHTML
-              .replace('__YT_CHANNEL_ID__', window.__v53_id)
-              .replace('__YT_OFFLINE_BEHAVIOR__', window.__v53_behavior || 'videos');
-                /* v31: converter <\/script> em <\/script> real no texto extraido */
-                try {
-                    var _v31bs = String.fromCharCode(92);
-                    var _v31lt = String.fromCharCode(60);
-                    var _v31sl = String.fromCharCode(47);
-                    var _v31gt = String.fromCharCode(62);
-                    var _v31sc = String.fromCharCode(115,99,114,105,112,116);
-                    var _v31bad  = _v31lt + _v31bs + _v31sl + _v31sc + _v31gt;
-                    var _v31good = _v31lt + _v31sl + _v31sc + _v31gt;
-                    if (typeof live === "string" && live.indexOf(_v31bad) !== -1) {
-                        live = live.split(_v31bad).join(_v31good);
-                    }
-                } catch(_v31e) { console.warn("v31 fix falhou", _v31e); }
-                
-            var bc = String.fromCharCode(60) + '/body' + String.fromCharCode(62);
-            body.htmlContent = body.htmlContent.replace(bc, live + '\n' + bc);
-            init.body = JSON.stringify(body);
-          }
-        }
+      var bodyCheck = (typeof init.body === "string") ? JSON.parse(init.body) : init.body;
+      if (bodyCheck && bodyCheck.dadosConfig && bodyCheck.dadosConfig.programmingMode === "youtube_live") isYtLive = true;
+    } catch(e) {}
+    if (!isYtLive) {
+      try { if (typeof tvData !== "undefined" && tvData.programmingMode === "youtube_live") isYtLive = true; } catch(e) {}
+    }
+    if (!isYtLive) {
+      try { var pmSel = document.getElementById("programmingMode"); if (pmSel && pmSel.value === "youtube_live") isYtLive = true; } catch(e) {}
+    }
+
+    if (!isYtLive) {
+      return _f.apply(this, arguments);
+    }
+
+    var body = (typeof init.body === "string") ? JSON.parse(init.body) : init.body;
+    if (!body || !body.htmlContent) {
+      return _f.apply(this, arguments);
+    }
+
+    var tpl = document.getElementById("__liveTpl");
+    if (!tpl) {
+      console.error("[YT-LIVE-PATCH] Template __liveTpl nao encontrado no DOM.");
+      return _f.apply(this, arguments);
+    }
+
+    // Resolve channelId em multiplas fontes
+    var chId = "";
+    try {
+      if (typeof window.__v53_id === "string" && window.__v53_id && window.__v53_id.indexOf("__YT_") !== 0) {
+        chId = window.__v53_id;
       }
-    } catch(e){}
-    return _f.apply(this, arguments);
-  };
+    } catch(e) {}
+    if (!chId) { try { if (typeof tvData !== "undefined" && tvData.youtubeChannelId) chId = tvData.youtubeChannelId; } catch(e) {} }
+    if (!chId && body.dadosConfig && body.dadosConfig.youtubeChannelId) chId = body.dadosConfig.youtubeChannelId;
+
+    if (!chId) {
+      try {
+        var ytI = document.getElementById("youtubeChannelUrl");
+        if (ytI && ytI.value) {
+          var m = ytI.value.match(/\/channel\/(UC[a-zA-Z0-9_-]{20,})/);
+          if (!m) m = ytI.value.match(/^(UC[a-zA-Z0-9_-]{20,})$/);
+          if (m) chId = m[1] || m[0];
+        }
+      } catch(e) {}
+    }
+
+    if (!chId) {
+      console.error("[YT-LIVE-PATCH] Channel ID nao encontrado. Verifique a URL do YouTube antes de publicar.");
+      return _f.apply(this, arguments);
+    }
+
+    // Resolve behavior
+    var behavior = "";
+    try { if (typeof window.__v53_behavior === "string" && window.__v53_behavior) behavior = window.__v53_behavior; } catch(e) {}
+    if (!behavior) { try { if (typeof tvData !== "undefined" && tvData.youtubeOfflineBehavior) behavior = tvData.youtubeOfflineBehavior; } catch(e) {} }
+    if (!behavior) behavior = "videos";
+
+    // Substitui placeholders no template
+    var live = tpl.innerHTML;
+    live = live.split("__YT_CHANNEL_ID__").join(chId);
+    live = live.split("__YT_OFFLINE_BEHAVIOR__").join(behavior);
+
+    // Corrige tags escapadas
+    try {
+      var _bs = String.fromCharCode(92);
+      var _lt = String.fromCharCode(60);
+      var _sl = String.fromCharCode(47);
+      var _gt = String.fromCharCode(62);
+      var _sc = String.fromCharCode(115,99,114,105,112,116);
+      var _bad  = _lt + _bs + _sl + _sc + _gt;
+      var _good = _lt + _sl + _sc + _gt;
+      if (typeof live === "string" && live.indexOf(_bad) !== -1) {
+        live = live.split(_bad).join(_good);
+      }
+      var _tp = String.fromCharCode(116,101,109,112,108,97,116,101);
+      var _badTpl  = _lt + _bs + _sl + _tp + _gt;
+      var _goodTpl = _lt + _sl + _tp + _gt;
+      if (typeof live === "string" && live.indexOf(_badTpl) !== -1) {
+        live = live.split(_badTpl).join(_goodTpl);
+      }
+    } catch(_e) {}
+
+    var bc = String.fromCharCode(60) + "/body" + String.fromCharCode(62);
+    if (body.htmlContent.indexOf(bc) === -1) {
+      console.error("[YT-LIVE-PATCH] Tag </body> nao encontrada no HTML.");
+      return _f.apply(this, arguments);
+    }
+
+    body.htmlContent = body.htmlContent.replace(bc, live + "\n" + bc);
+    init.body = JSON.stringify(body);
+    console.log("[YT-LIVE-PATCH] Template injetado. channelId=" + chId + " behavior=" + behavior);
+  } catch(e) {
+    console.warn("[YT-LIVE-PATCH] Erro:", e);
+  }
+  return _f.apply(this, arguments);
+};
 
   function boot(){ if (!wire()) setTimeout(boot, 300); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
