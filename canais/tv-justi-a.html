@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.2.5">
+    <meta name="version" content="1.0.2.6">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.2.5
+            Versão 1.0.2.6
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.2.5";
+        const CHANNEL_VERSION = "1.0.2.6";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6286,9 +6286,37 @@ function mountPlayer(videoId, live){
         if (thisInstance !== playerInstanceId) return;
         if (e.data === 0 && !isLiveStream){ try { proximo(); } catch(x){} }
       },
-      onError: function(){
+      onError: function(ev){
         if (thisInstance !== playerInstanceId) return;
-        if (!isLiveStream){ try { proximo(); } catch(x){} }
+        var erroCode = ev && ev.data;
+        try { console.warn("[LIVE-ERR v12] player erro " + erroCode + " (isLiveStream=" + isLiveStream + ")"); } catch(_e){}
+
+        /* [LIVE-ERR v12] pergunta ao YouTube na pratica: se deu erro, esse video nao serve. */
+        /* Se nao era live, comportamento antigo: proximo video. */
+        if (!isLiveStream){ try { proximo(); } catch(x){} return; }
+
+        /* Era "live" perante o CF, mas o YouTube recusou (premiere agendada, video privado, etc).
+           Marca como rejeitado e tenta o proximo candidato da lista videos[]. */
+        var rejected = window.__liveRejected = window.__liveRejected || {};
+        rejected[videoId] = 1;
+
+        var nextId = null;
+        if (typeof videos !== "undefined" && videos && videos.length) {
+          for (var i = 0; i < videos.length; i++) {
+            if (videos[i] && videos[i].id && !rejected[videos[i].id]) { nextId = videos[i].id; break; }
+          }
+        }
+
+        if (nextId) {
+          try { console.log("[LIVE-ERR v12] tentando alternativa: " + nextId); } catch(_e){}
+          currentLiveId = nextId;
+          isLiveStream = false;
+          mountPlayer(nextId, false);
+        } else {
+          try { console.warn("[LIVE-ERR v12] sem alternativas - offline"); } catch(_e){}
+          isLiveStream = false;
+          if (typeof renderOffline === "function") renderOffline();
+        }
       }
     }
   });
