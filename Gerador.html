@@ -13481,6 +13481,63 @@ function mountPlayer(videoId, live){
         setVolIcon(getSliderVal());
         applyVolume();
         if (userStarted) doPlay();
+
+        /* ===== [V18] procura live quando o CF disse isLive=false ===== */
+        if (!isLiveStream) {
+          var _v18_inst = playerInstanceId;
+          var _v18_vid = videoId;
+          var _v18_checks = 0;
+          var _v18_t = setInterval(function(){
+            if (_v18_inst !== playerInstanceId){ clearInterval(_v18_t); return; }
+            if (!player){ clearInterval(_v18_t); return; }
+            if (!userStarted) return;
+            try {
+              var vd = player.getVideoData() || {};
+              var st = -1;
+              try { st = player.getPlayerState ? player.getPlayerState() : -1; } catch(_e){}
+              log("v18 check #" + _v18_checks + " isLive=" + vd.isLive + " st=" + st);
+
+              if (vd.isLive === true) {
+                log("LIVE ENCONTRADO:", _v18_vid);
+                isLiveStream = true;
+                currentLiveId = _v18_vid;
+                clearInterval(_v18_t);
+                try { updateProgramPanel(_v18_vid, true); } catch(_e){}
+                return;
+              }
+
+              _v18_checks++;
+              if (_v18_checks >= 2) {
+                clearInterval(_v18_t);
+                warn("não é live, tentando próximo:", _v18_vid);
+                rejectedIds[_v18_vid] = 1;
+                try { if (player && player.destroy) player.destroy(); } catch(_e){}
+                player = null; playerReady = false;
+                var _v18_next = null;
+                var _v18_idx = -1;
+                if (videos && videos.length){
+                  for (var _v18_i = 0; _v18_i < videos.length; _v18_i++){
+                    if (videos[_v18_i] && videos[_v18_i].id && !rejectedIds[videos[_v18_i].id]){
+                      _v18_next = videos[_v18_i].id;
+                      _v18_idx = _v18_i;
+                      break;
+                    }
+                  }
+                }
+                if (_v18_next){
+                  idx = _v18_idx;
+                  log("tentando:", _v18_next);
+                  mountPlayer(_v18_next, false);
+                } else {
+                  warn("não achou live nos vídeos");
+                  try { renderOffline(); } catch(_e){}
+                }
+              }
+            } catch(_e){ clearInterval(_v18_t); }
+          }, 2500);
+          setTimeout(function(){ try { clearInterval(_v18_t); } catch(_e){} }, 90000);
+        }
+        /* ===== fim [V18] ===== */
       },
       onStateChange: function(e){
         if (thisInstance !== playerInstanceId) return;
