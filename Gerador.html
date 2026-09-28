@@ -13370,6 +13370,40 @@ function mountPlayer(videoId, live){
     events: {
       onReady: function(e){
         if (thisInstance !== playerInstanceId) return;
+        if (isLiveStream && player && typeof player.getVideoData === "function") {
+          try {
+            var _vd = player.getVideoData() || {};
+            if (_vd.isLive === false) {
+              try { console.warn("[LIVE-CHECK] " + videoId + " NAO esta ao vivo agora (premiere agendada?) - rejeitando"); } catch(_){}
+              try { player.destroy(); } catch(_){}
+              player = null; playerReady = false;
+              window.__liveRejected = window.__liveRejected || {};
+              window.__liveRejected[videoId] = 1;
+              var _nextId = null;
+              if (videos && videos.length) {
+                for (var _i = 0; _i < videos.length; _i++) {
+                  var _v = videos[_i];
+                  if (_v && _v.id && !window.__liveRejected[_v.id]) { _nextId = _v.id; break; }
+                }
+              }
+              if (_nextId) {
+                try { console.log("[LIVE-CHECK] tentando candidato alternativo: " + _nextId); } catch(_){}
+                currentLiveId = _nextId;
+                isLiveStream = true;
+                mountPlayer(_nextId, true);
+              } else {
+                try { console.warn("[LIVE-CHECK] nenhum candidato e realmente ao vivo - modo offline"); } catch(_){}
+                if (typeof renderOffline === "function") renderOffline();
+              }
+              return;
+            }
+            if (_vd.isLive === true) {
+              try { console.log("[LIVE-CHECK] " + videoId + " confirmado ao vivo ✓"); } catch(_){}
+            }
+          } catch(_ex) {
+            try { console.warn("[LIVE-CHECK] erro na verificacao:", _ex && _ex.message); } catch(_){}
+          }
+        }
         playerReady = true;
         bindCustomControls();
         addMasks();
