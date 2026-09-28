@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.2.0">
+    <meta name="version" content="1.0.2.1">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.2.0
+            Versão 1.0.2.1
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.2.0";
+        const CHANNEL_VERSION = "1.0.2.1";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -4961,8 +4961,64 @@ function playAd(url, onEnd, onError){
         height: '100%', width: '100%', videoId: vid,
         playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3 },
         events: {
-          onReady: function(e){try{e.target.setVolume(savedMute.volume * 100);}catch(x){}try{e.target.playVideo();}catch(x){}},
-          onStateChange: function(e){if(e.data === 0){try{ytAdPlayer.destroy();}catch(x){}ytAdPlayer = null;onEnd();}},
+          onReady: function(e){
+        if (thisInstance !== playerInstanceId) return;
+        playerReady = true;
+        bindCustomControls();
+        addMasks();
+        setVolIcon(getSliderVal());
+        applyVolume();
+        if (userStarted) doPlay();
+
+        /* ===== [LIVE-FIX v5] verifica se realmente está ao vivo ===== */
+        if (isLiveStream) {
+          (function(idSnap, vidSnap){
+            setTimeout(function(){
+              if (idSnap !== playerInstanceId) return;
+              if (!player || typeof player.getVideoData !== 'function') return;
+              try {
+                var vd = player.getVideoData() || {};
+                var dur = 0;
+                try { dur = player.getDuration ? player.getDuration() : 0; } catch(_e){ dur = 0; }
+                var st = -1;
+                try { st = player.getPlayerState ? player.getPlayerState() : -1; } catch(_e){ st = -1; }
+
+                var naoEhLive =
+                  (vd.isLive === false) ||
+                  (vd.isLive !== true && (dur === 0 || dur === null || isNaN(dur))) ||
+                  (vd.isLive !== true && st === 5);
+
+                if (naoEhLive) {
+                  try { console.warn('[LIVE-FIX v5] rejeitado: ' + vidSnap + ' (isLive=' + vd.isLive + ', dur=' + dur + ', state=' + st + ')'); } catch(_e){}
+                  try { player.destroy(); } catch(_e){}
+                  player = null; playerReady = false;
+                  window.__liveRejected = window.__liveRejected || {};
+                  window.__liveRejected[vidSnap] = 1;
+                  var nextId = null;
+                  if (typeof videos !== 'undefined' && videos && videos.length) {
+                    for (var i = 0; i < videos.length; i++) {
+                      if (videos[i] && videos[i].id && !window.__liveRejected[videos[i].id]) { nextId = videos[i].id; break; }
+                    }
+                  }
+                  if (nextId) {
+                    try { console.log('[LIVE-FIX v5] tentando: ' + nextId); } catch(_e){}
+                    currentLiveId = nextId;
+                    isLiveStream = true;
+                    mountPlayer(nextId, true);
+                  } else {
+                    try { console.warn('[LIVE-FIX v5] nenhum candidato — offline'); } catch(_e){}
+                    if (typeof renderOffline === 'function') renderOffline();
+                  }
+                  return;
+                }
+                try { console.log('[LIVE-FIX v5] OK — ' + vidSnap + ' confirmado ao vivo'); } catch(_e){}
+              } catch(ex) { try { console.warn('[LIVE-FIX v5]', ex); } catch(_e){} }
+            }, 4000);
+          })(playerInstanceId, videoId);
+        }
+        /* ===== fim [LIVE-FIX v5] ===== */
+      },
+      onStateChange: function(e){if(e.data === 0){try{ytAdPlayer.destroy();}catch(x){}ytAdPlayer = null;onEnd();}},
           onError: function(e){try{ytAdPlayer.destroy();}catch(x){}ytAdPlayer = null;onError('YT ' + e.data);}
         }
       });
