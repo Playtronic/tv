@@ -6210,8 +6210,10 @@ function onYouTubePlayerReady(event) {
     console.log('Player do YouTube pronto');
     playerReady = true;
     
-    // 🎯 Seek para o ponto correto baseado na duração REAL do vídeo
-    try {
+    // [v20] seek legado desativado em youtube_live
+    if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
+        console.log('[v20] onYouTubePlayerReady: seek ignorado (youtube_live)');
+    } else try {
         if (event.target && typeof event.target.getDuration === 'function') {
             const dur = event.target.getDuration();
             if (dur > 0) {
@@ -6281,10 +6283,14 @@ function onYouTubePlayerStateChange(event) {
     if (event.data === 0) { // ENDED
         console.log('YouTube vídeo terminou. Estado atual:', currentState);
         
-        // Se estamos em comercial, o handler de comercial cuida disso via setInterval.
-        // NÃO chamar verificarFimDoVideo aqui para não confundir o fluxo.
         if (currentState === 'commercial') {
             console.log('Video ended durante comercial - deixando handleCommercialEnd cuidar');
+            return;
+        }
+        
+        // [v20] dispatch para template
+        if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
+            try { window.dispatchEvent(new CustomEvent('yt-video-ended')); } catch(e){}
             return;
         }
         
@@ -7365,20 +7371,22 @@ var _ocultarYtInterval = setInterval(function() {
             }
             
             if (isYoutubeVideo && youtubePlayer && playerReady) {
-                // YouTube já foi carregado e passou pelo seek do onReady.
-                // Só damos play — NÃO recriamos o player.
-                try {
-                    const dur = youtubePlayer.getDuration();
-                    if (dur > 0) {
-                        const SLOT_SEC = SLOT_DURATION * 60;
-                        const slotElapsed = SLOT_SEC * percentualSlot;
-                        const videoPos = slotElapsed % dur;
-                        console.log('[YouTube] Ligar TV — seek final para ' + videoPos.toFixed(1) + 's');
-                        youtubePlayer.seekTo(videoPos, true);
-                    }
-                } catch(e) { console.warn(e); }
-                
-                youtubePlayer.playVideo();
+                // [v20] Ligar TV sem seek
+                if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
+                    try { youtubePlayer.playVideo(); } catch(e){ console.warn(e); }
+                } else {
+                    try {
+                        const dur = youtubePlayer.getDuration();
+                        if (dur > 0) {
+                            const SLOT_SEC = SLOT_DURATION * 60;
+                            const slotElapsed = SLOT_SEC * percentualSlot;
+                            const videoPos = slotElapsed % dur;
+                            console.log('[YouTube] Ligar TV — seek final para ' + videoPos.toFixed(1) + 's');
+                            youtubePlayer.seekTo(videoPos, true);
+                        }
+                    } catch(e) { console.warn(e); }
+                    youtubePlayer.playVideo();
+                }
             } else if (videoElement && videoElement.src) {
                 // HTML5: só damos play — o seek já foi feito no loadedmetadata
                 videoElement.muted = false;
@@ -7471,6 +7479,9 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function verificarFimDoVideo() {
+    if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
+        return; // [v20] verificarFimDoVideo desativado
+    }
     console.log('=== FIM DO VÍDEO DETECTADO ===');
     console.log('Estado atual:', currentState);
     console.log('Slot atual:', currentPlayingSlot);
@@ -13335,6 +13346,39 @@ toScreen3Btn.addEventListener('click', () => {
     if (cur && isFallback(cur.textContent)){ var t = getPlayerTitle(); if (t) cur.textContent = t; }
   }, 1000);
   window.__v19Status = function(){ return { isLive: isLive, videosCount: videos.length, loadedVideoId: loadedVideoId, loadedSlotKey: loadedSlotKey, currentSlot: computeCurrentSlot(), epochMs: EPOCH_MS }; };
+  /* [v20 ended-listener] reage ao evento do player legado */
+  window.addEventListener('yt-video-ended', function(){
+    try {
+      if (isLive) return;
+      if (!videos.length) return;
+      if (BEHAVIOR === 'offline') return;
+      var s = computeCurrentSlot();
+      var v = videos[s.idx];
+      if (!v || !v.id) return;
+      var key = 'recent:' + s.idx;
+      if (loadedSlotKey !== key){ loadRecentForCurrentSlot(true); return; }
+      if (typeof youtubePlayer !== 'undefined' && youtubePlayer && typeof playerReady !== 'undefined' && playerReady){
+        var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
+        if (dur > 0){ var pos = s.seek % dur; youtubePlayer.seekTo(pos, true); youtubePlayer.playVideo(); }
+      }
+    } catch(e){ console.warn('[v20] ended-handler:', e); }
+  });
+  /* [v20 ended-listener] listener direto no player como backup */
+  setInterval(function(){
+    try {
+      if (typeof youtubePlayer === 'undefined' || !youtubePlayer) return;
+      if (typeof playerReady === 'undefined' || !playerReady) return;
+      if (youtubePlayer.__v20Hooked) return;
+      if (typeof youtubePlayer.addEventListener !== 'function') return;
+      youtubePlayer.__v20Hooked = true;
+      youtubePlayer.addEventListener('onStateChange', function(ev){
+        if (ev.data === 0 && !isLive && BEHAVIOR !== 'offline'){
+          try { window.dispatchEvent(new CustomEvent('yt-video-ended')); } catch(e){}
+        }
+      });
+      console.log('[v20] listener no player instalado');
+    } catch(e){}
+  }, 1000);
 })();
 </script></template>
 
