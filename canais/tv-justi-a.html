@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.2.7">
+    <meta name="version" content="1.0.2.8">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.2.7
+            Versão 1.0.2.8
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.2.7";
+        const CHANNEL_VERSION = "1.0.2.8";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6334,6 +6334,64 @@ function mountPlayer(videoId, live){
     }
   });
   updateProgramPanel(videoId, live);
+
+  /* ===== [LIVE-V14] watchdog FORA do onReady ===== */
+  if (live) {
+    var _wdId = thisInstance;
+    var _wdVid = videoId;
+    var _wdTries = 0;
+    var _wd = setInterval(function(){
+      if (_wdId !== playerInstanceId) { clearInterval(_wd); return; }
+      if (!player || typeof player.getPlayerState !== "function") {
+        _wdTries++;
+        if (_wdTries > 20) { clearInterval(_wd); try { _rejeitaLive(_wdVid); } catch(_e){} }
+        return;
+      }
+      try {
+        var _st = player.getPlayerState();
+        var _cur = 0;
+        try { _cur = player.getCurrentTime ? player.getCurrentTime() : 0; } catch(_e){}
+        try { console.log("[LIVE-V14] tick " + _wdTries + " st=" + _st + " cur=" + _cur + " started=" + (typeof userStarted !== "undefined" ? userStarted : "?")); } catch(_e){}
+        if (_st === 1 && _cur > 0.5) {
+          clearInterval(_wd);
+          try { console.log("[LIVE-V14] OK " + _wdVid + " - tocando ao vivo"); } catch(_e){}
+          return;
+        }
+        _wdTries++;
+        if (_wdTries >= 10 && typeof userStarted !== "undefined" && userStarted) {
+          clearInterval(_wd);
+          try { console.warn("[LIVE-V14] REJEITANDO " + _wdVid + " (nunca tocou: st=" + _st + " cur=" + _cur + ")"); } catch(_e){}
+          try { _rejeitaLive(_wdVid); } catch(_e){ console.warn("[LIVE-V14] erro:", _e); }
+        }
+      } catch(_e){}
+    }, 1800);
+    setTimeout(function(){ try { clearInterval(_wd); } catch(_e){} }, 60000);
+  }
+  /* ===== fim [LIVE-V14] ===== */
+}
+
+function _rejeitaLive(badId) {
+  try { console.warn("[LIVE-V14] _rejeitaLive(" + badId + ")"); } catch(_e){}
+  window.__liveRejected = window.__liveRejected || {};
+  window.__liveRejected[badId] = 1;
+  try { if (player && player.destroy) player.destroy(); } catch(_e){}
+  player = null; playerReady = false;
+  var nextId = null;
+  if (typeof videos !== "undefined" && videos && videos.length) {
+    for (var _i = 0; _i < videos.length; _i++) {
+      if (videos[_i] && videos[_i].id && !window.__liveRejected[videos[_i].id]) { nextId = videos[_i].id; break; }
+    }
+  }
+  if (nextId) {
+    try { console.log("[LIVE-V14] tentando alternativa: " + nextId); } catch(_e){}
+    currentLiveId = nextId;
+    isLiveStream = true;
+    try { mountPlayer(nextId, true); } catch(_e){ console.warn("[LIVE-V14] erro mountPlayer:", _e); }
+  } else {
+    try { console.warn("[LIVE-V14] sem alternativas - offline"); } catch(_e){}
+    isLiveStream = false;
+    try { if (typeof renderOffline === "function") renderOffline(); } catch(_e){}
+  }
 }
 function updateProgramPanel(videoId, live){
   var el = document.getElementById("currentProgram");
