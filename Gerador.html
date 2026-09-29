@@ -7374,8 +7374,26 @@ var _ocultarYtInterval = setInterval(function() {
     // Botão Ligar TV
     if (autoplayButton) {
         autoplayButton.addEventListener('click', function() {
-            // [v23 guard LigarTV]
+            // [v64-patcher:p5] em youtube_live delega ao __liveTpl (evita consumo precoce do clique)
             if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
+                // Se o hook do __liveTpl já está instalado, ele trata — não fazemos nada
+                if (typeof window.__liveForceRefresh === 'function') {
+                    return;   // __liveTpl cuida do clique
+                }
+                // Fallback: hook ainda não instalado. Chama refreshLiveStatus direto.
+                try {
+                    var _meta = document.querySelector('meta[name="channel-id"]');
+                    var _cid = _meta ? _meta.content : '';
+                    var _url = 'https://us-central1-playtronic-tv.cloudfunctions.net/refreshLiveStatus?fresh=1&_=' + Date.now();
+                    if (_cid) _url += '&channelId=' + encodeURIComponent(_cid);
+                    fetch(_url, { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(d){
+                        if (d && d.success && d.isLive && d.liveVideoId && typeof criarPlayerYouTube === 'function') {
+                            userStartedPlayback = true;
+                            if (autoplayOverlay) autoplayOverlay.classList.add('hidden');
+                            criarPlayerYouTube(d.liveVideoId, 0, true);
+                        }
+                    }).catch(function(){});
+                } catch(e) { console.warn('[p5]', e); }
                 userStartedPlayback = true;
                 if (autoplayOverlay) autoplayOverlay.classList.add('hidden');
                 return;
@@ -13321,127 +13339,35 @@ window.fetch = function(input, init){
   var REFRESH_CF = "https://us-central1-playtronic-tv.cloudfunctions.net/refreshLiveStatus";
   var CH = "__YT_CHANNEL_ID__";
   var FS_CHANNEL_ID = (document.querySelector('meta[name="channel-id"]') || {}).content || "";
+  /* [v64-patcher:p4] slots do dia: 58 × 25 min, base 6h, vídeos do mais antigo ao mais novo */
   var SLOT_SEC = 1500;
-  var EPOCH_MS = Date.parse("2025-01-01T06:00:00Z");
-  var LIVE_RECHECK_MS = 300000; // [v63-patcher:p3] era 120000 — 5min reduz consumo de cota
+  var TOTAL_SLOTS_DIA = 58;
+  var DIA_INICIO_HORA = 6;
 
-  var videos = [];
-  var isLive = false;
-  var isUpcoming = false;
-  var currentLiveId = "";
-  var currentSlotIdx = 0;
-  var loadedVideoId = null;
-  var booted = false;
-  var userStarted = false;
-  var liveCheckTimer = null;
-  var playbackWatcher = null;
-  var endWatcher = null;
-  var lastState = -1;
-  var titleCache = {};
-  var _liveStatusUnsub = null;
-
-  function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
-  function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
-
-  // Filtra títulos ruins que vêm do HTML do YouTube (números de views, badges, etc)
-  function _tituloOk(s){
-    if (!s) return false;
-    var t = String(s).trim();
-    if (t.length < 5) return false;
-    if (/^\s*[\d.,]+\s*(mil|milhões|milhão|K|M|B|views?|assistindo|watching)?\s*$/i.test(t)) return false;
-    if (/^(ao vivo|live|assistir depois|watch later|compartilhar|share|salvar|save|inscrever|subscribe|inscrito|subscribed|now playing|tocando agora|gostou deste v[íi]deo\??|did you like this video\??|obrigado por assistir|thanks for watching)$/i.test(t)) return false;
-    if (/^(gostou|did you like|liked this)/i.test(t)) return false;
-    if (/^(veja|assista|confira)\s+(tamb[ée]m|mais)/i.test(t)) return false;
-    return true;
-  }
-
-  function mostrarCarregando(msg){
-    var ov = document.getElementById("autoplayOverlay");
-    if (!ov) return;
-    if (!document.getElementById("__live_spin_css")) {
-      var s = document.createElement("style");
-      s.id = "__live_spin_css";
-      s.textContent = "@keyframes __live_spin { to { transform: rotate(360deg); } }";
-      document.head.appendChild(s);
-    }
-    ov.innerHTML =
-      '<div style="text-align:center;padding:20px;">' +
-        '<div style="border:4px solid rgba(255,255,255,0.25);border-top-color:#fdbb2d;border-radius:50%;width:54px;height:54px;animation:__live_spin 1s linear infinite;margin:0 auto 22px;"></div>' +
-        '<h3 style="font-size:1.25rem;margin-bottom:8px;color:#fff;font-weight:600;">' + (msg || "Carregando canal...") + '</h3>' +
-        '<p style="font-size:0.9rem;opacity:0.75;margin:0;">Isso pode levar alguns segundos</p>' +
-      '</div>';
-    ov.classList.remove("hidden");
-  }
-  function esconderCarregando(){
-    var ov = document.getElementById("autoplayOverlay");
-    if (ov) ov.classList.add("hidden");
-  }
-  function iniciarWatcherPlayback(){
-    if (playbackWatcher) clearInterval(playbackWatcher);
-    var inicio = Date.now();
-    playbackWatcher = setInterval(function(){
-      var st = -1;
-      try { if (youtubePlayer && playerReady) st = youtubePlayer.getPlayerState(); } catch(e){}
-      if (st === 1 || st === 3) { esconderCarregando(); clearInterval(playbackWatcher); playbackWatcher = null; return; }
-      if (Date.now() - inicio > 30000) { esconderCarregando(); clearInterval(playbackWatcher); playbackWatcher = null; }
-    }, 300);
-  }
-  function fetchTitulo(videoId){
-    if (titleCache[videoId]) return Promise.resolve(titleCache[videoId]);
-    var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + videoId) + "&format=json";
-    return fetch(u).then(function(r){ return r.json(); }).then(function(d){
-      if (d && d.title){ titleCache[videoId] = d.title; return d.title; }
-      return "";
-    }).catch(function(){ return ""; });
-  }
-  function getPlayer(){
-    try { if (typeof youtubePlayer !== "undefined" && youtubePlayer) return youtubePlayer; } catch(e){}
-    try { if (window.youtubePlayer) return window.youtubePlayer; } catch(e){}
-    return null;
-  }
-  function doSeek(target){
-    var p = getPlayer(); if (!p) return;
-    try {
-      var st = p.getPlayerState();
-      var wasPlaying = (st === 1 || st === 3);
-      if (wasPlaying) { try { p.pauseVideo(); } catch(e){} }
-      setTimeout(function(){
-        try { p.seekTo(target, true); } catch(e){}
-        setTimeout(function(){ if (wasPlaying) { try { p.playVideo(); } catch(e){} } }, 700);
-      }, 150);
-    } catch(e){ warn("doSeek:", e); }
-  }
-  function goToLiveEdge(){
-    var p = getPlayer(); if (!p) return;
-    try {
-      var dur = p.getDuration();
-      if (typeof dur === "number" && isFinite(dur) && dur > 0) doSeek(Math.max(0, dur - 2));
-    } catch(e){ warn("goToLiveEdge:", e); }
-  }
-  function bindBotoes(){
-    var r10 = document.getElementById("rewind10Btn");
-    var rst = document.getElementById("restartBtn");
-    var lv  = document.getElementById("liveBtn");
-    if (!r10 || !rst || !lv) return;
-    if (r10.getAttribute("data-v9") === "1") return;
-    var r10c = r10.cloneNode(true); r10c.setAttribute("data-v9","1");
-    var rstc = rst.cloneNode(true); rstc.setAttribute("data-v9","1");
-    var lvc  = lv.cloneNode(true);  lvc.setAttribute("data-v9","1");
-    r10.parentNode.replaceChild(r10c, r10);
-    rst.parentNode.replaceChild(rstc, rst);
-    lv.parentNode.replaceChild(lvc, lv);
-    r10c.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} var p=getPlayer(); if(!p)return false; var ct=0; try{ct=p.getCurrentTime();}catch(err){return false;} doSeek(Math.max(0,ct-10)); return false; };
-    rstc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} doSeek(0); return false; };
-    lvc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} goToLiveEdge(); return false; };
-  }
-  function setText(id, t){ var el = document.getElementById(id); if (el) el.textContent = (t == null ? "-" : t); }
-  function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
-  function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
-  function ensureVisible(){ var pi = document.querySelector(".program-info"); if (pi) pi.style.display = ""; var di = document.querySelector(".debug-info"); if (di) di.style.display = ""; }
   function computeCurrentSlot(){
-    var elapsed = Math.max(0, Math.floor((Date.now() - EPOCH_MS) / 1000));
+    var agora = new Date();
+    var horas = agora.getHours();
+
+    // Hora base: 6h da manhã do dia atual (ou anterior, se antes das 6h)
+    var horaBase = new Date(agora);
+    if (horas < DIA_INICIO_HORA) {
+      horaBase.setDate(horaBase.getDate() - 1);
+    }
+    horaBase.setHours(DIA_INICIO_HORA, 0, 0, 0);
+
+    var elapsedSec = Math.max(0, Math.floor((agora.getTime() - horaBase.getTime()) / 1000));
+    var slotIndexDia = Math.floor(elapsedSec / SLOT_SEC);
+
+    // Clamp: se passar de 58, fica no último slot (58) — mesma regra do modo grade
+    if (slotIndexDia > TOTAL_SLOTS_DIA - 1) slotIndexDia = TOTAL_SLOTS_DIA - 1;
+
+    var seekSec = elapsedSec % SLOT_SEC;
     var n = videos.length || 1;
-    return { idx: Math.floor(elapsed / SLOT_SEC) % n, seek: elapsed % SLOT_SEC };
+
+    // Se tiver menos de 58 vídeos, cicla pelo slot do dia
+    var idx = slotIndexDia % n;
+
+    return { idx: idx, seek: seekSec };
   }
   function playWhenReady(){
     var tries = 0;
@@ -13678,8 +13604,8 @@ window.fetch = function(input, init){
       try { userStartedPlayback = true; } catch(err){}
       mostrarCarregando("Verificando transmissao...");
       iniciarWatcherPlayback();
-      refreshManual().then(function(){
-        iniciarEndWatcher();
+      refreshManual(true).then(function(){
+        iniciarEndWatcher  /* [v64-patcher:p6] */();
         setTimeout(function(){
           if (!loadedVideoId && videos.length && !isLive) {
             var s = computeCurrentSlot();
