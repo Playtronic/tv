@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.5.2">
+    <meta name="version" content="1.0.5.3">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.5.2
+            Versão 1.0.5.3
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.5.2";
+        const CHANNEL_VERSION = "1.0.5.3";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6125,10 +6125,11 @@ init();
   var SLOT_SEC = 1500;
   var EPOCH_MS = Date.parse("2025-01-01T06:00:00Z");
 
+  // Proxies de fallback (podem estar offline, só usados se oEmbed falhar)
   var PROXIES = [
-    function(u){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); },
-    function(u){ return "https://corsproxy.io/?" + encodeURIComponent(u); },
-    function(u){ return "https://thingproxy.freeboard.io/fetch/" + u; }
+    function(u){ return "https://api.allorigins.win/get?url=" + encodeURIComponent(u); },
+    function(u){ return "https://cors.eu.org/" + u; },
+    function(u){ return "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u); }
   ];
 
   var videos = [];
@@ -6147,7 +6148,6 @@ init();
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
 
-  // ═══ LOADING ═══
   function mostrarCarregando(msg){
     var ov = document.getElementById("autoplayOverlay");
     if (!ov) return;
@@ -6195,10 +6195,9 @@ init();
     try { if (window.youtubePlayer) return window.youtubePlayer; } catch(e){}
     return null;
   }
-
   function doSeek(target){
     var p = getPlayer();
-    if (!p) { warn("doSeek: player null"); return; }
+    if (!p) return;
     try {
       var st = p.getPlayerState();
       var before = p.getCurrentTime() || 0;
@@ -6215,92 +6214,97 @@ init();
       }, 150);
     } catch(e){ warn("doSeek erro:", e); }
   }
-
   function goToLiveEdge(){
-    var p = getPlayer();
-    if (!p) return;
+    var p = getPlayer(); if (!p) return;
     try {
       var dur = p.getDuration();
-      log("AO VIVO: getDuration()=" + dur + " isLive=" + isLive);
+      log("AO VIVO: dur=" + dur + " isLive=" + isLive);
       if (typeof dur === "number" && isFinite(dur) && dur > 0) {
-        // seekTo(dur - 2) leva ao live edge em lives com DVR
-        var target = Math.max(0, dur - 2);
-        doSeek(target);
+        doSeek(Math.max(0, dur - 2));
       }
     } catch(e){ warn("AO VIVO erro:", e); }
   }
-
   function bindBotoes(){
     var r10 = document.getElementById("rewind10Btn");
     var rst = document.getElementById("restartBtn");
     var lv  = document.getElementById("liveBtn");
     if (!r10 || !rst || !lv) return;
-    if (r10.getAttribute("data-v8") === "1") return;
-
-    var r10c = r10.cloneNode(true); r10c.setAttribute("data-v8","1");
-    var rstc = rst.cloneNode(true); rstc.setAttribute("data-v8","1");
-    var lvc  = lv.cloneNode(true);  lvc.setAttribute("data-v8","1");
-
+    if (r10.getAttribute("data-v9") === "1") return;
+    var r10c = r10.cloneNode(true); r10c.setAttribute("data-v9","1");
+    var rstc = rst.cloneNode(true); rstc.setAttribute("data-v9","1");
+    var lvc  = lv.cloneNode(true);  lvc.setAttribute("data-v9","1");
     r10.parentNode.replaceChild(r10c, r10);
     rst.parentNode.replaceChild(rstc, rst);
     lv.parentNode.replaceChild(lvc, lv);
-
-    r10c.onclick = function(e){
-      if (e) { e.preventDefault(); e.stopPropagation(); }
-      log("clique -10s");
-      var p = getPlayer(); if (!p) return false;
-      var ct = 0; try { ct = p.getCurrentTime(); } catch(err){ return false; }
-      doSeek(Math.max(0, ct - 10));
-      return false;
-    };
-    rstc.onclick = function(e){
-      if (e) { e.preventDefault(); e.stopPropagation(); }
-      log("clique Inicio");
-      doSeek(0);
-      return false;
-    };
-    lvc.onclick = function(e){
-      if (e) { e.preventDefault(); e.stopPropagation(); }
-      log("clique AO VIVO | isLive=" + isLive);
-      goToLiveEdge();
-      return false;
-    };
-
-    log("botões clonados v8");
+    r10c.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} log("clique -10s"); var p=getPlayer(); if(!p)return false; var ct=0; try{ct=p.getCurrentTime();}catch(err){return false;} doSeek(Math.max(0,ct-10)); return false; };
+    rstc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} log("clique Inicio"); doSeek(0); return false; };
+    lvc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} log("clique AOVIVO | isLive="+isLive); goToLiveEdge(); return false; };
+    log("botões clonados v9");
   }
 
-  // ═══ PROXIES ═══
+  // ═══ PROXIES (fallback) ═══
   function fetchComProxy(url){
     var idx = 0;
     function tentar(){
       if (idx >= PROXIES.length) return Promise.reject(new Error("Todos proxies falharam"));
       return fetch(PROXIES[idx++](url), { redirect: "follow" })
         .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+        .then(function(txt){
+          // allorigins /get retorna {"contents":"..."}
+          try { var j = JSON.parse(txt); if (j && j.contents) return j.contents; } catch(e){}
+          return txt;
+        })
         .catch(function(e){ log("proxy falhou:", e.message); return tentar(); });
     }
     return tentar();
   }
 
-  // ═══ ANÁLISE — lógica EXATA da outra IA ═══
+  // ═══ oEmbed NATIVO ═══
+  // O YouTube retorna CORS nativo no endpoint oEmbed. Passando /channel/{id}/live:
+  // - Se tem live → segue redirect, retorna title + html com videoId
+  // - Se não tem → 404
+  function checkLiveViaOembed(){
+    var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/channel/" + CH + "/live") + "&format=json";
+    log("oEmbed URL: " + u);
+    return fetch(u, { mode: "cors" }).then(function(r){
+      log("oEmbed status: " + r.status);
+      if (r.status === 404) return { status: "none" };
+      if (r.status === 401 || r.status === 403) return { status: "erro" };
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function(d){
+      if (!d) return { status: "none" };
+      if (d.status) return d;
+      if (!d.title) return { status: "none" };
+      var m = d.html && d.html.match(/\/embed\/([a-zA-Z0-9_-]{11})/);
+      if (!m || !m[1]) {
+        log("oEmbed: title mas sem videoId no html");
+        return { status: "erro" };
+      }
+      log("oEmbed: LIVE detectada -> " + m[1] + " - " + d.title);
+      return { status: "live", videoId: m[1], titulo: d.title };
+    }).catch(function(e){
+      log("oEmbed erro: " + e.message);
+      return { status: "erro" };
+    });
+  }
+
+  // ═══ ANÁLISE (fallback via proxy) ═══
   function analisarHtml(html){
     var videoIdMatch  = html.match(/"videoId"\s*:\s*"([\w-]{11})"/);
     var tituloMatch   = html.match(/"title"\s*:\s*"([^"]+)"/);
     var startMatch    = html.match(/"startTimestamp"\s*:\s*"([^"]+)"/) || html.match(/"startTime"\s*:\s*"([^"]+)"/);
-
     var videoId   = videoIdMatch ? videoIdMatch[1] : null;
     var titulo    = tituloMatch ? tituloMatch[1] : null;
     var startTime = startMatch ? new Date(startMatch[1]) : null;
     var agora     = new Date();
-
     var isUpcomingFlag   = /"isUpcoming"\s*:\s*true/.test(html);
     var hasUpcomingEvent = /"upcomingEventData"/.test(html);
     var isPremiereFlag   = /"isPremiere"\s*:\s*true/.test(html);
     var isLiveNowFlag    = /"isLiveNow"\s*:\s*true/.test(html);
     var isLiveFlag       = /"isLive"\s*:\s*true/.test(html);
     var startNoFuturo    = startTime && startTime > agora;
-
-    log("analise -> id=" + videoId + " title='" + (titulo||"-") + "' isLiveNow=" + isLiveNowFlag + " isLive=" + isLiveFlag + " isUpcoming=" + isUpcomingFlag);
-
+    log("analise -> id=" + videoId + " title='" + (titulo||"-") + "' isLiveNow=" + isLiveNowFlag + " isLive=" + isLiveFlag);
     if (isUpcomingFlag || hasUpcomingEvent || startNoFuturo || (isPremiereFlag && !isLiveNowFlag)) {
       return { status: "upcoming", titulo: titulo, videoId: videoId, startTime: startTime };
     }
@@ -6311,13 +6315,25 @@ init();
   }
 
   function checkLive(){
-    var url = "https://www.youtube.com/channel/" + CH + "/live";
-    return fetchComProxy(url).then(function(html){
-      log("HTML recebido: " + html.length + " bytes");
-      var res = analisarHtml(html);
-      log("resultado:", res.status, res.videoId || "", res.titulo || "");
-      return res;
-    }).catch(function(e){ warn("erro checkLive:", e.message); return { status: "erro" }; });
+    // 1) oEmbed primeiro (funciona sem proxy)
+    return checkLiveViaOembed().then(function(res){
+      if (res.status === "live" && res.videoId) return res;
+      if (res.status === "none") {
+        log("oEmbed: sem live");
+        return res; // não tenta proxy, resposta confiável
+      }
+      // status erro → tenta proxy
+      log("oEmbed falhou → tentando proxies");
+      var url = "https://www.youtube.com/channel/" + CH + "/live";
+      return fetchComProxy(url).then(function(html){
+        var r = analisarHtml(html);
+        log("proxy resultado:", r.status, r.videoId || "");
+        return r;
+      }).catch(function(e){
+        warn("proxy tambem falhou: " + e.message);
+        return { status: "erro" };
+      });
+    });
   }
 
   // ═══ PLAYER ═══
@@ -6325,7 +6341,6 @@ init();
   function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
   function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
   function ensureVisible(){ var pi = document.querySelector(".program-info"); if (pi) pi.style.display = ""; var di = document.querySelector(".debug-info"); if (di) di.style.display = ""; }
-
   function computeCurrentSlot(){
     var elapsed = Math.max(0, Math.floor((Date.now() - EPOCH_MS) / 1000));
     var n = videos.length || 1;
@@ -6410,7 +6425,6 @@ init();
       .catch(function(){ return []; });
   }
 
-  // ═══ END WATCHER — reescrito ═══
   function iniciarEndWatcher(){
     if (endWatcher) clearInterval(endWatcher);
     lastState = -1;
@@ -6418,17 +6432,13 @@ init();
       var p = getPlayer(); if (!p) return;
       var st = -1;
       try { st = p.getPlayerState(); } catch(e){ return; }
-      // Detecta transição para "ended" (state=0)
       if (st === 0 && lastState !== 0) {
         log("FIM DE VÍDEO | isLive=" + isLive + " currentSlot=" + currentSlotIdx);
-        // Sempre tenta live primeiro
         checkLive().then(function(res){
           if (res.status === "live" && res.videoId) {
-            log("live detectada após fim");
             playLiveResult(res);
             return;
           }
-          // Sem live: avança para próximo slot
           var nxt = ((currentSlotIdx + 1) % (videos.length || 1));
           log("sem live - próximo slot " + nxt);
           playSlot(nxt, 0);
@@ -6476,10 +6486,7 @@ init();
         if (!userStarted) return;
         if (isLive) {
           checkLive().then(function(res){
-            if (res.status !== "live") {
-              var s = computeCurrentSlot();
-              playSlot(s.idx, s.seek);
-            }
+            if (res.status !== "live") { var s = computeCurrentSlot(); playSlot(s.idx, s.seek); }
           });
           return;
         }
