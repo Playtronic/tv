@@ -13308,7 +13308,6 @@ window.fetch = function(input, init){
   "use strict";
   var CF = "https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus";
   var CH = "__YT_CHANNEL_ID__";
-  var BEHAVIOR = "__YT_OFFLINE_BEHAVIOR__";
   var SLOT_SEC = 1500;
   var EPOCH_MS = Date.parse("2025-01-01T06:00:00Z");
 
@@ -13325,13 +13324,14 @@ window.fetch = function(input, init){
   var booted = false;
   var userStarted = false;
   var liveCheckTimer = null;
-  var rejectedIds = {};
   var playbackWatcher = null;
 
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
 
-  // ─── Loading overlay ───
+  // ═══════════════════════════════════════════
+  // LOADING
+  // ═══════════════════════════════════════════
   function mostrarCarregando(msg){
     var ov = document.getElementById("autoplayOverlay");
     if (!ov) return;
@@ -13377,65 +13377,50 @@ window.fetch = function(input, init){
     }, 300);
   }
 
-  // ─── Rebind dos controles ───
-  function rebindPlayerControls(){
-    var r10 = document.getElementById("rewind10Btn");
-    var rst = document.getElementById("restartBtn");
-    var lv  = document.getElementById("liveBtn");
+  // ═══════════════════════════════════════════
+  // CONTROLES (-10s / Início / AO VIVO)
+  // ═══════════════════════════════════════════
+  // Delegação com capture=true — roda antes de qualquer listener do site
+  document.addEventListener("click", function(e){
+    var t = e.target;
+    while (t && t !== document && t.id !== "rewind10Btn" && t.id !== "restartBtn" && t.id !== "liveBtn") {
+      t = t.parentNode;
+    }
+    if (!t || t === document) return;
+    var id = t.id;
 
-    if (r10) {
-      var c1 = r10.cloneNode(true);
-      r10.parentNode.replaceChild(c1, r10);
-      c1.addEventListener("click", function(){
-        try {
-          if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady) {
-            var ct = youtubePlayer.getCurrentTime();
-            if (typeof ct === "number" && isFinite(ct) && ct >= 0) {
-              var target = Math.max(0, ct - 10);
-              youtubePlayer.seekTo(target, true);
-            }
-          }
-        } catch(e){ warn("rewind10 erro:", e); }
-        if (typeof showControls === "function") showControls();
-        if (typeof resetControlsTimer === "function") resetControlsTimer();
-      });
+    if (id === "rewind10Btn" || id === "restartBtn" || id === "liveBtn") {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
     }
 
-    if (rst) {
-      var c2 = rst.cloneNode(true);
-      rst.parentNode.replaceChild(c2, rst);
-      c2.addEventListener("click", function(){
-        try {
-          if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady) {
-            youtubePlayer.seekTo(0, true);
-            if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
-          }
-        } catch(e){ warn("restart erro:", e); }
-        if (typeof showControls === "function") showControls();
-        if (typeof resetControlsTimer === "function") resetControlsTimer();
-      });
-    }
+    try {
+      if (typeof youtubePlayer === "undefined" || !youtubePlayer) return;
+      if (typeof playerReady === "undefined" || !playerReady) return;
 
-    if (lv) {
-      var c3 = lv.cloneNode(true);
-      lv.parentNode.replaceChild(c3, lv);
-      c3.addEventListener("click", function(){
-        try {
-          if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady) {
-            var dur = youtubePlayer.getDuration();
-            if (typeof dur === "number" && isFinite(dur) && dur > 0) {
-              youtubePlayer.seekTo(dur, true);
-            }
-            if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
-          }
-        } catch(e){ warn("live erro:", e); }
-        if (typeof showControls === "function") showControls();
-        if (typeof resetControlsTimer === "function") resetControlsTimer();
-      });
-    }
-  }
+      if (id === "rewind10Btn") {
+        var ct = youtubePlayer.getCurrentTime();
+        if (typeof ct === "number" && isFinite(ct)) {
+          var target = Math.max(0, ct - 10);
+          youtubePlayer.seekTo(target, true);
+        }
+      } else if (id === "restartBtn") {
+        youtubePlayer.seekTo(0, true);
+        if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
+      } else if (id === "liveBtn") {
+        var dur = youtubePlayer.getDuration();
+        if (typeof dur === "number" && isFinite(dur) && dur > 0) {
+          youtubePlayer.seekTo(dur, true);
+        }
+        if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
+      }
+    } catch(err){ warn("controle erro:", err); }
+  }, true);
 
-  // ─── Proxies ───
+  // ═══════════════════════════════════════════
+  // PROXIES
+  // ═══════════════════════════════════════════
   function fetchComProxy(url){
     var idx = 0;
     function tentar(){
@@ -13454,28 +13439,45 @@ window.fetch = function(input, init){
     return tentar();
   }
 
-  // ─── Análise do HTML ───
+  // ═══════════════════════════════════════════
+  // ANÁLISE — extrai do bloco videoDetails
+  // ═══════════════════════════════════════════
+  function extrairVideoDetails(html){
+    var idx = html.indexOf('"videoDetails"');
+    if (idx === -1) return null;
+    var chunk = html.substring(idx, Math.min(idx + 4000, html.length));
+    var v = chunk.match(/"videoId"\s*:\s*"([\w-]{11})"/);
+    var t = chunk.match(/"title"\s*:\s*"([^"]+)"/);
+    return {
+      videoId: v ? v[1] : null,
+      titulo: t ? t[1] : null,
+      chunk: chunk
+    };
+  }
+
   function analisarHtml(html){
-    var videoIdMatch = html.match(/"videoId"\s*:\s*"([\w-]{11})"/);
-    var tituloMatch = html.match(/"title"\s*:\s*"([^"]+)"/);
-    var startMatch = html.match(/"startTimestamp"\s*:\s*"([^"]+)"/) || html.match(/"startTime"\s*:\s*"([^"]+)"/);
+    var vd = extrairVideoDetails(html);
+    var videoId = vd ? vd.videoId : null;
+    var titulo = vd ? vd.titulo : null;
 
-    var videoId = videoIdMatch ? videoIdMatch[1] : null;
-    var titulo = tituloMatch ? tituloMatch[1] : null;
+    // Os flags vivem dentro do videoDetails chunk
+    var chunk = vd ? vd.chunk : html;
+    var isLiveNowFlag = /"isLiveNow"\s*:\s*true/.test(chunk);
+    var isLiveFlag = /"isLive"\s*:\s*true/.test(chunk);
+    var isUpcomingFlag = /"isUpcoming"\s*:\s*true/.test(chunk);
+    var isPremiereFlag = /"isPremiere"\s*:\s*true/.test(chunk);
+    var hasUpcomingEvent = /"upcomingEventData"/.test(chunk);
+
+    var startMatch = chunk.match(/"startTimestamp"\s*:\s*"([^"]+)"/);
     var startTime = startMatch ? new Date(startMatch[1]) : null;
-    var agora = new Date();
+    var startNoFuturo = startTime && startTime > new Date();
 
-    var isUpcomingFlag = /"isUpcoming"\s*:\s*true/.test(html);
-    var hasUpcomingEvent = /"upcomingEventData"/.test(html);
-    var isPremiereFlag = /"isPremiere"\s*:\s*true/.test(html);
-    var isLiveNowFlag = /"isLiveNow"\s*:\s*true/.test(html);
-    var isLiveFlag = /"isLive"\s*:\s*true/.test(html);
-    var startNoFuturo = startTime && startTime > agora;
+    log("videoDetails -> id=" + (videoId||"-") + " title='" + (titulo||"-") + "' isLiveNow=" + isLiveNowFlag + " isLive=" + isLiveFlag + " isUpcoming=" + isUpcomingFlag + " isPremiere=" + isPremiereFlag);
 
     if (isUpcomingFlag || hasUpcomingEvent || startNoFuturo || (isPremiereFlag && !isLiveNowFlag)){
       return { status: "upcoming", titulo: titulo, videoId: videoId, startTime: startTime };
     }
-    if (isLiveFlag && (!isPremiereFlag || isLiveNowFlag)){
+    if ((isLiveNowFlag || isLiveFlag) && (!isPremiereFlag || isLiveNowFlag)){
       return { status: "live", titulo: titulo, videoId: videoId };
     }
     return { status: "none", videoId: null };
@@ -13485,7 +13487,7 @@ window.fetch = function(input, init){
     var url = "https://www.youtube.com/channel/" + CH + "/live";
     return fetchComProxy(url).then(function(html){
       var res = analisarHtml(html);
-      log("analise:", res.status, res.videoId || "", res.titulo || "");
+      log("resultado:", res.status, res.videoId || "", res.titulo || "");
       return res;
     }).catch(function(e){
       warn("erro checkLive:", e.message);
@@ -13493,7 +13495,9 @@ window.fetch = function(input, init){
     });
   }
 
-  // ─── Player ───
+  // ═══════════════════════════════════════════
+  // PLAYER
+  // ═══════════════════════════════════════════
   function setText(id, t){ var el = document.getElementById(id); if (el) el.textContent = (t == null ? "-" : t); }
   function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
   function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
@@ -13539,9 +13543,6 @@ window.fetch = function(input, init){
       loadedVideoId = videoId;
       if (seekSec > 0) seekToSlotPosition(seekSec);
       if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
-      // Rebind após criar player
-      setTimeout(function(){ rebindPlayerControls(); }, 1500);
-      setTimeout(function(){ rebindPlayerControls(); }, 4000);
       return true;
     } catch(e){ warn("loadIntoPlayer:", e); return false; }
   }
@@ -13549,13 +13550,12 @@ window.fetch = function(input, init){
   function playLiveResult(res){
     if (!res || !res.videoId) return false;
     if (loadedVideoId === res.videoId && isLive) return true;
-    log("PLAY LIVE " + res.videoId);
+    log("PLAY LIVE " + res.videoId + " - " + (res.titulo||""));
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yc = document.getElementById("youtubeContainer"); if (yc) yc.style.display = "block";
     isLive = true;
     currentLiveId = res.videoId;
     loadIntoPlayer(res.videoId, 0, true);
-    // Sem prefixo "AO VIVO: " — usa título original do YouTube
     setText("currentProgram", res.titulo || "Transmissão ao vivo");
     setText("nextProgram", "-");
     setText("afterNextProgram", "-");
@@ -13568,7 +13568,6 @@ window.fetch = function(input, init){
     idx = Math.max(0, Math.min(videos.length - 1, idx));
     var v = videos[idx];
     if (!v || !v.id) return;
-    if (rejectedIds[v.id]) return playSlot((idx + 1) % videos.length, seekSec);
     log("PLAY SLOT " + idx + " -> " + v.id);
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yc = document.getElementById("youtubeContainer"); if (yc) yc.style.display = "block";
@@ -13591,18 +13590,13 @@ window.fetch = function(input, init){
       .catch(function(){ return []; });
   }
 
-  // ─── Orquestração ───
   function decidirEExecutar(){
     if (!userStarted) return;
-    log("decidindo...");
     fetchVideosFromCF().then(function(){
       checkLive().then(function(res){
         if (res.status === "live" && res.videoId){
           playLiveResult(res);
           return;
-        }
-        if (res.status === "upcoming"){
-          log("live agendada (não ao vivo) - tocando slot");
         }
         var s = computeCurrentSlot();
         playSlot(s.idx, s.seek);
@@ -13635,7 +13629,6 @@ window.fetch = function(input, init){
         if (isLive) {
           checkLive().then(function(res){
             if (res.status !== "live") {
-              log("live terminou - voltando pra slot");
               var s = computeCurrentSlot();
               playSlot(s.idx, s.seek);
             }
@@ -13649,7 +13642,7 @@ window.fetch = function(input, init){
         });
       }, 120000);
     }, true);
-    log("hook instalado no botão Ligar TV");
+    log("hook instalado");
   }
 
   function boot(){
@@ -13663,7 +13656,6 @@ window.fetch = function(input, init){
     setInterval(fixModePanel, 5000);
     fetchVideosFromCF();
     hookStartButton();
-    rebindPlayerControls();
   }
   setTimeout(boot, 1500);
 })();
@@ -13693,3 +13685,4 @@ window.fetch = function(input, init){
     setInterval(hide, 2000);
   } catch(e){}
 })();
+    
