@@ -13440,7 +13440,47 @@ window.fetch = function(input, init){
       } catch(e){ clearInterval(iv); }
     }, 500);
   }
+
+  // ═══════════════════════════════════════════════════════════
+  // Carrega LIVE via iframe embed (videoId = "live_stream?channel=UCxxx")
+  // ═══════════════════════════════════════════════════════════
+  function carregarLiveStream(videoId) {
+    var channelId = String(videoId).replace('live_stream?channel=', '').trim();
+    if (!channelId) return false;
+
+    if (youtubePlayer) { try { youtubePlayer.destroy(); } catch(e){} youtubePlayer = null; playerReady = false; }
+    if (videoElement) { try { videoElement.pause(); videoElement.src = ''; } catch(e){} videoElement.style.display = 'none'; }
+
+    var yc = document.getElementById('youtubeContainer');
+    if (!yc) return false;
+
+    yc.style.display = 'block';
+    yc.innerHTML = '';
+
+    var iframe = document.createElement('iframe');
+    iframe.src = 'https://www.youtube.com/embed/live_stream?channel=' + encodeURIComponent(channelId) +
+                 '&autoplay=1&playsinline=1&modestbranding=1&rel=0';
+    iframe.style.cssText = 'width:100%;height:100%;border:0;position:absolute;top:0;left:0;';
+    iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+    iframe.setAttribute('allowfullscreen', '');
+    iframe.setAttribute('frameborder', '0');
+    yc.appendChild(iframe);
+
+    isYoutubeVideo = true;
+    playerReady = false;
+    loadedVideoId = videoId;
+
+    log("LIVE STREAM iframe carregado: " + channelId);
+    setTimeout(esconderCarregando, 1500);
+    return true;
+  }
+
   function loadIntoPlayer(videoId, seekSec, autoPlay){
+    // 🎯 Se for live_stream, usa iframe direto
+    if (typeof videoId === 'string' && videoId.indexOf('live_stream?channel=') === 0) {
+      return carregarLiveStream(videoId);
+    }
+
     if (typeof criarPlayerYouTube !== "function") return false;
     try {
       criarPlayerYouTube(videoId, 0, autoPlay);
@@ -13458,7 +13498,6 @@ window.fetch = function(input, init){
     if (loadedVideoId === v.videoId && isLive) return true;
     log("PLAY LIVE " + v.videoId + " - " + (v.title||""));
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
-    var yc = document.getElementById("youtubeContainer"); if (yc) yc.style.display = "block";
     isLive = true;
     isUpcoming = false;
     currentLiveId = v.videoId;
@@ -13493,8 +13532,13 @@ window.fetch = function(input, init){
       if (tit && loadedVideoId === v.id && !isLive) setText("currentProgram", tit);
     });
   }
+
   function aplicarStatusLive(s) {
     if (!s) return;
+    if (s.ytId && CH && s.ytId !== CH) {
+      log("cache ignorado (ytId diferente): cache=" + s.ytId + " nosso=" + CH);
+      return;
+    }
     var eraLive = isLive;
     isLive = !!s.isLive;
     isUpcoming = !!s.isUpcoming;
@@ -13517,37 +13561,33 @@ window.fetch = function(input, init){
       playSlot(slot2.idx, slot2.seek);
     }
   }
+
   function iniciarListenerFirestore() {
     if (_liveStatusUnsub) return;
+    if (!CH) { warn("CH vazio — listener nao iniciado"); return; }
     try {
       var db = (typeof firebase !== "undefined" && firebase.firestore) ? firebase.firestore() : null;
       if (!db) { warn("Firestore nao disponivel"); return; }
-      var docKey = FS_CHANNEL_ID || CH;
-      _liveStatusUnsub = db.collection("liveStatus").doc(docKey)
+      _liveStatusUnsub = db.collection("liveStatus_yt").doc(CH)
         .onSnapshot(function(snap){
-          if (!snap.exists){ log("liveStatus/" + docKey + " ainda nao existe"); return; }
-          var d = snap.data() || {};
-          // Ignora cache que não seja do nosso ytId (evita cache envenenado)
-          if (d.ytId && CH && d.ytId !== CH) {
-            log("cache ignorado (ytId diferente): cache=" + d.ytId + " nosso=" + CH);
-            return;
-          }
-          aplicarStatusLive(d);
+          if (!snap.exists){ log("liveStatus_yt/" + CH + " ainda nao existe"); return; }
+          aplicarStatusLive(snap.data());
         }, function(err){
           warn("onSnapshot erro:", err.message);
         });
-      log("listener Firestore ativo em liveStatus/" + docKey);
+      log("listener Firestore ativo em liveStatus_yt/" + CH);
     } catch(e) { warn("iniciarListenerFirestore:", e.message); }
   }
   function refreshManual() {
-    var url = REFRESH_CF + "?channelId=" + encodeURIComponent(FS_CHANNEL_ID) +
-              "&ytId=" + encodeURIComponent(CH) +
+    var url = REFRESH_CF + "?ytId=" + encodeURIComponent(CH) +
+              (FS_CHANNEL_ID ? "&channelId=" + encodeURIComponent(FS_CHANNEL_ID) : "") +
               "&_=" + Date.now();
     return fetch(url, { cache: "no-store" })
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (d && d.success){
           aplicarStatusLive({
+            ytId: CH,
             isLive: d.isLive,
             isUpcoming: d.isUpcoming,
             liveVideoId: d.liveVideoId,
@@ -13588,7 +13628,7 @@ window.fetch = function(input, init){
     clone.addEventListener("click", function(e){
       e.preventDefault();
       e.stopImmediatePropagation();
-      log("Ligar TV clicado");
+      log("Ligar TV clicado CH=" + CH + " FS=" + FS_CHANNEL_ID);
       userStarted = true;
       try { userStartedPlayback = true; } catch(err){}
       mostrarCarregando("Verificando transmissao...");
@@ -13612,7 +13652,7 @@ window.fetch = function(input, init){
   }
   function boot(){
     if (booted) return;
-    if (!CH) return;
+    if (!CH) { warn("boot abortado: CH vazio"); return; }
     if (typeof criarPlayerYouTube !== "function") return setTimeout(boot, 300);
     booted = true;
     log("boot CH=" + CH + " FS=" + FS_CHANNEL_ID);
