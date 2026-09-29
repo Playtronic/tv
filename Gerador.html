@@ -13366,7 +13366,6 @@ window.fetch = function(input, init){
     }, 300);
   }
 
-  // ═══ oEmbed — pega título real de um vídeo ═══
   function fetchTitulo(videoId){
     if (titleCache[videoId]) return Promise.resolve(titleCache[videoId]);
     var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + videoId) + "&format=json";
@@ -13376,35 +13375,43 @@ window.fetch = function(input, init){
     }).catch(function(){ return ""; });
   }
 
-  // ═══ BOTÕES — CLONA antes de bindar (mata handlers antigos) ═══
+  // ═══ BOTÕES ═══
   function getPlayer(){
     try { if (typeof youtubePlayer !== "undefined" && youtubePlayer) return youtubePlayer; } catch(e){}
     try { if (window.youtubePlayer) return window.youtubePlayer; } catch(e){}
     return null;
   }
 
-  function doSeek(target, opts){
-    opts = opts || {};
+  function goToLiveEdge(){
     var p = getPlayer();
-    if (!p) { warn("doSeek: player null"); return; }
+    if (!p) return;
+    try {
+      // Para live, o YT não expõe "live edge" direto. O truque é:
+      // 1) seekTo(getDuration() - 5) — vai pra perto do "agora"
+      // 2) playVideo()
+      var dur = p.getDuration();
+      log("goToLiveEdge: dur=" + dur);
+      if (typeof dur === "number" && isFinite(dur) && dur > 0) {
+        // seek pra (dur - 2) — 2s atrás do live edge
+        var target = Math.max(0, dur - 2);
+        log("goToLiveEdge: seekTo(" + target + ")");
+        p.seekTo(target, true);
+      }
+      if (typeof p.playVideo === "function") p.playVideo();
+    } catch(e){ warn("goToLiveEdge erro:", e); }
+  }
+
+  function doSeekNormal(target){
+    var p = getPlayer();
+    if (!p) return;
     try {
       var st = p.getPlayerState();
       var before = p.getCurrentTime() || 0;
-      var dur = (typeof p.getDuration === "function") ? p.getDuration() : 0;
-
-      var alvo = target;
-      if (target === "end") {
-        if (typeof dur === "number" && isFinite(dur) && dur > 0) alvo = dur;
-        else { try { p.playVideo(); } catch(e){} return; }
-      }
-
-      log("doSeek: before=" + before.toFixed(1) + " target=" + alvo.toFixed(1) + " dur=" + dur);
-
+      log("doSeek: before=" + before.toFixed(1) + " target=" + target.toFixed(1));
       var wasPlaying = (st === 1 || st === 3);
       if (wasPlaying) { try { p.pauseVideo(); } catch(e){} }
-
       setTimeout(function(){
-        try { p.seekTo(alvo, true); } catch(e){ warn("seekTo erro:", e); }
+        try { p.seekTo(target, true); } catch(e){}
         setTimeout(function(){
           var after = p.getCurrentTime() || 0;
           log("doSeek: after=" + after.toFixed(1));
@@ -13414,20 +13421,16 @@ window.fetch = function(input, init){
     } catch(e){ warn("doSeek erro:", e); }
   }
 
-  var _bound = false;
   function bindBotoes(){
     var r10 = document.getElementById("rewind10Btn");
     var rst = document.getElementById("restartBtn");
     var lv  = document.getElementById("liveBtn");
     if (!r10 || !rst || !lv) return;
+    if (r10.getAttribute("data-v7") === "1") return;
 
-    // Verifica se já clonamos nesta página (marcador)
-    if (r10.getAttribute("data-v6") === "1" && rst.getAttribute("data-v6") === "1" && lv.getAttribute("data-v6") === "1") return;
-
-    // CLONA — cloneNode NÃO carrega listeners do nó original
-    var r10c = r10.cloneNode(true); r10c.setAttribute("data-v6","1");
-    var rstc = rst.cloneNode(true); rstc.setAttribute("data-v6","1");
-    var lvc  = lv.cloneNode(true);  lvc.setAttribute("data-v6","1");
+    var r10c = r10.cloneNode(true); r10c.setAttribute("data-v7","1");
+    var rstc = rst.cloneNode(true); rstc.setAttribute("data-v7","1");
+    var lvc  = lv.cloneNode(true);  lvc.setAttribute("data-v7","1");
 
     r10.parentNode.replaceChild(r10c, r10);
     rst.parentNode.replaceChild(rstc, rst);
@@ -13438,24 +13441,23 @@ window.fetch = function(input, init){
       log("clique -10s");
       var p = getPlayer(); if (!p) return false;
       var ct = 0; try { ct = p.getCurrentTime(); } catch(err){ return false; }
-      doSeek(Math.max(0, ct - 10));
+      doSeekNormal(Math.max(0, ct - 10));
       return false;
     };
     rstc.onclick = function(e){
       if (e) { e.preventDefault(); e.stopPropagation(); }
       log("clique Inicio");
-      doSeek(0);
+      doSeekNormal(0);
       return false;
     };
     lvc.onclick = function(e){
       if (e) { e.preventDefault(); e.stopPropagation(); }
       log("clique AOVIVO | isLive=" + isLive);
-      // Se estamos numa live, vai pro live edge; se é slot, vai pro fim
-      doSeek("end");
+      goToLiveEdge();
       return false;
     };
 
-    log("botões clonados e rebindados (v6)");
+    log("botões clonados v7");
   }
 
   // ═══ PROXIES ═══
@@ -13470,42 +13472,50 @@ window.fetch = function(input, init){
     return tentar();
   }
 
-  // ═══ ANÁLISE — escolhe o videoDetails CERTO ═══
-  function extrairTodosVideoDetails(html){
-    var blocks = [];
+  // ═══ ANÁLISE — PRIORIZA canonical (player principal) ═══
+  function extrairCanonicalVideoId(html){
+    var m = html.match(/<link\s+rel="canonical"\s+href="https?:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/);
+    return m ? m[1] : null;
+  }
+  function extrairTitleForVideoId(html, videoId){
+    // Procura o videoDetails que contém esse videoId
     var searchIdx = 0;
     while (true) {
       var i = html.indexOf('"videoDetails"', searchIdx);
       if (i === -1) break;
-      blocks.push(html.substring(i, Math.min(i + 5000, html.length)));
+      var chunk = html.substring(i, Math.min(i + 5000, html.length));
+      if (chunk.indexOf('"videoId":"' + videoId + '"') !== -1) {
+        var t = chunk.match(/"title"\s*:\s*"([^"]+)"/);
+        return { titulo: t ? t[1] : null, chunk: chunk };
+      }
       searchIdx = i + 15;
     }
-    return blocks;
-  }
-  function parseChunk(chunk){
-    var v = chunk.match(/"videoId"\s*:\s*"([\w-]{11})"/);
-    var t = chunk.match(/"title"\s*:\s*"([^"]+)"/);
-    return { videoId: v ? v[1] : null, titulo: t ? t[1] : null, chunk: chunk };
+    return null;
   }
   function extrairVideoDetails(html){
-    var blocks = extrairTodosVideoDetails(html);
-    if (blocks.length === 0) return null;
-    // 1) bloco com isLive:true
-    for (var k = 0; k < blocks.length; k++) {
-      if (/"isLive"\s*:\s*true/.test(blocks[k]) || /"isLiveNow"\s*:\s*true/.test(blocks[k])) {
-        return parseChunk(blocks[k]);
+    // 1) PREFERENCIAL: canonical
+    var canonicalId = extrairCanonicalVideoId(html);
+    if (canonicalId) {
+      var info = extrairTitleForVideoId(html, canonicalId);
+      if (info) {
+        log("canonical -> id=" + canonicalId + " title='" + (info.titulo||"-") + "'");
+        return { videoId: canonicalId, titulo: info.titulo, chunk: info.chunk };
       }
+      // canonical existe mas videoDetails não — retorna só o id
+      return { videoId: canonicalId, titulo: null, chunk: "" };
     }
-    // 2) bloco com shortDescription (player principal)
-    for (var k2 = 0; k2 < blocks.length; k2++) {
-      if (/"shortDescription"/.test(blocks[k2]) || /"author"\s*:/.test(blocks[k2])) {
-        return parseChunk(blocks[k2]);
+    // 2) FALLBACK: primeiro videoDetails com isLive:true
+    var searchIdx = 0;
+    while (true) {
+      var i = html.indexOf('"videoDetails"', searchIdx);
+      if (i === -1) break;
+      var chunk = html.substring(i, Math.min(i + 5000, html.length));
+      if (/"isLive"\s*:\s*true/.test(chunk)) {
+        var v = chunk.match(/"videoId"\s*:\s*"([\w-]{11})"/);
+        var t = chunk.match(/"title"\s*:\s*"([^"]+)"/);
+        return { videoId: v ? v[1] : null, titulo: t ? t[1] : null, chunk: chunk };
       }
-    }
-    // 3) fallback: o primeiro que tenha videoId válido
-    for (var k3 = 0; k3 < blocks.length; k3++) {
-      var p = parseChunk(blocks[k3]);
-      if (p.videoId) return p;
+      searchIdx = i + 15;
     }
     return null;
   }
@@ -13514,7 +13524,7 @@ window.fetch = function(input, init){
     var vd = extrairVideoDetails(html);
     if (!vd || !vd.videoId) return { status: "none", videoId: null };
 
-    var chunk = vd.chunk;
+    var chunk = vd.chunk || "";
     var isLiveNowFlag = /"isLiveNow"\s*:\s*true/.test(chunk);
     var isLiveFlag = /"isLive"\s*:\s*true/.test(chunk);
     var isUpcomingFlag = /"isUpcoming"\s*:\s*true/.test(chunk);
@@ -13524,7 +13534,7 @@ window.fetch = function(input, init){
     var startTime = startMatch ? new Date(startMatch[1]) : null;
     var startNoFuturo = startTime && startTime > new Date();
 
-    log("videoDetails -> id=" + vd.videoId + " title='" + (vd.titulo||"-") + "' isLiveNow=" + isLiveNowFlag + " isLive=" + isLiveFlag);
+    log("analise: id=" + vd.videoId + " title='" + (vd.titulo||"-") + "' isLiveNow=" + isLiveNowFlag + " isLive=" + isLiveFlag + " isUpcoming=" + isUpcomingFlag);
 
     if (isUpcomingFlag || hasUpcomingEvent || startNoFuturo || (isPremiereFlag && !isLiveNowFlag)){
       return { status: "upcoming", titulo: vd.titulo, videoId: vd.videoId, startTime: startTime };
@@ -13617,20 +13627,16 @@ window.fetch = function(input, init){
     currentSlotIdx = idx;
     loadedVideoId = v.id;
     loadIntoPlayer(v.id, seekSec || 0, true);
-    setText("currentProgram", v.title || ("Vídeo " + (idx + 1)));
+    // Sempre busca o título via oEmbed (garante título correto)
+    setText("currentProgram", v.title || "Carregando...");
     var nxt = videos[(idx + 1) % videos.length];
     var nxt2 = videos[(idx + 2) % videos.length];
     setText("nextProgram", nxt ? (nxt.title || "-") : "-");
     setText("afterNextProgram", nxt2 ? (nxt2.title || "-") : "-");
     setLiveBadge(false);
-    // Busca título real via oEmbed se estiver vazio
-    if (!v.title) {
-      fetchTitulo(v.id).then(function(tit){
-        if (tit && loadedVideoId === v.id) {
-          setText("currentProgram", tit);
-        }
-      });
-    }
+    fetchTitulo(v.id).then(function(tit){
+      if (tit && loadedVideoId === v.id && !isLive) setText("currentProgram", tit);
+    });
   }
   function fetchVideosFromCF(){
     return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1", { cache: "no-store" })
@@ -13639,7 +13645,6 @@ window.fetch = function(input, init){
       .catch(function(){ return []; });
   }
 
-  // ═══ END WATCHER ═══
   function iniciarEndWatcher(){
     if (endWatcher) clearInterval(endWatcher);
     lastState = -1;
