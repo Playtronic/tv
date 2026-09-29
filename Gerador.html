@@ -13306,26 +13306,16 @@ window.fetch = function(input, init){
 <template id="__liveTpl"><script>
 (function(){
   "use strict";
-  var CF = "https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus";
+  var REFRESH_CF = "https://us-central1-playtronic-tv.cloudfunctions.net/refreshLiveStatus";
   var CH = "__YT_CHANNEL_ID__";
+  var FS_CHANNEL_ID = (document.querySelector('meta[name="channel-id"]') || {}).content || "";
   var SLOT_SEC = 1500;
   var EPOCH_MS = Date.parse("2025-01-01T06:00:00Z");
   var LIVE_RECHECK_MS = 120000;
 
-  // ═══════════════════════════════════════════════════════════
-  // PROXIES — mesma família do verificador standalone que funcionava
-  // (allorigins/raw retorna o HTML cru; allorigins/get retorna {contents})
-  // ═══════════════════════════════════════════════════════════
-  var PROXIES = [
-    function(u){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); },
-    function(u){ return "https://api.allorigins.win/get?url=" + encodeURIComponent(u); },
-    function(u){ return "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u); },
-    function(u){ return "https://corsproxy.io/?" + encodeURIComponent(u); },
-    function(u){ return "https://thingproxy.freeboard.io/fetch/" + u; }
-  ];
-
   var videos = [];
   var isLive = false;
+  var isUpcoming = false;
   var currentLiveId = "";
   var currentSlotIdx = 0;
   var loadedVideoId = null;
@@ -13336,7 +13326,7 @@ window.fetch = function(input, init){
   var endWatcher = null;
   var lastState = -1;
   var titleCache = {};
-  var _cfLiveCache = null;
+  var _liveStatusUnsub = null;
 
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
@@ -13372,7 +13362,6 @@ window.fetch = function(input, init){
       if (Date.now() - inicio > 30000) { esconderCarregando(); clearInterval(playbackWatcher); playbackWatcher = null; }
     }, 300);
   }
-
   function fetchTitulo(videoId){
     if (titleCache[videoId]) return Promise.resolve(titleCache[videoId]);
     var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + videoId) + "&format=json";
@@ -13381,7 +13370,6 @@ window.fetch = function(input, init){
       return "";
     }).catch(function(){ return ""; });
   }
-
   function getPlayer(){
     try { if (typeof youtubePlayer !== "undefined" && youtubePlayer) return youtubePlayer; } catch(e){}
     try { if (window.youtubePlayer) return window.youtubePlayer; } catch(e){}
@@ -13397,14 +13385,14 @@ window.fetch = function(input, init){
         try { p.seekTo(target, true); } catch(e){}
         setTimeout(function(){ if (wasPlaying) { try { p.playVideo(); } catch(e){} } }, 700);
       }, 150);
-    } catch(e){ warn("doSeek erro:", e); }
+    } catch(e){ warn("doSeek:", e); }
   }
   function goToLiveEdge(){
     var p = getPlayer(); if (!p) return;
     try {
       var dur = p.getDuration();
       if (typeof dur === "number" && isFinite(dur) && dur > 0) doSeek(Math.max(0, dur - 2));
-    } catch(e){ warn("goToLiveEdge erro:", e); }
+    } catch(e){ warn("goToLiveEdge:", e); }
   }
   function bindBotoes(){
     var r10 = document.getElementById("rewind10Btn");
@@ -13421,96 +13409,6 @@ window.fetch = function(input, init){
     r10c.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} var p=getPlayer(); if(!p)return false; var ct=0; try{ct=p.getCurrentTime();}catch(err){return false;} doSeek(Math.max(0,ct-10)); return false; };
     rstc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} doSeek(0); return false; };
     lvc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} goToLiveEdge(); return false; };
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // PROXY — mesma lógica do verificador standalone
-  // ═══════════════════════════════════════════════════════════
-  function fetchComProxy(url){
-    var idx = 0;
-    function tentar(){
-      if (idx >= PROXIES.length){
-        return Promise.reject(new Error("Todos proxies falharam"));
-      }
-      var proxUrl = PROXIES[idx++](url);
-      var nome = proxUrl.substring(0, 60);
-      return fetch(proxUrl, { redirect: "follow" })
-        .then(function(r){
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          return r.text();
-        })
-        .then(function(txt){
-          log("proxy respondeu (" + nome + "...) " + txt.length + " chars");
-          try {
-            var j = JSON.parse(txt);
-            if (j && typeof j.contents === "string") return j.contents;
-          } catch(e){}
-          return txt;
-        })
-        .catch(function(e){
-          warn("proxy falhou (" + nome + "...): " + e.message);
-          return tentar();
-        });
-    }
-    return tentar();
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // ANÁLISE — mesma lógica do verificador standalone
-  // ═══════════════════════════════════════════════════════════
-  function analisarHtml(html){
-    var videoIdMatch  = html.match(/"videoId"\s*:\s*"([\w-]{11})"/);
-    var tituloMatch   = html.match(/"title"\s*:\s*"([^"]+)"/);
-    var startMatch    = html.match(/"startTimestamp"\s*:\s*"([^"]+)"/)
-                     || html.match(/"startTime"\s*:\s*"([^"]+)"/);
-    var videoId   = videoIdMatch ? videoIdMatch[1] : null;
-    var titulo    = tituloMatch ? tituloMatch[1] : null;
-    var startTime = startMatch ? new Date(startMatch[1]) : null;
-    var agora     = new Date();
-
-    var isUpcomingFlag   = /"isUpcoming"\s*:\s*true/.test(html);
-    var hasUpcomingEvent = /"upcomingEventData"/.test(html);
-    var isPremiereFlag   = /"isPremiere"\s*:\s*true/.test(html);
-    var isLiveNowFlag    = /"isLiveNow"\s*:\s*true/.test(html);
-    var isLiveFlag       = /"isLive"\s*:\s*true/.test(html);
-    var startNoFuturo    = startTime && startTime > agora;
-
-    log("analise: id=" + videoId + " isLive=" + isLiveFlag + " isUpcoming=" + isUpcomingFlag + " isPremiere=" + isPremiereFlag + " isLiveNow=" + isLiveNowFlag);
-
-    if (isUpcomingFlag || hasUpcomingEvent || startNoFuturo || (isPremiereFlag && !isLiveNowFlag)){
-      return { status:"upcoming", titulo: titulo, videoId: videoId, startTime: startTime };
-    }
-    if (isLiveFlag && (!isPremiereFlag || isLiveNowFlag)){
-      return { status:"live", titulo: titulo, videoId: videoId };
-    }
-    return { status:"none", videoId: null };
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // 🔥 checkLive: SEMPRE testa o proxy. O CF é só atalho (nunca bloqueia).
-  // ═══════════════════════════════════════════════════════════
-  function checkLive(){
-    // Atalho: se o CF acabou de confirmar LIVE, aproveita
-    if (_cfLiveCache && (Date.now() - _cfLiveCache.at) < 90000 && _cfLiveCache.isLive && _cfLiveCache.videoId){
-      log("checkLive: CF (cache positivo) LIVE -> " + _cfLiveCache.videoId);
-      return Promise.resolve({ status:"live", videoId:_cfLiveCache.videoId, titulo:"" });
-    }
-
-    log("checkLive: consultando proxy...");
-    return fetchComProxy("https://www.youtube.com/channel/" + CH + "/live")
-      .then(function(html){
-        var r;
-        try { r = analisarHtml(html); }
-        catch(e){ warn("analise falhou:", e.message); r = { status:"erro" }; }
-        return r;
-      })
-      .catch(function(e){
-        warn("checkLive proxy falhou:", e.message);
-        if (_cfLiveCache && _cfLiveCache.isLive && _cfLiveCache.videoId){
-          return { status:"live", videoId:_cfLiveCache.videoId, titulo:"" };
-        }
-        return { status:"erro" };
-      });
   }
 
   function setText(id, t){ var el = document.getElementById(id); if (el) el.textContent = (t == null ? "-" : t); }
@@ -13556,16 +13454,17 @@ window.fetch = function(input, init){
       return true;
     } catch(e){ warn("loadIntoPlayer:", e); return false; }
   }
-  function playLiveResult(res){
-    if (!res || !res.videoId) return false;
-    if (loadedVideoId === res.videoId && isLive) return true;
-    log("PLAY LIVE " + res.videoId + " - " + (res.titulo||""));
+  function playLiveResult(v){
+    if (!v || !v.videoId) return false;
+    if (loadedVideoId === v.videoId && isLive) return true;
+    log("PLAY LIVE " + v.videoId + " - " + (v.title||""));
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yc = document.getElementById("youtubeContainer"); if (yc) yc.style.display = "block";
     isLive = true;
-    currentLiveId = res.videoId;
-    loadIntoPlayer(res.videoId, 0, true);
-    setText("currentProgram", res.titulo || "Transmissão ao vivo");
+    isUpcoming = false;
+    currentLiveId = v.videoId;
+    loadIntoPlayer(v.videoId, 0, true);
+    setText("currentProgram", v.title || "Transmissao ao vivo");
     setText("nextProgram", "-");
     setText("afterNextProgram", "-");
     setLiveBadge(true);
@@ -13580,6 +13479,7 @@ window.fetch = function(input, init){
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yc = document.getElementById("youtubeContainer"); if (yc) yc.style.display = "block";
     isLive = false;
+    isUpcoming = false;
     currentLiveId = "";
     currentSlotIdx = idx;
     loadedVideoId = v.id;
@@ -13595,22 +13495,67 @@ window.fetch = function(input, init){
     });
   }
 
-  function fetchVideosFromCF(){
-    return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1", { cache: "no-store" })
+  function aplicarStatusLive(s) {
+    if (!s) return;
+    var eraLive = isLive;
+    isLive = !!s.isLive;
+    isUpcoming = !!s.isUpcoming;
+    if (s.videos && s.videos.length && (!videos.length || s.isLive)) videos = s.videos;
+
+    log("Firestore: isLive=" + isLive + " isUpcoming=" + isUpcoming + " videoId=" + (s.liveVideoId||"-") + " videos=" + videos.length);
+
+    if (!userStarted) return;
+
+    if (isLive && s.liveVideoId) {
+      if (currentLiveId === s.liveVideoId && loadedVideoId === s.liveVideoId) return;
+      playLiveResult({ videoId: s.liveVideoId, title: s.liveTitle || "" });
+      return;
+    }
+
+    if (!isLive && eraLive) {
+      log("Live terminou - voltando para historico");
+      var slot = computeCurrentSlot();
+      playSlot(slot.idx, slot.seek);
+      return;
+    }
+    if (!isLive && !loadedVideoId && videos.length) {
+      var slot2 = computeCurrentSlot();
+      playSlot(slot2.idx, slot2.seek);
+    }
+  }
+
+  function iniciarListenerFirestore() {
+    if (_liveStatusUnsub) return;
+    try {
+      var db = (typeof firebase !== "undefined" && firebase.firestore) ? firebase.firestore() : null;
+      if (!db) { warn("Firestore nao disponivel"); return; }
+      _liveStatusUnsub = db.collection("liveStatus").doc(FS_CHANNEL_ID)
+        .onSnapshot(function(snap){
+          if (!snap.exists){ log("liveStatus/" + FS_CHANNEL_ID + " ainda nao existe"); return; }
+          aplicarStatusLive(snap.data());
+        }, function(err){
+          warn("onSnapshot erro:", err.message);
+        });
+      log("listener Firestore ativo em liveStatus/" + FS_CHANNEL_ID);
+    } catch(e) { warn("iniciarListenerFirestore:", e.message); }
+  }
+
+  function refreshManual() {
+    return fetch(REFRESH_CF + "?channelId=" + encodeURIComponent(FS_CHANNEL_ID), { cache: "no-store" })
       .then(function(r){ return r.json(); })
       .then(function(d){
-        if (d && d.videos && d.videos.length) videos = d.videos;
-        if (d && typeof d.isLive !== "undefined"){
-          _cfLiveCache = {
-            isLive:  !!d.isLive,
-            videoId: d.liveVideoId || "",
-            at:      Date.now()
-          };
-          log("CF: isLive=" + _cfLiveCache.isLive + " videoId=" + (_cfLiveCache.videoId || "-") + " videos=" + videos.length);
+        if (d && d.success){
+          aplicarStatusLive({
+            isLive: d.isLive,
+            isUpcoming: d.isUpcoming,
+            liveVideoId: d.liveVideoId,
+            liveTitle: d.liveTitle,
+            videos: d.videos
+          });
         }
-        return videos;
+        return d;
       })
-      .catch(function(e){ warn("fetchVideosFromCF erro:", e.message); return []; });
+      .catch(function(e){ warn("refreshManual:", e.message); return null; });
   }
 
   function iniciarEndWatcher(){
@@ -13622,44 +13567,15 @@ window.fetch = function(input, init){
       try { st = p.getPlayerState(); } catch(e){ return; }
       if (st === 0 && lastState !== 0){
         log("FIM DE VIDEO | isLive=" + isLive + " currentSlot=" + currentSlotIdx);
-        _cfLiveCache = null;
-        checkLive().then(function(res){
-          if (res.status === "live" && res.videoId){
-            playLiveResult(res);
-            return;
-          }
-          var nxt = ((currentSlotIdx + 1) % (videos.length || 1));
-          log("sem live - próximo slot " + nxt);
-          playSlot(nxt, 0);
-        }).catch(function(){
+        if (!isLive) {
           var nxt = ((currentSlotIdx + 1) % (videos.length || 1));
           playSlot(nxt, 0);
-        });
+        } else {
+          refreshManual();
+        }
       }
       lastState = st;
     }, 1000);
-  }
-
-  function decidirEExecutar(){
-    if (!userStarted) return;
-    log(">>> decidindo...");
-    fetchVideosFromCF().then(function(){
-      log(">>> chamando checkLive...");
-      return checkLive();
-    }).then(function(res){
-      if (res.status === "live" && res.videoId){
-        log(">>> LIVE DETECTADA: " + res.videoId);
-        playLiveResult(res);
-        return;
-      }
-      log(">>> sem live (" + res.status + ") - histórico");
-      var s = computeCurrentSlot();
-      playSlot(s.idx, s.seek);
-    }).catch(function(e){
-      warn("decidirEExecutar erro:", e && e.message);
-      var s = computeCurrentSlot();
-      playSlot(s.idx, s.seek);
-    });
   }
 
   function hookStartButton(){
@@ -13675,28 +13591,21 @@ window.fetch = function(input, init){
       log("Ligar TV clicado");
       userStarted = true;
       try { userStartedPlayback = true; } catch(err){}
-      mostrarCarregando("Verificando transmissão...");
+      mostrarCarregando("Verificando transmissao...");
       iniciarWatcherPlayback();
-      decidirEExecutar();
-      iniciarEndWatcher();
+      refreshManual().then(function(){
+        iniciarEndWatcher();
+        setTimeout(function(){
+          if (!loadedVideoId && videos.length && !isLive) {
+            var s = computeCurrentSlot();
+            playSlot(s.idx, s.seek);
+          }
+        }, 3000);
+      });
       if (liveCheckTimer) clearInterval(liveCheckTimer);
       liveCheckTimer = setInterval(function(){
         if (!userStarted) return;
-        _cfLiveCache = null;
-        checkLive().then(function(res){
-          if (isLive){
-            if (res.status !== "live"){
-              log("Live caiu - voltando para histórico");
-              var s = computeCurrentSlot();
-              playSlot(s.idx, s.seek);
-            }
-          } else {
-            if (res.status === "live" && res.videoId){
-              log("Live começou - entrando ao vivo");
-              playLiveResult(res);
-            }
-          }
-        });
+        refreshManual();
       }, LIVE_RECHECK_MS);
     }, true);
     log("hook instalado");
@@ -13707,18 +13616,18 @@ window.fetch = function(input, init){
     if (!CH) return;
     if (typeof criarPlayerYouTube !== "function") return setTimeout(boot, 300);
     booted = true;
-    log("boot CH=" + CH);
+    log("boot CH=" + CH + " FS=" + FS_CHANNEL_ID);
     ensureVisible();
     fixModePanel();
     setInterval(fixModePanel, 5000);
-    fetchVideosFromCF();
+    iniciarListenerFirestore();
     hookStartButton();
     bindBotoes();
     var _tries = 0;
     var _iv = setInterval(function(){
       _tries++;
       bindBotoes();
-      if (_tries > 40) { clearInterval(_iv); }
+      if (_tries > 40) clearInterval(_iv);
     }, 250);
   }
   setTimeout(boot, 1500);
