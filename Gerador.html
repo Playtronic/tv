@@ -13375,25 +13375,65 @@ window.fetch = function(input, init){
     }, 300);
   }
 
-  // ═══ FIX BOTÕES — onclick direto, SEM bloqueio de capture ═══
+  // ═══ FIX BOTÕES — pause/seek/play ═══
   function getPlayer(){
     try { if (typeof youtubePlayer !== "undefined" && youtubePlayer) return youtubePlayer; } catch(e){}
     try { if (window.youtubePlayer) return window.youtubePlayer; } catch(e){}
     return null;
   }
 
-  function doSeek(seconds){
+  function doSeek(targetSeconds){
     var p = getPlayer();
     if (!p) { warn("doSeek: player null"); return; }
     try {
-      var dur = p.getDuration ? p.getDuration() : 0;
-      var t = seconds;
-      if (seconds === "end") {
-        if (typeof dur === "number" && isFinite(dur) && dur > 0) t = dur;
-        else { log("doSeek end: live sem duracao, só play"); if (typeof p.playVideo === "function") p.playVideo(); return; }
+      var stateBefore = p.getPlayerState();
+      var before = p.getCurrentTime();
+      var dur = (typeof p.getDuration === "function") ? p.getDuration() : 0;
+
+      // Resolve "end" (AO VIVO) para o final do stream
+      var target = targetSeconds;
+      if (targetSeconds === "end") {
+        if (typeof dur === "number" && isFinite(dur) && dur > 0) target = dur;
+        else { log("doSeek end: live sem duracao, só play"); try { p.playVideo(); } catch(e){} return; }
       }
-      log("doSeek -> " + t);
-      p.seekTo(t, true);
+
+      log("doSeek: before=" + (before||0).toFixed(1) + " state=" + stateBefore + " dur=" + (dur||0).toFixed(1) + " target=" + target.toFixed(1));
+
+      // Estratégia: pause → seek → play
+      var wasPlaying = (stateBefore === 1 || stateBefore === 3);
+      if (wasPlaying) { try { p.pauseVideo(); } catch(e){} }
+
+      setTimeout(function(){
+        try {
+          p.seekTo(target, true);
+        } catch(e){ warn("seekTo erro:", e); }
+
+        setTimeout(function(){
+          var afterSeek = p.getCurrentTime();
+          log("doSeek: after=" + (afterSeek||0).toFixed(1) + " (alvo " + target.toFixed(1) + ")");
+          var ok = Math.abs(afterSeek - target) < 5;
+
+          if (wasPlaying) { try { p.playVideo(); } catch(e){} }
+
+          if (!ok) {
+            log("doSeek: seek nao aplicou - tentando metodo 2 (seekTo direto 2x)");
+            setTimeout(function(){
+              try {
+                p.seekTo(target, true);
+                setTimeout(function(){
+                  var afterSeek2 = p.getCurrentTime();
+                  log("doSeek: after2=" + (afterSeek2||0).toFixed(1));
+                  if (Math.abs(afterSeek2 - target) < 5) log("doSeek: METODO 2 FUNCIONOU");
+                  else log("doSeek: LIVE NAO PERMITE SEEK (sem DVR)");
+                }, 800);
+              } catch(e){}
+            }, 500);
+          } else {
+            log("doSeek: OK");
+          }
+        }, 700);
+      }, 150);
+
     } catch(e){ warn("doSeek erro:", e); }
   }
 
@@ -13403,14 +13443,13 @@ window.fetch = function(input, init){
     var lv  = document.getElementById("liveBtn");
     if (!r10 || !rst || !lv) return;
 
-    // Só define onclick. Nada de addEventListener, nada de capture.
     r10.onclick = function(e){
       if (e) { e.preventDefault(); e.stopPropagation(); }
       log("clique -10s");
       var p = getPlayer();
       if (!p) return false;
       var ct = 0;
-      try { ct = p.getCurrentTime(); } catch(err){ warn("-10s ct:", err); return false; }
+      try { ct = p.getCurrentTime(); } catch(err){ return false; }
       if (typeof ct !== "number" || !isFinite(ct)) return false;
       doSeek(Math.max(0, ct - 10));
       return false;
@@ -13420,8 +13459,6 @@ window.fetch = function(input, init){
       if (e) { e.preventDefault(); e.stopPropagation(); }
       log("clique Inicio");
       doSeek(0);
-      var p = getPlayer();
-      if (p && typeof p.playVideo === "function") p.playVideo();
       return false;
     };
 
@@ -13429,8 +13466,6 @@ window.fetch = function(input, init){
       if (e) { e.preventDefault(); e.stopPropagation(); }
       log("clique AOVIVO");
       doSeek("end");
-      var p = getPlayer();
-      if (p && typeof p.playVideo === "function") p.playVideo();
       return false;
     };
   }
@@ -13455,8 +13490,6 @@ window.fetch = function(input, init){
   }
 
   // ═══ ANÁLISE ═══
-  // Pega só o videoDetails (objeto do player principal)
-  // que tem videoId, title, isLive, isLiveNow
   function extrairVideoDetails(html){
     var idx = html.indexOf('"videoDetails"');
     if (idx === -1) return null;
@@ -13465,8 +13498,6 @@ window.fetch = function(input, init){
     var t = chunk.match(/"title"\s*:\s*"([^"]+)"/);
     return { videoId: v ? v[1] : null, titulo: t ? t[1] : null, chunk: chunk };
   }
-
-  // Fallback: alguns HTMLs não têm videoDetails; procura em ytInitialPlayerResponse
   function extrairPlayerResponse(html){
     var idx = html.indexOf('"ytInitialPlayerResponse"');
     if (idx === -1) idx = html.indexOf('ytInitialPlayerResponse');
@@ -13476,20 +13507,13 @@ window.fetch = function(input, init){
     var t = chunk.match(/"title"\s*:\s*"([^"]+)"/);
     return { videoId: v ? v[1] : null, titulo: t ? t[1] : null, chunk: chunk };
   }
-
   function analisarHtml(html){
-    // 1) tenta videoDetails
     var vd = extrairVideoDetails(html);
-    // 2) se não achou, tenta ytInitialPlayerResponse
     if (!vd || !vd.videoId) {
       var pr = extrairPlayerResponse(html);
       if (pr && pr.videoId) vd = pr;
     }
-
-    if (!vd || !vd.videoId) {
-      log("videoDetails não encontrado");
-      return { status: "none", videoId: null };
-    }
+    if (!vd || !vd.videoId) return { status: "none", videoId: null };
 
     var chunk = vd.chunk;
     var isLiveNowFlag = /"isLiveNow"\s*:\s*true/.test(chunk);
@@ -13501,17 +13525,14 @@ window.fetch = function(input, init){
     var startTime = startMatch ? new Date(startMatch[1]) : null;
     var startNoFuturo = startTime && startTime > new Date();
 
-    log("videoDetails -> id=" + vd.videoId + " title='" + (vd.titulo||"-") + "' isLiveNow=" + isLiveNowFlag + " isLive=" + isLiveFlag + " isUpcoming=" + isUpcomingFlag);
+    log("videoDetails -> id=" + vd.videoId + " title='" + (vd.titulo||"-") + "' isLiveNow=" + isLiveNowFlag + " isLive=" + isLiveFlag);
 
-    // Prioridade 1: agendada (premiere)
     if (isUpcomingFlag || hasUpcomingEvent || startNoFuturo || (isPremiereFlag && !isLiveNowFlag)){
       return { status: "upcoming", titulo: vd.titulo, videoId: vd.videoId, startTime: startTime };
     }
-    // Prioridade 2: live ativa
     if (isLiveNowFlag || isLiveFlag){
       return { status: "live", titulo: vd.titulo, videoId: vd.videoId };
     }
-    // Nada
     return { status: "none", videoId: null };
   }
 
@@ -13538,7 +13559,6 @@ window.fetch = function(input, init){
     var n = videos.length || 1;
     return { idx: Math.floor(elapsed / SLOT_SEC) % n, seek: elapsed % SLOT_SEC };
   }
-
   function playWhenReady(){
     var tries = 0;
     var iv = setInterval(function(){
@@ -13573,13 +13593,11 @@ window.fetch = function(input, init){
       loadedVideoId = videoId;
       if (seekSec > 0) seekToSlotPosition(seekSec);
       if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
-      // Rebind após criar player
       setTimeout(bindBotoes, 1500);
       setTimeout(bindBotoes, 4000);
       return true;
     } catch(e){ warn("loadIntoPlayer:", e); return false; }
   }
-
   function playLiveResult(res){
     if (!res || !res.videoId) return false;
     if (loadedVideoId === res.videoId && isLive) return true;
@@ -13595,7 +13613,6 @@ window.fetch = function(input, init){
     setLiveBadge(true);
     return true;
   }
-
   function playSlot(idx, seekSec){
     if (!videos.length) return;
     idx = Math.max(0, Math.min(videos.length - 1, idx));
@@ -13615,14 +13632,12 @@ window.fetch = function(input, init){
     setText("afterNextProgram", nxt2 ? (nxt2.title || "-") : "-");
     setLiveBadge(false);
   }
-
   function fetchVideosFromCF(){
     return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1", { cache: "no-store" })
       .then(function(r){ return r.json(); })
       .then(function(d){ if (d && d.videos && d.videos.length) videos = d.videos; return videos; })
       .catch(function(){ return []; });
   }
-
   function decidirEExecutar(){
     if (!userStarted) return;
     fetchVideosFromCF().then(function(){
@@ -13639,7 +13654,6 @@ window.fetch = function(input, init){
       });
     });
   }
-
   function hookStartButton(){
     var btn = document.getElementById("autoplayButton");
     if (!btn){ setTimeout(hookStartButton, 500); return; }
@@ -13677,7 +13691,6 @@ window.fetch = function(input, init){
     }, true);
     log("hook instalado");
   }
-
   function boot(){
     if (booted) return;
     if (!CH) return;
