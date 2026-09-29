@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.5.4">
+    <meta name="version" content="1.0.5.5">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.5.4
+            Versão 1.0.5.5
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.5.4";
+        const CHANNEL_VERSION = "1.0.5.5";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6125,7 +6125,6 @@ init();
   var SLOT_SEC = 1500;
   var EPOCH_MS = Date.parse("2025-01-01T06:00:00Z");
 
-  // Proxies de fallback (podem estar offline, só usados se oEmbed falhar)
   var PROXIES = [
     function(u){ return "https://api.allorigins.win/get?url=" + encodeURIComponent(u); },
     function(u){ return "https://cors.eu.org/" + u; },
@@ -6144,6 +6143,11 @@ init();
   var endWatcher = null;
   var lastState = -1;
   var titleCache = {};
+
+  // 🔥 NOVO: cache da resposta do channelLiveStatus.
+  // O CF faz HEAD em /channel/{id}/live e segue redirect — é a fonte MAIS confiável.
+  var _cfLiveCache = null;
+  var _cfCacheTTL = 90000;
 
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
@@ -6250,7 +6254,6 @@ init();
       return fetch(PROXIES[idx++](url), { redirect: "follow" })
         .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
         .then(function(txt){
-          // allorigins /get retorna {"contents":"..."}
           try { var j = JSON.parse(txt); if (j && j.contents) return j.contents; } catch(e){}
           return txt;
         })
@@ -6260,9 +6263,6 @@ init();
   }
 
   // ═══ oEmbed NATIVO ═══
-  // O YouTube retorna CORS nativo no endpoint oEmbed. Passando /channel/{id}/live:
-  // - Se tem live → segue redirect, retorna title + html com videoId
-  // - Se não tem → 404
   function checkLiveViaOembed(){
     var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/channel/" + CH + "/live") + "&format=json";
     log("oEmbed URL: " + u);
@@ -6314,25 +6314,47 @@ init();
     return { status: "none", videoId: null };
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔥 CORRIGIDA: checkLive confia PRIMEIRO no cache do CF.
+  // Antes, oEmbed (que dá 404 falso-negativo) era a única fonte.
+  // ═══════════════════════════════════════════════════════════════
   function checkLive(){
-    // 1) oEmbed primeiro (funciona sem proxy)
-    return checkLiveViaOembed().then(function(res){
-      if (res.status === "live" && res.videoId) return res;
-      if (res.status === "none") {
-        log("oEmbed: sem live");
-        return res; // não tenta proxy, resposta confiável
+    // 1) Cache do CF fresco?
+    if (_cfLiveCache && (Date.now() - _cfLiveCache.at) < _cfCacheTTL){
+      if (_cfLiveCache.isLive && _cfLiveCache.videoId){
+        log("checkLive: CF confirmou LIVE -> " + _cfLiveCache.videoId);
+        return Promise.resolve({ status:"live", videoId:_cfLiveCache.videoId, titulo:"" });
       }
-      // status erro → tenta proxy
-      log("oEmbed falhou → tentando proxies");
-      var url = "https://www.youtube.com/channel/" + CH + "/live";
-      return fetchComProxy(url).then(function(html){
-        var r = analisarHtml(html);
-        log("proxy resultado:", r.status, r.videoId || "");
-        return r;
-      }).catch(function(e){
-        warn("proxy tambem falhou: " + e.message);
-        return { status: "erro" };
-      });
+      log("checkLive: CF disse NAO-LIVE");
+      return Promise.resolve({ status:"none" });
+    }
+
+    // 2) Sem cache: dispara oEmbed E proxy em paralelo (oEmbed falha muito)
+    var oembedP = checkLiveViaOembed();
+    var proxyP  = fetchComProxy("https://www.youtube.com/channel/" + CH + "/live")
+                    .then(function(html){
+                      try { return analisarHtml(html); }
+                      catch(e){ return { status:"erro" }; }
+                    })
+                    .catch(function(e){ log("proxy falhou: " + e.message); return { status:"erro" }; });
+
+    return Promise.all([oembedP, proxyP]).then(function(arr){
+      var oembed = arr[0], proxy = arr[1];
+      if (proxy.status === "live" && proxy.videoId) {
+        log("checkLive: proxy confirmou LIVE -> " + proxy.videoId);
+        return proxy;
+      }
+      if (oembed.status === "live" && oembed.videoId) {
+        log("checkLive: oEmbed confirmou LIVE -> " + oembed.videoId);
+        return oembed;
+      }
+      if (oembed.status === "none" && proxy.status === "none") {
+        log("checkLive: ambas fontes = none");
+        return { status:"none" };
+      }
+      if (proxy.status === "upcoming") return proxy;
+      if (oembed.status === "upcoming") return oembed;
+      return { status:"none" };
     });
   }
 
@@ -6418,13 +6440,34 @@ init();
       if (tit && loadedVideoId === v.id && !isLive) setText("currentProgram", tit);
     });
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🔥 CORRIGIDA: fetchVideosFromCF agora GUARDA isLive + liveVideoId
+  // Antes, esses campos da resposta do CF eram descartados.
+  // ═══════════════════════════════════════════════════════════════
   function fetchVideosFromCF(){
     return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1", { cache: "no-store" })
       .then(function(r){ return r.json(); })
-      .then(function(d){ if (d && d.videos && d.videos.length) videos = d.videos; return videos; })
-      .catch(function(){ return []; });
+      .then(function(d){
+        if (d && d.videos && d.videos.length) videos = d.videos;
+        if (d && typeof d.isLive !== "undefined"){
+          _cfLiveCache = {
+            isLive:  !!d.isLive,
+            videoId: d.liveVideoId || "",
+            at:      Date.now()
+          };
+          log("CF: isLive=" + _cfLiveCache.isLive + " videoId=" + (_cfLiveCache.videoId || "-") + " videos=" + videos.length);
+        } else {
+          log("CF sem campo isLive (resposta: " + JSON.stringify(d).substring(0,120) + ")");
+        }
+        return videos;
+      })
+      .catch(function(e){ warn("fetchVideosFromCF erro:", e.message); return []; });
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔥 CORRIGIDA: iniciarEndWatcher força recheck do CF ao terminar vídeo
+  // ═══════════════════════════════════════════════════════════════
   function iniciarEndWatcher(){
     if (endWatcher) clearInterval(endWatcher);
     lastState = -1;
@@ -6433,9 +6476,12 @@ init();
       var st = -1;
       try { st = p.getPlayerState(); } catch(e){ return; }
       if (st === 0 && lastState !== 0) {
-        log("FIM DE VÍDEO | isLive=" + isLive + " currentSlot=" + currentSlotIdx);
-        checkLive().then(function(res){
-          if (res.status === "live" && res.videoId) {
+        log("FIM DE VIDEO | isLive=" + isLive + " currentSlot=" + currentSlotIdx);
+        _cfLiveCache = null;
+        fetchVideosFromCF().then(function(){
+          return checkLive();
+        }).then(function(res){
+          if (res.status === "live" && res.videoId){
             playLiveResult(res);
             return;
           }
@@ -6451,19 +6497,32 @@ init();
     }, 1000);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔥 CORRIGIDA: decidirEExecutar prioriza o CF (HEAD redirect confiável)
+  // ═══════════════════════════════════════════════════════════════
   function decidirEExecutar(){
     if (!userStarted) return;
     fetchVideosFromCF().then(function(){
-      checkLive().then(function(res){
-        if (res.status === "live" && res.videoId){ playLiveResult(res); return; }
-        var s = computeCurrentSlot();
-        playSlot(s.idx, s.seek);
-      }).catch(function(){
-        var s = computeCurrentSlot();
-        playSlot(s.idx, s.seek);
-      });
+      return checkLive();
+    }).then(function(res){
+      if (res.status === "live" && res.videoId){
+        log(">>> ENTRANDO EM MODO LIVE: " + res.videoId);
+        playLiveResult(res);
+        return;
+      }
+      log(">>> Canal offline no YT - usando historico de videos");
+      var s = computeCurrentSlot();
+      playSlot(s.idx, s.seek);
+    }).catch(function(e){
+      warn("decidirEExecutar erro:", e && e.message);
+      var s = computeCurrentSlot();
+      playSlot(s.idx, s.seek);
     });
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🔥 CORRIGIDA: hookStartButton - liveCheckTimer força recheck do CF
+  // ═══════════════════════════════════════════════════════════════
   function hookStartButton(){
     var btn = document.getElementById("autoplayButton");
     if (!btn){ setTimeout(hookStartButton, 500); return; }
@@ -6477,26 +6536,35 @@ init();
       log("Ligar TV clicado");
       userStarted = true;
       try { userStartedPlayback = true; } catch(err){}
-      mostrarCarregando("Verificando transmissão...");
+      mostrarCarregando("Verificando transmissao...");
       iniciarWatcherPlayback();
       decidirEExecutar();
       iniciarEndWatcher();
       if (liveCheckTimer) clearInterval(liveCheckTimer);
       liveCheckTimer = setInterval(function(){
         if (!userStarted) return;
-        if (isLive) {
-          checkLive().then(function(res){
-            if (res.status !== "live") { var s = computeCurrentSlot(); playSlot(s.idx, s.seek); }
-          });
-          return;
-        }
-        checkLive().then(function(res){
-          if (res.status === "live" && res.videoId) playLiveResult(res);
+        _cfLiveCache = null;
+        fetchVideosFromCF().then(function(){
+          return checkLive();
+        }).then(function(res){
+          if (isLive){
+            if (res.status !== "live"){
+              log("Live caiu - voltando para historico");
+              var s = computeCurrentSlot();
+              playSlot(s.idx, s.seek);
+            }
+          } else {
+            if (res.status === "live" && res.videoId){
+              log("Live comecou - entrando ao vivo");
+              playLiveResult(res);
+            }
+          }
         });
       }, 120000);
     }, true);
     log("hook instalado");
   }
+
   function boot(){
     if (booted) return;
     if (!CH) return;
