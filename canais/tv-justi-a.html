@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.6.3">
+    <meta name="version" content="1.0.6.4">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.6.3
+            Versão 1.0.6.4
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-29";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.6.3";
+        const CHANNEL_VERSION = "1.0.6.4";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -3138,8 +3138,20 @@ function onYouTubePlayerStateChange(event) {
 // Tratar erros
 function onYouTubePlayerError(event) {
     console.error('Erro no YouTube player:', event.data);
-    
-    // Tentar próximo vídeo
+
+    // [v63-patcher:p2] live do YouTube — força revalidação no servidor (fresh=1)
+    if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
+        try {
+            if (typeof window.__liveForceRefresh === 'function') {
+                window.__liveForceRefresh();
+            } else {
+                console.warn('[v63] __liveForceRefresh indisponível');
+            }
+        } catch(e) { console.warn('[v63] forceRefresh falhou:', e); }
+        return;
+    }
+
+    // Modo normal (programas/playlist): mantém comportamento atual
     setTimeout(() => {
         if (currentState === 'program') {
             const proximoSlot = getNextSlot();
@@ -6125,7 +6137,7 @@ init();
   var FS_CHANNEL_ID = (document.querySelector('meta[name="channel-id"]') || {}).content || "";
   var SLOT_SEC = 1500;
   var EPOCH_MS = Date.parse("2025-01-01T06:00:00Z");
-  var LIVE_RECHECK_MS = 120000;
+  var LIVE_RECHECK_MS = 300000; // [v63-patcher:p3] era 120000 — 5min reduz consumo de cota
 
   var videos = [];
   var isLive = false;
@@ -6417,9 +6429,11 @@ init();
       log("listener Firestore ativo em liveStatus_yt/" + CH);
     } catch(e) { warn("iniciarListenerFirestore:", e.message); }
   }
-  function refreshManual() {
+  /* [v63-patcher:p1] refreshManual aceita forceFresh + atalho global */
+  function refreshManual(forceFresh) {
     var url = REFRESH_CF + "?ytId=" + encodeURIComponent(CH) +
               (FS_CHANNEL_ID ? "&channelId=" + encodeURIComponent(FS_CHANNEL_ID) : "") +
+              (forceFresh ? "&fresh=1" : "") +
               "&_=" + Date.now();
     return fetch(url, { cache: "no-store" })
       .then(function(r){ return r.json(); })
@@ -6438,6 +6452,12 @@ init();
       })
       .catch(function(e){ warn("refreshManual:", e.message); return null; });
   }
+
+  // [v63-patcher:p1] atalho global — força revalidação pulando o Tier 1
+  window.__liveForceRefresh = function(){
+    log("FORCE REFRESH (fresh=1)");
+    return refreshManual(true);
+  };
   function iniciarEndWatcher(){
     if (endWatcher) clearInterval(endWatcher);
     lastState = -1;
