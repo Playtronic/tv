@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.4.5">
+    <meta name="version" content="1.0.4.6">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.4.5
+            Versão 1.0.4.6
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.4.5";
+        const CHANNEL_VERSION = "1.0.4.6";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6190,7 +6190,13 @@ init();
     }, 300);
   }
 
-  // ═══ FIX BOTÕES — clona + listener direto ═══
+  // ═══ FIX BOTÕES — onclick property (mais forte que addEventListener) ═══
+  function getPlayer(){
+    try { if (typeof youtubePlayer !== "undefined" && youtubePlayer) return youtubePlayer; } catch(e){}
+    try { if (window.youtubePlayer) return window.youtubePlayer; } catch(e){}
+    return null;
+  }
+
   function bindBotoes(){
     try {
       var r10 = document.getElementById("rewind10Btn");
@@ -6199,50 +6205,64 @@ init();
       if (!r10 || !rst || !lv) return false;
       if (botoesBound) return true;
 
-      function rebind(el, name, handler){
-        var clone = el.cloneNode(true);
-        el.parentNode.replaceChild(clone, el);
-        clone.addEventListener("click", function(e){
-          e.preventDefault();
-          e.stopPropagation();
+      // OVERWRITE com onclick property (não usa addEventListener)
+      r10.onclick = function(e){
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        log("clique -10s");
+        var p = getPlayer();
+        if (!p) { warn("-10s: player null"); return false; }
+        try {
+          var ct = p.getCurrentTime();
+          log("-10s: getCurrentTime() =", ct);
+          if (typeof ct !== "number" || !isFinite(ct)) { warn("-10s: ct invalido"); return false; }
+          var target = Math.max(0, ct - 10);
+          log("-10s: seekTo(" + target.toFixed(1) + ")");
+          p.seekTo(target, true);
+        } catch(err) { warn("-10s erro:", err); }
+        return false;
+      };
+
+      rst.onclick = function(e){
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        log("clique Inicio");
+        var p = getPlayer();
+        if (!p) { warn("Inicio: player null"); return false; }
+        try {
+          log("Inicio: seekTo(0)");
+          p.seekTo(0, true);
+          if (typeof p.playVideo === "function") p.playVideo();
+        } catch(err) { warn("Inicio erro:", err); }
+        return false;
+      };
+
+      lv.onclick = function(e){
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        log("clique AOVIVO");
+        var p = getPlayer();
+        if (!p) { warn("AOVIVO: player null"); return false; }
+        try {
+          var dur = p.getDuration();
+          log("AOVIVO: getDuration() =", dur);
+          if (typeof dur === "number" && isFinite(dur) && dur > 0) {
+            log("AOVIVO: seekTo(" + dur + ")");
+            p.seekTo(dur, true);
+          } else {
+            log("AOVIVO: live sem duracao — só playVideo");
+          }
+          if (typeof p.playVideo === "function") p.playVideo();
+        } catch(err) { warn("AOVIVO erro:", err); }
+        return false;
+      };
+
+      // Bloqueia listeners antigos via capture tambem
+      [r10, rst, lv].forEach(function(el){
+        el.addEventListener("click", function(e){
           e.stopImmediatePropagation();
-          log("clique " + name);
-          try { handler(); } catch(err){ warn(name + " handler erro:", err); }
-          try { if (typeof showControls === "function") showControls(); } catch(_e){}
-          try { if (typeof resetControlsTimer === "function") resetControlsTimer(); } catch(_e){}
         }, true);
-      }
-
-      rebind(r10, "-10s", function(){
-        if (typeof youtubePlayer === "undefined" || !youtubePlayer || !playerReady) { warn("-10s: player nao pronto"); return; }
-        var ct = youtubePlayer.getCurrentTime();
-        if (typeof ct !== "number" || !isFinite(ct)) { warn("-10s: ct invalido " + ct); return; }
-        var target = Math.max(0, ct - 10);
-        log("-10s: " + ct.toFixed(1) + " -> " + target.toFixed(1));
-        youtubePlayer.seekTo(target, true);
-      });
-
-      rebind(rst, "Inicio", function(){
-        if (typeof youtubePlayer === "undefined" || !youtubePlayer || !playerReady) { warn("Inicio: player nao pronto"); return; }
-        log("Inicio: seek 0");
-        youtubePlayer.seekTo(0, true);
-        if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
-      });
-
-      rebind(lv, "AOVIVO", function(){
-        if (typeof youtubePlayer === "undefined" || !youtubePlayer || !playerReady) { warn("AOVIVO: player nao pronto"); return; }
-        var dur = youtubePlayer.getDuration();
-        if (typeof dur === "number" && isFinite(dur) && dur > 0) {
-          log("AOVIVO: seek " + dur);
-          youtubePlayer.seekTo(dur, true);
-        } else {
-          log("AOVIVO: live sem duracao - playVideo direto");
-        }
-        if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
       });
 
       botoesBound = true;
-      log("botões rebindados com sucesso");
+      log("botões bindados (onclick)");
       return true;
     } catch(e){
       warn("bindBotoes erro:", e);
@@ -6363,7 +6383,6 @@ init();
       loadedVideoId = videoId;
       if (seekSec > 0) seekToSlotPosition(seekSec);
       if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
-      // Rebind após criar player (com delay duplo pra garantir)
       setTimeout(function(){ botoesBound = false; bindBotoes(); }, 1500);
       setTimeout(function(){ botoesBound = false; bindBotoes(); }, 4000);
       return true;
