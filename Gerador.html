@@ -13331,6 +13331,18 @@ window.fetch = function(input, init){
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
 
+  // Filtra títulos ruins que vêm do HTML do YouTube (números de views, badges, etc)
+  function _tituloOk(s){
+    if (!s) return false;
+    var t = String(s).trim();
+    if (t.length < 5) return false;
+    if (/^\s*[\d.,]+\s*(mil|milhões|milhão|K|M|B|views?|assistindo|watching)?\s*$/i.test(t)) return false;
+    if (/^(ao vivo|live|assistir depois|watch later|compartilhar|share|salvar|save|inscrever|subscribe|inscrito|subscribed|now playing|tocando agora|gostou deste v[íi]deo\??|did you like this video\??|obrigado por assistir|thanks for watching)$/i.test(t)) return false;
+    if (/^(gostou|did you like|liked this)/i.test(t)) return false;
+    if (/^(veja|assista|confira)\s+(tamb[ée]m|mais)/i.test(t)) return false;
+    return true;
+  }
+
   function mostrarCarregando(msg){
     var ov = document.getElementById("autoplayOverlay");
     if (!ov) return;
@@ -13441,9 +13453,9 @@ window.fetch = function(input, init){
     }, 500);
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Carrega LIVE via iframe embed (videoId = "live_stream?channel=UCxxx")
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
+  // v9 — iframe para live_stream com origin + referrerpolicy (CORRIGIDO)
+  // ═══════════════════════════════════════════════════════════════
   function carregarLiveStream(videoId) {
     var channelId = String(videoId).replace('live_stream?channel=', '').trim();
     if (!channelId) return false;
@@ -13457,26 +13469,36 @@ window.fetch = function(input, init){
     yc.style.display = 'block';
     yc.innerHTML = '';
 
+    var origin = window.location.origin || 'https://canaisdetv.online';
+    var url = 'https://www.youtube.com/embed/live_stream' +
+              '?channel=' + encodeURIComponent(channelId) +
+              '&autoplay=1' +
+              '&playsinline=1' +
+              '&modestbranding=1' +
+              '&rel=0' +
+              '&enablejsapi=1' +
+              '&origin=' + encodeURIComponent(origin) +
+              '&widget_referrer=' + encodeURIComponent(window.location.href);
+
     var iframe = document.createElement('iframe');
-    iframe.src = 'https://www.youtube.com/embed/live_stream?channel=' + encodeURIComponent(channelId) +
-                 '&autoplay=1&playsinline=1&modestbranding=1&rel=0';
+    iframe.src = url;
     iframe.style.cssText = 'width:100%;height:100%;border:0;position:absolute;top:0;left:0;';
-    iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+    iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
     iframe.setAttribute('allowfullscreen', '');
     iframe.setAttribute('frameborder', '0');
+    iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
     yc.appendChild(iframe);
 
     isYoutubeVideo = true;
     playerReady = false;
     loadedVideoId = videoId;
 
-    log("LIVE STREAM iframe carregado: " + channelId);
+    log("LIVE STREAM iframe carregado: channel=" + channelId + " origin=" + origin);
     setTimeout(esconderCarregando, 1500);
     return true;
   }
 
   function loadIntoPlayer(videoId, seekSec, autoPlay){
-    // 🎯 Se for live_stream, usa iframe direto
     if (typeof videoId === 'string' && videoId.indexOf('live_stream?channel=') === 0) {
       return carregarLiveStream(videoId);
     }
@@ -13497,12 +13519,15 @@ window.fetch = function(input, init){
     if (!v || !v.videoId) return false;
     if (loadedVideoId === v.videoId && isLive) return true;
     log("PLAY LIVE " + v.videoId + " - " + (v.title||""));
+
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     isLive = true;
     isUpcoming = false;
     currentLiveId = v.videoId;
     loadIntoPlayer(v.videoId, 0, true);
-    setText("currentProgram", v.title || "Transmissao ao vivo");
+
+    var tituloFinal = (v.title && _tituloOk(v.title)) ? v.title : "Transmissão ao Vivo";
+    setText("currentProgram", tituloFinal);
     setText("nextProgram", "-");
     setText("afterNextProgram", "-");
     setLiveBadge(true);
