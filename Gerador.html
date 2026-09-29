@@ -13410,7 +13410,6 @@ window.fetch = function(input, init){
     rstc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} doSeek(0); return false; };
     lvc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} goToLiveEdge(); return false; };
   }
-
   function setText(id, t){ var el = document.getElementById(id); if (el) el.textContent = (t == null ? "-" : t); }
   function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
   function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
@@ -13494,24 +13493,19 @@ window.fetch = function(input, init){
       if (tit && loadedVideoId === v.id && !isLive) setText("currentProgram", tit);
     });
   }
-
   function aplicarStatusLive(s) {
     if (!s) return;
     var eraLive = isLive;
     isLive = !!s.isLive;
     isUpcoming = !!s.isUpcoming;
     if (s.videos && s.videos.length && (!videos.length || s.isLive)) videos = s.videos;
-
     log("Firestore: isLive=" + isLive + " isUpcoming=" + isUpcoming + " videoId=" + (s.liveVideoId||"-") + " videos=" + videos.length);
-
     if (!userStarted) return;
-
     if (isLive && s.liveVideoId) {
       if (currentLiveId === s.liveVideoId && loadedVideoId === s.liveVideoId) return;
       playLiveResult({ videoId: s.liveVideoId, title: s.liveTitle || "" });
       return;
     }
-
     if (!isLive && eraLive) {
       log("Live terminou - voltando para historico");
       var slot = computeCurrentSlot();
@@ -13523,25 +13517,33 @@ window.fetch = function(input, init){
       playSlot(slot2.idx, slot2.seek);
     }
   }
-
   function iniciarListenerFirestore() {
     if (_liveStatusUnsub) return;
     try {
       var db = (typeof firebase !== "undefined" && firebase.firestore) ? firebase.firestore() : null;
       if (!db) { warn("Firestore nao disponivel"); return; }
-      _liveStatusUnsub = db.collection("liveStatus").doc(FS_CHANNEL_ID)
+      var docKey = FS_CHANNEL_ID || CH;
+      _liveStatusUnsub = db.collection("liveStatus").doc(docKey)
         .onSnapshot(function(snap){
-          if (!snap.exists){ log("liveStatus/" + FS_CHANNEL_ID + " ainda nao existe"); return; }
-          aplicarStatusLive(snap.data());
+          if (!snap.exists){ log("liveStatus/" + docKey + " ainda nao existe"); return; }
+          var d = snap.data() || {};
+          // Ignora cache que não seja do nosso ytId (evita cache envenenado)
+          if (d.ytId && CH && d.ytId !== CH) {
+            log("cache ignorado (ytId diferente): cache=" + d.ytId + " nosso=" + CH);
+            return;
+          }
+          aplicarStatusLive(d);
         }, function(err){
           warn("onSnapshot erro:", err.message);
         });
-      log("listener Firestore ativo em liveStatus/" + FS_CHANNEL_ID);
+      log("listener Firestore ativo em liveStatus/" + docKey);
     } catch(e) { warn("iniciarListenerFirestore:", e.message); }
   }
-
   function refreshManual() {
-    return fetch(REFRESH_CF + "?channelId=" + encodeURIComponent(FS_CHANNEL_ID), { cache: "no-store" })
+    var url = REFRESH_CF + "?channelId=" + encodeURIComponent(FS_CHANNEL_ID) +
+              "&ytId=" + encodeURIComponent(CH) +
+              "&_=" + Date.now();
+    return fetch(url, { cache: "no-store" })
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (d && d.success){
@@ -13557,7 +13559,6 @@ window.fetch = function(input, init){
       })
       .catch(function(e){ warn("refreshManual:", e.message); return null; });
   }
-
   function iniciarEndWatcher(){
     if (endWatcher) clearInterval(endWatcher);
     lastState = -1;
@@ -13577,7 +13578,6 @@ window.fetch = function(input, init){
       lastState = st;
     }, 1000);
   }
-
   function hookStartButton(){
     var btn = document.getElementById("autoplayButton");
     if (!btn){ setTimeout(hookStartButton, 500); return; }
@@ -13610,7 +13610,6 @@ window.fetch = function(input, init){
     }, true);
     log("hook instalado");
   }
-
   function boot(){
     if (booted) return;
     if (!CH) return;
