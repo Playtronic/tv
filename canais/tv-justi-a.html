@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.4.2">
+    <meta name="version" content="1.0.4.3">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.4.2
+            Versão 1.0.4.3
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.4.2";
+        const CHANNEL_VERSION = "1.0.4.3";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6136,23 +6136,126 @@ init();
   var isLive = false;
   var currentLiveId = "";
   var loadedVideoId = null;
-  var loadedSlotKey = "";
   var booted = false;
   var userStarted = false;
   var liveCheckTimer = null;
-  var titleCache = {};
   var rejectedIds = {};
+  var playbackWatcher = null;
 
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
 
+  // ─── Loading overlay ───
+  function mostrarCarregando(msg){
+    var ov = document.getElementById("autoplayOverlay");
+    if (!ov) return;
+    if (!document.getElementById("__live_spin_css")) {
+      var s = document.createElement("style");
+      s.id = "__live_spin_css";
+      s.textContent = "@keyframes __live_spin { to { transform: rotate(360deg); } }";
+      document.head.appendChild(s);
+    }
+    ov.innerHTML =
+      '<div style="text-align:center;padding:20px;">' +
+        '<div style="border:4px solid rgba(255,255,255,0.25);border-top-color:#fdbb2d;border-radius:50%;width:54px;height:54px;animation:__live_spin 1s linear infinite;margin:0 auto 22px;"></div>' +
+        '<h3 style="font-size:1.25rem;margin-bottom:8px;color:#fff;font-weight:600;">' + (msg || "Carregando canal...") + '</h3>' +
+        '<p style="font-size:0.9rem;opacity:0.75;margin:0;">Isso pode levar alguns segundos</p>' +
+      '</div>';
+    ov.classList.remove("hidden");
+  }
+  function esconderCarregando(){
+    var ov = document.getElementById("autoplayOverlay");
+    if (ov) ov.classList.add("hidden");
+  }
+  function iniciarWatcherPlayback(){
+    if (playbackWatcher) clearInterval(playbackWatcher);
+    var inicio = Date.now();
+    playbackWatcher = setInterval(function(){
+      var st = -1;
+      try {
+        if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady) {
+          st = youtubePlayer.getPlayerState();
+        }
+      } catch(e){}
+      if (st === 1 || st === 3) {
+        esconderCarregando();
+        clearInterval(playbackWatcher);
+        playbackWatcher = null;
+        return;
+      }
+      if (Date.now() - inicio > 30000) {
+        esconderCarregando();
+        clearInterval(playbackWatcher);
+        playbackWatcher = null;
+      }
+    }, 300);
+  }
+
+  // ─── Rebind dos controles ───
+  function rebindPlayerControls(){
+    var r10 = document.getElementById("rewind10Btn");
+    var rst = document.getElementById("restartBtn");
+    var lv  = document.getElementById("liveBtn");
+
+    if (r10) {
+      var c1 = r10.cloneNode(true);
+      r10.parentNode.replaceChild(c1, r10);
+      c1.addEventListener("click", function(){
+        try {
+          if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady) {
+            var ct = youtubePlayer.getCurrentTime();
+            if (typeof ct === "number" && isFinite(ct) && ct >= 0) {
+              var target = Math.max(0, ct - 10);
+              youtubePlayer.seekTo(target, true);
+            }
+          }
+        } catch(e){ warn("rewind10 erro:", e); }
+        if (typeof showControls === "function") showControls();
+        if (typeof resetControlsTimer === "function") resetControlsTimer();
+      });
+    }
+
+    if (rst) {
+      var c2 = rst.cloneNode(true);
+      rst.parentNode.replaceChild(c2, rst);
+      c2.addEventListener("click", function(){
+        try {
+          if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady) {
+            youtubePlayer.seekTo(0, true);
+            if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
+          }
+        } catch(e){ warn("restart erro:", e); }
+        if (typeof showControls === "function") showControls();
+        if (typeof resetControlsTimer === "function") resetControlsTimer();
+      });
+    }
+
+    if (lv) {
+      var c3 = lv.cloneNode(true);
+      lv.parentNode.replaceChild(c3, lv);
+      c3.addEventListener("click", function(){
+        try {
+          if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady) {
+            var dur = youtubePlayer.getDuration();
+            if (typeof dur === "number" && isFinite(dur) && dur > 0) {
+              youtubePlayer.seekTo(dur, true);
+            }
+            if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
+          }
+        } catch(e){ warn("live erro:", e); }
+        if (typeof showControls === "function") showControls();
+        if (typeof resetControlsTimer === "function") resetControlsTimer();
+      });
+    }
+  }
+
+  // ─── Proxies ───
   function fetchComProxy(url){
     var idx = 0;
     function tentar(){
       if (idx >= PROXIES.length) return Promise.reject(new Error("Todos proxies falharam"));
       var proxy = PROXIES[idx++];
-      var target = proxy(url);
-      return fetch(target, { redirect: "follow" })
+      return fetch(proxy(url), { redirect: "follow" })
         .then(function(r){
           if (!r.ok) throw new Error("HTTP " + r.status);
           return r.text();
@@ -6165,7 +6268,7 @@ init();
     return tentar();
   }
 
-  // Analisa o HTML — detecta live REAL, premiere agendada, ou nada
+  // ─── Análise do HTML ───
   function analisarHtml(html){
     var videoIdMatch = html.match(/"videoId"\s*:\s*"([\w-]{11})"/);
     var tituloMatch = html.match(/"title"\s*:\s*"([^"]+)"/);
@@ -6183,26 +6286,18 @@ init();
     var isLiveFlag = /"isLive"\s*:\s*true/.test(html);
     var startNoFuturo = startTime && startTime > agora;
 
-    // 1. Agendada / premiere não iniciada
     if (isUpcomingFlag || hasUpcomingEvent || startNoFuturo || (isPremiereFlag && !isLiveNowFlag)){
       return { status: "upcoming", titulo: titulo, videoId: videoId, startTime: startTime };
     }
-
-    // 2. Live REAL (com filtro de premiere)
     if (isLiveFlag && (!isPremiereFlag || isLiveNowFlag)){
       return { status: "live", titulo: titulo, videoId: videoId };
     }
-
-    // 3. Nada
     return { status: "none", videoId: null };
   }
 
-  function getLiveUrl(){
-    return "https://www.youtube.com/channel/" + CH + "/live";
-  }
-
   function checkLive(){
-    return fetchComProxy(getLiveUrl()).then(function(html){
+    var url = "https://www.youtube.com/channel/" + CH + "/live";
+    return fetchComProxy(url).then(function(html){
       var res = analisarHtml(html);
       log("analise:", res.status, res.videoId || "", res.titulo || "");
       return res;
@@ -6212,8 +6307,8 @@ init();
     });
   }
 
-  // ─── Player (usa criarPlayerYouTube do site) ───
-  function setText(id, t){ var el = document.getElementById(id); if (el && t) el.textContent = t; }
+  // ─── Player ───
+  function setText(id, t){ var el = document.getElementById(id); if (el) el.textContent = (t == null ? "-" : t); }
   function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
   function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
   function ensureVisible(){ var pi = document.querySelector(".program-info"); if (pi) pi.style.display = ""; var di = document.querySelector(".debug-info"); if (di) di.style.display = ""; }
@@ -6237,7 +6332,6 @@ init();
       } catch(e){ clearInterval(iv); }
     }, 500);
   }
-
   function seekToSlotPosition(seekSec){
     var tries = 0;
     var iv = setInterval(function(){
@@ -6251,7 +6345,6 @@ init();
       } catch(e){ clearInterval(iv); }
     }, 500);
   }
-
   function loadIntoPlayer(videoId, seekSec, autoPlay){
     if (typeof criarPlayerYouTube !== "function") return false;
     try {
@@ -6260,6 +6353,9 @@ init();
       loadedVideoId = videoId;
       if (seekSec > 0) seekToSlotPosition(seekSec);
       if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
+      // Rebind após criar player
+      setTimeout(function(){ rebindPlayerControls(); }, 1500);
+      setTimeout(function(){ rebindPlayerControls(); }, 4000);
       return true;
     } catch(e){ warn("loadIntoPlayer:", e); return false; }
   }
@@ -6273,9 +6369,10 @@ init();
     isLive = true;
     currentLiveId = res.videoId;
     loadIntoPlayer(res.videoId, 0, true);
-    setText("currentProgram", "AO VIVO: " + (res.titulo || "Transmissão em tempo real"));
-    setText("nextProgram", "Ao Vivo");
-    setText("afterNextProgram", "Ao Vivo");
+    // Sem prefixo "AO VIVO: " — usa título original do YouTube
+    setText("currentProgram", res.titulo || "Transmissão ao vivo");
+    setText("nextProgram", "-");
+    setText("afterNextProgram", "-");
     setLiveBadge(true);
     return true;
   }
@@ -6285,10 +6382,7 @@ init();
     idx = Math.max(0, Math.min(videos.length - 1, idx));
     var v = videos[idx];
     if (!v || !v.id) return;
-    if (rejectedIds[v.id]) {
-      // pula pro próximo
-      return playSlot((idx + 1) % videos.length, seekSec);
-    }
+    if (rejectedIds[v.id]) return playSlot((idx + 1) % videos.length, seekSec);
     log("PLAY SLOT " + idx + " -> " + v.id);
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
     var yc = document.getElementById("youtubeContainer"); if (yc) yc.style.display = "block";
@@ -6311,24 +6405,11 @@ init();
       .catch(function(){ return []; });
   }
 
-  function updateInfoTitles(idxNow){
-    if (!videos.length) return;
-    // Se está em live, não mexe nos títulos
-    if (isLive) return;
-    var c = videos[idxNow % videos.length];
-    var nv = videos[(idxNow + 1) % videos.length];
-    var av = videos[(idxNow + 2) % videos.length];
-    setText("currentProgram", (c && (c.title || c.name)) || "-");
-    setText("nextProgram", (nv && (nv.title || nv.name)) || "-");
-    setText("afterNextProgram", (av && (av.title || av.name)) || "-");
-  }
-
   // ─── Orquestração ───
   function decidirEExecutar(){
     if (!userStarted) return;
     log("decidindo...");
     fetchVideosFromCF().then(function(){
-      // 1) Tenta live via HTML scrape
       checkLive().then(function(res){
         if (res.status === "live" && res.videoId){
           playLiveResult(res);
@@ -6337,7 +6418,6 @@ init();
         if (res.status === "upcoming"){
           log("live agendada (não ao vivo) - tocando slot");
         }
-        // 2) Fallback: slot
         var s = computeCurrentSlot();
         playSlot(s.idx, s.seek);
       }).catch(function(){
@@ -6358,15 +6438,14 @@ init();
       e.preventDefault();
       e.stopImmediatePropagation();
       log("Ligar TV clicado");
-      var ov = document.getElementById("autoplayOverlay");
-      if (ov) ov.classList.add("hidden");
-      try { userStartedPlayback = true; } catch(err){}
       userStarted = true;
+      try { userStartedPlayback = true; } catch(err){}
+      mostrarCarregando("Verificando transmissão...");
+      iniciarWatcherPlayback();
       decidirEExecutar();
       if (liveCheckTimer) clearInterval(liveCheckTimer);
       liveCheckTimer = setInterval(function(){
         if (!userStarted) return;
-        // Só reprocessa se NÃO estiver em live (evita interromper)
         if (isLive) {
           checkLive().then(function(res){
             if (res.status !== "live") {
@@ -6377,7 +6456,6 @@ init();
           });
           return;
         }
-        // Se não está em live, tenta de novo a cada 2 min
         checkLive().then(function(res){
           if (res.status === "live" && res.videoId){
             playLiveResult(res);
@@ -6399,6 +6477,7 @@ init();
     setInterval(fixModePanel, 5000);
     fetchVideosFromCF();
     hookStartButton();
+    rebindPlayerControls();
   }
   setTimeout(boot, 1500);
 })();
