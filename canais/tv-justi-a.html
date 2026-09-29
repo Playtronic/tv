@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.4.1">
+    <meta name="version" content="1.0.4.2">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="vBw3DC8c01qikNcdrvgs">
     <meta name="channel-name" content="TV Justiça">
@@ -1271,7 +1271,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.4.1
+            Versão 1.0.4.2
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2457,7 +2457,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-28";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.4.1";
+        const CHANNEL_VERSION = "1.0.4.2";
         const CHANNEL_ID = "vBw3DC8c01qikNcdrvgs";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6118,7 +6118,6 @@ init();
 })();
 </script>
 <script>
-// [v19 Live Sync] - deterministico entre devices
 (function(){
   "use strict";
   var CF = "https://us-central1-playtronic-tv.cloudfunctions.net/channelLiveStatus";
@@ -6126,49 +6125,105 @@ init();
   var BEHAVIOR = "videos";
   var SLOT_SEC = 1500;
   var EPOCH_MS = Date.parse("2025-01-01T06:00:00Z");
+
+  var PROXIES = [
+    function(u){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); },
+    function(u){ return "https://corsproxy.io/?" + encodeURIComponent(u); },
+    function(u){ return "https://thingproxy.freeboard.io/fetch/" + u; }
+  ];
+
   var videos = [];
   var isLive = false;
   var currentLiveId = "";
   var loadedVideoId = null;
   var loadedSlotKey = "";
   var booted = false;
+  var userStarted = false;
+  var liveCheckTimer = null;
   var titleCache = {};
-  var liveCheckInterval = null;
-  var tickInterval = null;
-  function _oembedFetch(id){
-    if (!id) return Promise.resolve("");
-    if (titleCache[id]) return Promise.resolve(titleCache[id]);
-    var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + id) + "&format=json";
-    return fetch(u).then(function(r){ return r.json(); }).then(function(d){
-      if (d && d.title){ titleCache[id] = d.title; return d.title; }
-      return "";
-    }).catch(function(){ return ""; });
+  var rejectedIds = {};
+
+  function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
+  function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
+
+  function fetchComProxy(url){
+    var idx = 0;
+    function tentar(){
+      if (idx >= PROXIES.length) return Promise.reject(new Error("Todos proxies falharam"));
+      var proxy = PROXIES[idx++];
+      var target = proxy(url);
+      return fetch(target, { redirect: "follow" })
+        .then(function(r){
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.text();
+        })
+        .catch(function(e){
+          log("proxy falhou:", e.message);
+          return tentar();
+        });
+    }
+    return tentar();
   }
+
+  // Analisa o HTML — detecta live REAL, premiere agendada, ou nada
+  function analisarHtml(html){
+    var videoIdMatch = html.match(/"videoId"\s*:\s*"([\w-]{11})"/);
+    var tituloMatch = html.match(/"title"\s*:\s*"([^"]+)"/);
+    var startMatch = html.match(/"startTimestamp"\s*:\s*"([^"]+)"/) || html.match(/"startTime"\s*:\s*"([^"]+)"/);
+
+    var videoId = videoIdMatch ? videoIdMatch[1] : null;
+    var titulo = tituloMatch ? tituloMatch[1] : null;
+    var startTime = startMatch ? new Date(startMatch[1]) : null;
+    var agora = new Date();
+
+    var isUpcomingFlag = /"isUpcoming"\s*:\s*true/.test(html);
+    var hasUpcomingEvent = /"upcomingEventData"/.test(html);
+    var isPremiereFlag = /"isPremiere"\s*:\s*true/.test(html);
+    var isLiveNowFlag = /"isLiveNow"\s*:\s*true/.test(html);
+    var isLiveFlag = /"isLive"\s*:\s*true/.test(html);
+    var startNoFuturo = startTime && startTime > agora;
+
+    // 1. Agendada / premiere não iniciada
+    if (isUpcomingFlag || hasUpcomingEvent || startNoFuturo || (isPremiereFlag && !isLiveNowFlag)){
+      return { status: "upcoming", titulo: titulo, videoId: videoId, startTime: startTime };
+    }
+
+    // 2. Live REAL (com filtro de premiere)
+    if (isLiveFlag && (!isPremiereFlag || isLiveNowFlag)){
+      return { status: "live", titulo: titulo, videoId: videoId };
+    }
+
+    // 3. Nada
+    return { status: "none", videoId: null };
+  }
+
+  function getLiveUrl(){
+    return "https://www.youtube.com/channel/" + CH + "/live";
+  }
+
+  function checkLive(){
+    return fetchComProxy(getLiveUrl()).then(function(html){
+      var res = analisarHtml(html);
+      log("analise:", res.status, res.videoId || "", res.titulo || "");
+      return res;
+    }).catch(function(e){
+      warn("erro checkLive:", e.message);
+      return { status: "erro" };
+    });
+  }
+
+  // ─── Player (usa criarPlayerYouTube do site) ───
   function setText(id, t){ var el = document.getElementById(id); if (el && t) el.textContent = t; }
-  function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
   function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
-  function computeCurrentSlot(){
-    var now = Date.now();
-    var elapsed = Math.floor((now - EPOCH_MS) / 1000);
-    if (elapsed < 0) elapsed = 0;
-    var n = videos.length || 1;
-    var slotIdx = Math.floor(elapsed / SLOT_SEC) % n;
-    var secInSlot = elapsed % SLOT_SEC;
-    return { idx: slotIdx, seek: secInSlot };
-  }
-  function updateInfoTitles(idxNow){
-    if (!videos.length) return;
-    var c = videos[idxNow % videos.length];
-    var nv = videos[(idxNow + 1) % videos.length];
-    var av = videos[(idxNow + 2) % videos.length];
-    setText("currentProgram", (c && (c.title || c.name)) || "Carregando...");
-    setText("nextProgram", (nv && (nv.title || nv.name)) || "Carregando...");
-    setText("afterNextProgram", (av && (av.title || av.name)) || "Carregando...");
-    if (c && !c.title && c.id) _oembedFetch(c.id).then(function(t){ if (t) setText("currentProgram", t); });
-    if (nv && !nv.title && nv.id) _oembedFetch(nv.id).then(function(t){ if (t) setText("nextProgram", t); });
-    if (av && !av.title && av.id) _oembedFetch(av.id).then(function(t){ if (t) setText("afterNextProgram", t); });
-  }
+  function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
   function ensureVisible(){ var pi = document.querySelector(".program-info"); if (pi) pi.style.display = ""; var di = document.querySelector(".debug-info"); if (di) di.style.display = ""; }
+
+  function computeCurrentSlot(){
+    var elapsed = Math.max(0, Math.floor((Date.now() - EPOCH_MS) / 1000));
+    var n = videos.length || 1;
+    return { idx: Math.floor(elapsed / SLOT_SEC) % n, seek: elapsed % SLOT_SEC };
+  }
+
   function playWhenReady(){
     var tries = 0;
     var iv = setInterval(function(){
@@ -6182,6 +6237,7 @@ init();
       } catch(e){ clearInterval(iv); }
     }, 500);
   }
+
   function seekToSlotPosition(seekSec){
     var tries = 0;
     var iv = setInterval(function(){
@@ -6195,6 +6251,7 @@ init();
       } catch(e){ clearInterval(iv); }
     }, 500);
   }
+
   function loadIntoPlayer(videoId, seekSec, autoPlay){
     if (typeof criarPlayerYouTube !== "function") return false;
     try {
@@ -6204,125 +6261,146 @@ init();
       if (seekSec > 0) seekToSlotPosition(seekSec);
       if (typeof userStartedPlayback !== "undefined" && userStartedPlayback) playWhenReady();
       return true;
-    } catch(e){ console.warn("[v19] falha:", e); return false; }
+    } catch(e){ warn("loadIntoPlayer:", e); return false; }
   }
-  function loadLive(vid){
-    if (!vid) return;
-    if (loadedVideoId === vid && loadedSlotKey === "live:" + vid) return;
-    if (typeof criarPlayerYouTube !== "function") return setTimeout(function(){ loadLive(vid); }, 300);
+
+  function playLiveResult(res){
+    if (!res || !res.videoId) return false;
+    if (loadedVideoId === res.videoId && isLive) return true;
+    log("PLAY LIVE " + res.videoId);
     var off = document.getElementById("__liveOffline"); if (off) off.remove();
-    var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "block";
-    loadedSlotKey = "live:" + vid;
-    loadIntoPlayer(vid, 0, typeof userStartedPlayback !== "undefined" && userStartedPlayback);
-    setText("currentProgram", "AO VIVO: Transmissão em tempo real");
+    var yc = document.getElementById("youtubeContainer"); if (yc) yc.style.display = "block";
+    isLive = true;
+    currentLiveId = res.videoId;
+    loadIntoPlayer(res.videoId, 0, true);
+    setText("currentProgram", "AO VIVO: " + (res.titulo || "Transmissão em tempo real"));
     setText("nextProgram", "Ao Vivo");
     setText("afterNextProgram", "Ao Vivo");
     setLiveBadge(true);
+    return true;
   }
-  function loadRecentForCurrentSlot(force){
-    if (!videos.length){ mostrarOffline(); return; }
-    var s = computeCurrentSlot();
-    var v = videos[s.idx];
-    if (!v || !v.id) return;
-    if (typeof criarPlayerYouTube !== "function") return setTimeout(loadRecentForCurrentSlot, 300);
-    var key = "recent:" + s.idx;
-    if (!force && loadedSlotKey === key && loadedVideoId === v.id) return;
-    var off = document.getElementById("__liveOffline"); if (off) off.remove();
-    var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "block";
-    loadedSlotKey = key;
-    loadIntoPlayer(v.id, s.seek, typeof userStartedPlayback !== "undefined" && userStartedPlayback);
-    updateInfoTitles(s.idx);
-  }
-  function mostrarOffline(){
-    var w = document.querySelector(".video-wrapper"); if (!w) return;
-    if (document.getElementById("__liveOffline")) return;
-    var h = document.getElementById("myVideo"); if (h){ h.style.display = "none"; try{ h.pause(); }catch(e){} }
-    var yt = document.getElementById("youtubeContainer"); if (yt) yt.style.display = "none";
-    var m = document.createElement("div");
-    m.id = "__liveOffline";
-    m.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:50;";
-    var img = document.createElement("img");
-    img.src = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png";
-    img.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;";
-    m.appendChild(img);
-    var b = document.createElement("div");
-    b.className = "offline-message";
-    b.innerHTML = "<h3>Canal Temporariamente Fora do Ar</h3><p style='font-size:0.9rem;'>Este canal esta passando por manutencao.</p><p style='font-size:0.9rem;'>Tente novamente mais tarde.</p>";
-    m.appendChild(b);
-    w.appendChild(m);
-  }
-  function fetchStatus(force){
-    if (!CH) return;
-    var url = CF + "?channelId=" + encodeURIComponent(CH) + (force ? "&fresh=1" : "");
-    fetch(url).then(function(r){ return r.json(); }).then(function(d){
-      if (!d || !d.success) return;
-      var wasLive = isLive;
-      isLive = !!d.isLive;
-      currentLiveId = d.liveVideoId || "";
-      if (d.videos && d.videos.length){ if (!videos.length || d.videos.length !== videos.length){ videos = d.videos; } }
-      if (isLive){
-        setLiveBadge(true);
-        if (!wasLive || currentLiveId !== loadedVideoId){ loadLive(currentLiveId); }
-      } else {
-        setLiveBadge(false);
-        if (BEHAVIOR === "offline"){ mostrarOffline(); }
-        else {
-          if (wasLive){ loadedSlotKey = ""; loadedVideoId = null; }
-          loadRecentForCurrentSlot(wasLive);
-        }
-      }
-    }).catch(function(e){ console.warn("[v19] status:", e); });
-  }
-  function tickSlot(){
-    if (isLive) return;
+
+  function playSlot(idx, seekSec){
     if (!videos.length) return;
-    if (BEHAVIOR === "offline") return;
-    var s = computeCurrentSlot();
-    var v = videos[s.idx];
+    idx = Math.max(0, Math.min(videos.length - 1, idx));
+    var v = videos[idx];
     if (!v || !v.id) return;
-    var key = "recent:" + s.idx;
-    if (loadedSlotKey !== key){ loadRecentForCurrentSlot(true); return; }
-    try {
-      if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady){
-        if (youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() === 0){
-          var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
-          if (dur > 0){ var pos = s.seek % dur; youtubePlayer.seekTo(pos, true); youtubePlayer.playVideo(); }
-        }
-      }
-    } catch(e){}
+    if (rejectedIds[v.id]) {
+      // pula pro próximo
+      return playSlot((idx + 1) % videos.length, seekSec);
+    }
+    log("PLAY SLOT " + idx + " -> " + v.id);
+    var off = document.getElementById("__liveOffline"); if (off) off.remove();
+    var yc = document.getElementById("youtubeContainer"); if (yc) yc.style.display = "block";
+    isLive = false;
+    currentLiveId = "";
+    loadedVideoId = v.id;
+    loadIntoPlayer(v.id, seekSec || 0, true);
+    setText("currentProgram", v.title || ("Vídeo " + (idx + 1)));
+    var nxt = videos[(idx + 1) % videos.length];
+    var nxt2 = videos[(idx + 2) % videos.length];
+    setText("nextProgram", nxt ? (nxt.title || "-") : "-");
+    setText("afterNextProgram", nxt2 ? (nxt2.title || "-") : "-");
+    setLiveBadge(false);
   }
+
+  function fetchVideosFromCF(){
+    return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1", { cache: "no-store" })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d && d.videos && d.videos.length) videos = d.videos; return videos; })
+      .catch(function(){ return []; });
+  }
+
+  function updateInfoTitles(idxNow){
+    if (!videos.length) return;
+    // Se está em live, não mexe nos títulos
+    if (isLive) return;
+    var c = videos[idxNow % videos.length];
+    var nv = videos[(idxNow + 1) % videos.length];
+    var av = videos[(idxNow + 2) % videos.length];
+    setText("currentProgram", (c && (c.title || c.name)) || "-");
+    setText("nextProgram", (nv && (nv.title || nv.name)) || "-");
+    setText("afterNextProgram", (av && (av.title || av.name)) || "-");
+  }
+
+  // ─── Orquestração ───
+  function decidirEExecutar(){
+    if (!userStarted) return;
+    log("decidindo...");
+    fetchVideosFromCF().then(function(){
+      // 1) Tenta live via HTML scrape
+      checkLive().then(function(res){
+        if (res.status === "live" && res.videoId){
+          playLiveResult(res);
+          return;
+        }
+        if (res.status === "upcoming"){
+          log("live agendada (não ao vivo) - tocando slot");
+        }
+        // 2) Fallback: slot
+        var s = computeCurrentSlot();
+        playSlot(s.idx, s.seek);
+      }).catch(function(){
+        var s = computeCurrentSlot();
+        playSlot(s.idx, s.seek);
+      });
+    });
+  }
+
+  function hookStartButton(){
+    var btn = document.getElementById("autoplayButton");
+    if (!btn){ setTimeout(hookStartButton, 500); return; }
+    if (btn.__live) return;
+    var clone = btn.cloneNode(true);
+    clone.__live = true;
+    btn.parentNode.replaceChild(clone, btn);
+    clone.addEventListener("click", function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      log("Ligar TV clicado");
+      var ov = document.getElementById("autoplayOverlay");
+      if (ov) ov.classList.add("hidden");
+      try { userStartedPlayback = true; } catch(err){}
+      userStarted = true;
+      decidirEExecutar();
+      if (liveCheckTimer) clearInterval(liveCheckTimer);
+      liveCheckTimer = setInterval(function(){
+        if (!userStarted) return;
+        // Só reprocessa se NÃO estiver em live (evita interromper)
+        if (isLive) {
+          checkLive().then(function(res){
+            if (res.status !== "live") {
+              log("live terminou - voltando pra slot");
+              var s = computeCurrentSlot();
+              playSlot(s.idx, s.seek);
+            }
+          });
+          return;
+        }
+        // Se não está em live, tenta de novo a cada 2 min
+        checkLive().then(function(res){
+          if (res.status === "live" && res.videoId){
+            playLiveResult(res);
+          }
+        });
+      }, 120000);
+    }, true);
+    log("hook instalado no botão Ligar TV");
+  }
+
   function boot(){
     if (booted) return;
     if (!CH) return;
     if (typeof criarPlayerYouTube !== "function") return setTimeout(boot, 300);
     booted = true;
+    log("boot CH=" + CH);
     ensureVisible();
     fixModePanel();
     setInterval(fixModePanel, 5000);
-    fetchStatus(false);
-    if (liveCheckInterval) clearInterval(liveCheckInterval);
-    liveCheckInterval = setInterval(function(){ fetchStatus(true); }, 120000);
-    if (tickInterval) clearInterval(tickInterval);
-    tickInterval = setInterval(tickSlot, 1000);
-    setTimeout(ensureVisible, 3000);
-    setTimeout(ensureVisible, 6000);
+    fetchVideosFromCF();
+    hookStartButton();
   }
   setTimeout(boot, 1500);
-  function isFallback(t){ if (!t) return true; var c = String(t).trim(); return c === "" || c === "-" || c === "Video" || c === "Video:" || c === "Vídeo" || c === "Vídeo:"; }
-  function getPlayerTitle(){
-    try {
-      if (typeof youtubePlayer === "undefined" || !youtubePlayer) return "";
-      if (typeof playerReady === "undefined" || !playerReady) return "";
-      var d = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null;
-      if (!d || !d.title) return "";
-      return (d.isLive ? "AO VIVO: " : "") + d.title;
-    } catch(e){ return ""; }
-  }
-  setInterval(function(){
-    var cur = document.getElementById("currentProgram");
-    if (cur && isFallback(cur.textContent)){ var t = getPlayerTitle(); if (t) cur.textContent = t; }
-  }, 1000);
-  window.__v19Status = function(){ return { isLive: isLive, videosCount: videos.length, loadedVideoId: loadedVideoId, loadedSlotKey: loadedSlotKey, currentSlot: computeCurrentSlot(), epochMs: EPOCH_MS }; };
 })();
 </script>
 </body>
