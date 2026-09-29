@@ -13328,6 +13328,7 @@ window.fetch = function(input, init){
   var playbackWatcher = null;
   var endWatcher = null;
   var lastState = -1;
+  var titleCache = {};
 
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
@@ -13359,53 +13360,102 @@ window.fetch = function(input, init){
     var inicio = Date.now();
     playbackWatcher = setInterval(function(){
       var st = -1;
-      try {
-        if (typeof youtubePlayer !== "undefined" && youtubePlayer && typeof playerReady !== "undefined" && playerReady) st = youtubePlayer.getPlayerState();
-      } catch(e){}
+      try { if (youtubePlayer && playerReady) st = youtubePlayer.getPlayerState(); } catch(e){}
       if (st === 1 || st === 3) { esconderCarregando(); clearInterval(playbackWatcher); playbackWatcher = null; return; }
       if (Date.now() - inicio > 30000) { esconderCarregando(); clearInterval(playbackWatcher); playbackWatcher = null; }
     }, 300);
   }
 
-  // ═══ FIX BOTÕES ═══
+  // ═══ oEmbed — pega título real de um vídeo ═══
+  function fetchTitulo(videoId){
+    if (titleCache[videoId]) return Promise.resolve(titleCache[videoId]);
+    var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + videoId) + "&format=json";
+    return fetch(u).then(function(r){ return r.json(); }).then(function(d){
+      if (d && d.title){ titleCache[videoId] = d.title; return d.title; }
+      return "";
+    }).catch(function(){ return ""; });
+  }
+
+  // ═══ BOTÕES — CLONA antes de bindar (mata handlers antigos) ═══
   function getPlayer(){
     try { if (typeof youtubePlayer !== "undefined" && youtubePlayer) return youtubePlayer; } catch(e){}
     try { if (window.youtubePlayer) return window.youtubePlayer; } catch(e){}
     return null;
   }
-  function doSeek(targetSeconds){
+
+  function doSeek(target, opts){
+    opts = opts || {};
     var p = getPlayer();
-    if (!p) return;
+    if (!p) { warn("doSeek: player null"); return; }
     try {
-      var stateBefore = p.getPlayerState();
-      var before = p.getCurrentTime();
+      var st = p.getPlayerState();
+      var before = p.getCurrentTime() || 0;
       var dur = (typeof p.getDuration === "function") ? p.getDuration() : 0;
-      var target = targetSeconds;
-      if (targetSeconds === "end") {
-        if (typeof dur === "number" && isFinite(dur) && dur > 0) target = dur;
+
+      var alvo = target;
+      if (target === "end") {
+        if (typeof dur === "number" && isFinite(dur) && dur > 0) alvo = dur;
         else { try { p.playVideo(); } catch(e){} return; }
       }
-      log("doSeek: before=" + (before||0).toFixed(1) + " target=" + target.toFixed(1));
-      var wasPlaying = (stateBefore === 1 || stateBefore === 3);
+
+      log("doSeek: before=" + before.toFixed(1) + " target=" + alvo.toFixed(1) + " dur=" + dur);
+
+      var wasPlaying = (st === 1 || st === 3);
       if (wasPlaying) { try { p.pauseVideo(); } catch(e){} }
+
       setTimeout(function(){
-        try { p.seekTo(target, true); } catch(e){}
+        try { p.seekTo(alvo, true); } catch(e){ warn("seekTo erro:", e); }
         setTimeout(function(){
-          var after = p.getCurrentTime();
-          log("doSeek: after=" + (after||0).toFixed(1));
+          var after = p.getCurrentTime() || 0;
+          log("doSeek: after=" + after.toFixed(1));
           if (wasPlaying) { try { p.playVideo(); } catch(e){} }
         }, 700);
       }, 150);
     } catch(e){ warn("doSeek erro:", e); }
   }
+
+  var _bound = false;
   function bindBotoes(){
     var r10 = document.getElementById("rewind10Btn");
     var rst = document.getElementById("restartBtn");
     var lv  = document.getElementById("liveBtn");
     if (!r10 || !rst || !lv) return;
-    r10.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} var p=getPlayer(); if(!p)return false; var ct=0; try{ct=p.getCurrentTime();}catch(err){return false;} doSeek(Math.max(0,ct-10)); return false; };
-    rst.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} doSeek(0); return false; };
-    lv.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} doSeek("end"); return false; };
+
+    // Verifica se já clonamos nesta página (marcador)
+    if (r10.getAttribute("data-v6") === "1" && rst.getAttribute("data-v6") === "1" && lv.getAttribute("data-v6") === "1") return;
+
+    // CLONA — cloneNode NÃO carrega listeners do nó original
+    var r10c = r10.cloneNode(true); r10c.setAttribute("data-v6","1");
+    var rstc = rst.cloneNode(true); rstc.setAttribute("data-v6","1");
+    var lvc  = lv.cloneNode(true);  lvc.setAttribute("data-v6","1");
+
+    r10.parentNode.replaceChild(r10c, r10);
+    rst.parentNode.replaceChild(rstc, rst);
+    lv.parentNode.replaceChild(lvc, lv);
+
+    r10c.onclick = function(e){
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      log("clique -10s");
+      var p = getPlayer(); if (!p) return false;
+      var ct = 0; try { ct = p.getCurrentTime(); } catch(err){ return false; }
+      doSeek(Math.max(0, ct - 10));
+      return false;
+    };
+    rstc.onclick = function(e){
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      log("clique Inicio");
+      doSeek(0);
+      return false;
+    };
+    lvc.onclick = function(e){
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      log("clique AOVIVO | isLive=" + isLive);
+      // Se estamos numa live, vai pro live edge; se é slot, vai pro fim
+      doSeek("end");
+      return false;
+    };
+
+    log("botões clonados e rebindados (v6)");
   }
 
   // ═══ PROXIES ═══
@@ -13420,10 +13470,8 @@ window.fetch = function(input, init){
     return tentar();
   }
 
-  // ═══ ANÁLISE CORRIGIDA ═══
-  // Pega TODOS os videoDetails e escolhe o que tem isLive/isLiveNow:true
-  // (senão o primeiro com título "grande" e não view count)
-  function extrairVideoDetails(html){
+  // ═══ ANÁLISE — escolhe o videoDetails CERTO ═══
+  function extrairTodosVideoDetails(html){
     var blocks = [];
     var searchIdx = 0;
     while (true) {
@@ -13432,27 +13480,34 @@ window.fetch = function(input, init){
       blocks.push(html.substring(i, Math.min(i + 5000, html.length)));
       searchIdx = i + 15;
     }
-    if (blocks.length === 0) return null;
-
-    // Prioridade 1: bloco com isLive:true ou isLiveNow:true
-    for (var k = 0; k < blocks.length; k++) {
-      if (/"isLive"\s*:\s*true/.test(blocks[k]) || /"isLiveNow"\s*:\s*true/.test(blocks[k])) {
-        return parseChunk(blocks[k]);
-      }
-    }
-    // Prioridade 2: primeiro bloco que tenha shortDescription ou author (marcadores de player principal)
-    for (var k2 = 0; k2 < blocks.length; k2++) {
-      if (/"shortDescription"/.test(blocks[k2]) || /"author"\s*:/.test(blocks[k2])) {
-        return parseChunk(blocks[k2]);
-      }
-    }
-    // Fallback: primeiro bloco
-    return parseChunk(blocks[0]);
+    return blocks;
   }
   function parseChunk(chunk){
     var v = chunk.match(/"videoId"\s*:\s*"([\w-]{11})"/);
     var t = chunk.match(/"title"\s*:\s*"([^"]+)"/);
     return { videoId: v ? v[1] : null, titulo: t ? t[1] : null, chunk: chunk };
+  }
+  function extrairVideoDetails(html){
+    var blocks = extrairTodosVideoDetails(html);
+    if (blocks.length === 0) return null;
+    // 1) bloco com isLive:true
+    for (var k = 0; k < blocks.length; k++) {
+      if (/"isLive"\s*:\s*true/.test(blocks[k]) || /"isLiveNow"\s*:\s*true/.test(blocks[k])) {
+        return parseChunk(blocks[k]);
+      }
+    }
+    // 2) bloco com shortDescription (player principal)
+    for (var k2 = 0; k2 < blocks.length; k2++) {
+      if (/"shortDescription"/.test(blocks[k2]) || /"author"\s*:/.test(blocks[k2])) {
+        return parseChunk(blocks[k2]);
+      }
+    }
+    // 3) fallback: o primeiro que tenha videoId válido
+    for (var k3 = 0; k3 < blocks.length; k3++) {
+      var p = parseChunk(blocks[k3]);
+      if (p.videoId) return p;
+    }
+    return null;
   }
 
   function analisarHtml(html){
@@ -13505,10 +13560,7 @@ window.fetch = function(input, init){
     var iv = setInterval(function(){
       tries++;
       if (tries > 40) { clearInterval(iv); return; }
-      try {
-        if (youtubePlayer && playerReady && youtubePlayer.getPlayerState && youtubePlayer.getPlayerState() !== 1) youtubePlayer.playVideo();
-        if (youtubePlayer && playerReady) clearInterval(iv);
-      } catch(e){ clearInterval(iv); }
+      try { if (youtubePlayer && playerReady) { if (youtubePlayer.getPlayerState() !== 1) youtubePlayer.playVideo(); clearInterval(iv); } } catch(e){ clearInterval(iv); }
     }, 500);
   }
   function seekToSlotPosition(seekSec){
@@ -13571,6 +13623,14 @@ window.fetch = function(input, init){
     setText("nextProgram", nxt ? (nxt.title || "-") : "-");
     setText("afterNextProgram", nxt2 ? (nxt2.title || "-") : "-");
     setLiveBadge(false);
+    // Busca título real via oEmbed se estiver vazio
+    if (!v.title) {
+      fetchTitulo(v.id).then(function(tit){
+        if (tit && loadedVideoId === v.id) {
+          setText("currentProgram", tit);
+        }
+      });
+    }
   }
   function fetchVideosFromCF(){
     return fetch(CF + "?channelId=" + encodeURIComponent(CH) + "&fresh=1", { cache: "no-store" })
@@ -13579,45 +13639,27 @@ window.fetch = function(input, init){
       .catch(function(){ return []; });
   }
 
-  // ═══ WATCHER DE FIM DE VÍDEO ═══
-  // Detecta quando o vídeo termina (state 0) e decide o que fazer
+  // ═══ END WATCHER ═══
   function iniciarEndWatcher(){
     if (endWatcher) clearInterval(endWatcher);
     lastState = -1;
     endWatcher = setInterval(function(){
-      var p = getPlayer();
-      if (!p) return;
+      var p = getPlayer(); if (!p) return;
       var st = -1;
       try { st = p.getPlayerState(); } catch(e){ return; }
       if (st === 0 && lastState !== 0) {
-        // Vídeo terminou
-        log("FIM DE VÍDEO detectado (state=0)");
+        log("FIM DE VÍDEO detectado");
         if (isLive) {
-          // Era live — re-checa se ainda está ao vivo
-          log("era live — re-checando...");
           checkLive().then(function(res){
-            if (res.status === "live" && res.videoId){
-              playLiveResult(res);
-            } else {
-              log("live acabou — indo pra slot");
-              var s = computeCurrentSlot();
-              playSlot(s.idx, s.seek);
-            }
+            if (res.status === "live" && res.videoId) playLiveResult(res);
+            else { var s = computeCurrentSlot(); playSlot(s.idx, s.seek); }
           });
         } else {
-          // Era slot — vai pro próximo ou tenta live
-          log("era slot — checando live...");
           checkLive().then(function(res){
-            if (res.status === "live" && res.videoId){
-              playLiveResult(res);
-            } else {
-              var nxt = (currentSlotIdx + 1) % videos.length;
-              log("sem live — próximo slot " + nxt);
-              playSlot(nxt, 0);
-            }
+            if (res.status === "live" && res.videoId) playLiveResult(res);
+            else { var nxt = (currentSlotIdx + 1) % videos.length; playSlot(nxt, 0); }
           }).catch(function(){
-            var nxt = (currentSlotIdx + 1) % videos.length;
-            playSlot(nxt, 0);
+            var nxt = (currentSlotIdx + 1) % videos.length; playSlot(nxt, 0);
           });
         }
       }
@@ -13629,10 +13671,7 @@ window.fetch = function(input, init){
     if (!userStarted) return;
     fetchVideosFromCF().then(function(){
       checkLive().then(function(res){
-        if (res.status === "live" && res.videoId){
-          playLiveResult(res);
-          return;
-        }
+        if (res.status === "live" && res.videoId){ playLiveResult(res); return; }
         var s = computeCurrentSlot();
         playSlot(s.idx, s.seek);
       }).catch(function(){
@@ -13671,9 +13710,7 @@ window.fetch = function(input, init){
           return;
         }
         checkLive().then(function(res){
-          if (res.status === "live" && res.videoId){
-            playLiveResult(res);
-          }
+          if (res.status === "live" && res.videoId) playLiveResult(res);
         });
       }, 120000);
     }, true);
