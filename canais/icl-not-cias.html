@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.2">
+    <meta name="version" content="1.0.0.3">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="1xSBcm7b4UQfmyLYDI7H">
     <meta name="channel-name" content="ICL Notícias">
@@ -1232,7 +1232,7 @@
         
  <div class="contact-info">Contato: acmebrasil@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.2
+            Versão 1.0.0.3
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2418,7 +2418,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-29";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.2";
+        const CHANNEL_VERSION = "1.0.0.3";
         const CHANNEL_ID = "1xSBcm7b4UQfmyLYDI7H";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6082,11 +6082,125 @@ init();
   var REFRESH_CF = "https://us-central1-playtronic-tv.cloudfunctions.net/refreshLiveStatus";
   var CH = "UCaIqJHHo9TJiLINzOFJRl2Q";
   var FS_CHANNEL_ID = (document.querySelector('meta[name="channel-id"]') || {}).content || "";
-  /* [v64-patcher:p4] slots do dia: 58 × 25 min, base 6h, vídeos do mais antigo ao mais novo */
   var SLOT_SEC = 1500;
-  var TOTAL_SLOTS_DIA = 58;
-  var DIA_INICIO_HORA = 6;
+  var TOTAL_SLOTS_DIA = 58;   /* [v64-patcher:p4] */
+  var DIA_INICIO_HORA = 6;    /* [v64-patcher:p4] */
+  var LIVE_RECHECK_MS = 300000; // [v63-patcher:p3] era 120000 — 5min reduz consumo de cota
 
+  var videos = [];
+  var isLive = false;
+  var isUpcoming = false;
+  var currentLiveId = "";
+  var currentSlotIdx = 0;
+  var loadedVideoId = null;
+  var booted = false;
+  var userStarted = false;
+  var liveCheckTimer = null;
+  var playbackWatcher = null;
+  var endWatcher = null;
+  var lastState = -1;
+  var titleCache = {};
+  var _liveStatusUnsub = null;
+
+  function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
+  function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
+
+  // Filtra títulos ruins que vêm do HTML do YouTube (números de views, badges, etc)
+  function _tituloOk(s){
+    if (!s) return false;
+    var t = String(s).trim();
+    if (t.length < 5) return false;
+    if (/^\s*[\d.,]+\s*(mil|milhões|milhão|K|M|B|views?|assistindo|watching)?\s*$/i.test(t)) return false;
+    if (/^(ao vivo|live|assistir depois|watch later|compartilhar|share|salvar|save|inscrever|subscribe|inscrito|subscribed|now playing|tocando agora|gostou deste v[íi]deo\??|did you like this video\??|obrigado por assistir|thanks for watching)$/i.test(t)) return false;
+    if (/^(gostou|did you like|liked this)/i.test(t)) return false;
+    if (/^(veja|assista|confira)\s+(tamb[ée]m|mais)/i.test(t)) return false;
+    return true;
+  }
+
+  function mostrarCarregando(msg){
+    var ov = document.getElementById("autoplayOverlay");
+    if (!ov) return;
+    if (!document.getElementById("__live_spin_css")) {
+      var s = document.createElement("style");
+      s.id = "__live_spin_css";
+      s.textContent = "@keyframes __live_spin { to { transform: rotate(360deg); } }";
+      document.head.appendChild(s);
+    }
+    ov.innerHTML =
+      '<div style="text-align:center;padding:20px;">' +
+        '<div style="border:4px solid rgba(255,255,255,0.25);border-top-color:#fdbb2d;border-radius:50%;width:54px;height:54px;animation:__live_spin 1s linear infinite;margin:0 auto 22px;"></div>' +
+        '<h3 style="font-size:1.25rem;margin-bottom:8px;color:#fff;font-weight:600;">' + (msg || "Carregando canal...") + '</h3>' +
+        '<p style="font-size:0.9rem;opacity:0.75;margin:0;">Isso pode levar alguns segundos</p>' +
+      '</div>';
+    ov.classList.remove("hidden");
+  }
+  function esconderCarregando(){
+    var ov = document.getElementById("autoplayOverlay");
+    if (ov) ov.classList.add("hidden");
+  }
+  function iniciarWatcherPlayback(){
+    if (playbackWatcher) clearInterval(playbackWatcher);
+    var inicio = Date.now();
+    playbackWatcher = setInterval(function(){
+      var st = -1;
+      try { if (youtubePlayer && playerReady) st = youtubePlayer.getPlayerState(); } catch(e){}
+      if (st === 1 || st === 3) { esconderCarregando(); clearInterval(playbackWatcher); playbackWatcher = null; return; }
+      if (Date.now() - inicio > 30000) { esconderCarregando(); clearInterval(playbackWatcher); playbackWatcher = null; }
+    }, 300);
+  }
+  function fetchTitulo(videoId){
+    if (titleCache[videoId]) return Promise.resolve(titleCache[videoId]);
+    var u = "https://www.youtube.com/oembed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + videoId) + "&format=json";
+    return fetch(u).then(function(r){ return r.json(); }).then(function(d){
+      if (d && d.title){ titleCache[videoId] = d.title; return d.title; }
+      return "";
+    }).catch(function(){ return ""; });
+  }
+  function getPlayer(){
+    try { if (typeof youtubePlayer !== "undefined" && youtubePlayer) return youtubePlayer; } catch(e){}
+    try { if (window.youtubePlayer) return window.youtubePlayer; } catch(e){}
+    return null;
+  }
+  function doSeek(target){
+    var p = getPlayer(); if (!p) return;
+    try {
+      var st = p.getPlayerState();
+      var wasPlaying = (st === 1 || st === 3);
+      if (wasPlaying) { try { p.pauseVideo(); } catch(e){} }
+      setTimeout(function(){
+        try { p.seekTo(target, true); } catch(e){}
+        setTimeout(function(){ if (wasPlaying) { try { p.playVideo(); } catch(e){} } }, 700);
+      }, 150);
+    } catch(e){ warn("doSeek:", e); }
+  }
+  function goToLiveEdge(){
+    var p = getPlayer(); if (!p) return;
+    try {
+      var dur = p.getDuration();
+      if (typeof dur === "number" && isFinite(dur) && dur > 0) doSeek(Math.max(0, dur - 2));
+    } catch(e){ warn("goToLiveEdge:", e); }
+  }
+  function bindBotoes(){
+    var r10 = document.getElementById("rewind10Btn");
+    var rst = document.getElementById("restartBtn");
+    var lv  = document.getElementById("liveBtn");
+    if (!r10 || !rst || !lv) return;
+    if (r10.getAttribute("data-v9") === "1") return;
+    var r10c = r10.cloneNode(true); r10c.setAttribute("data-v9","1");
+    var rstc = rst.cloneNode(true); rstc.setAttribute("data-v9","1");
+    var lvc  = lv.cloneNode(true);  lvc.setAttribute("data-v9","1");
+    r10.parentNode.replaceChild(r10c, r10);
+    rst.parentNode.replaceChild(rstc, rst);
+    lv.parentNode.replaceChild(lvc, lv);
+    r10c.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} var p=getPlayer(); if(!p)return false; var ct=0; try{ct=p.getCurrentTime();}catch(err){return false;} doSeek(Math.max(0,ct-10)); return false; };
+    rstc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} doSeek(0); return false; };
+    lvc.onclick = function(e){ if(e){e.preventDefault();e.stopPropagation();} goToLiveEdge(); return false; };
+  }
+  function setText(id, t){ var el = document.getElementById(id); if (el) el.textContent = (t == null ? "-" : t); }
+  function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
+  function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
+  function ensureVisible(){ var pi = document.querySelector(".program-info"); if (pi) pi.style.display = ""; var di = document.querySelector(".debug-info"); if (di) di.style.display = ""; }
+  /* [v64-patcher:p4] slots do dia: 58 × 25 min, base 6h */
   function computeCurrentSlot(){
     var agora = new Date();
     var horas = agora.getHours();
