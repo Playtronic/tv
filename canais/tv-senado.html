@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.4">
+    <meta name="version" content="1.0.0.5">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="5lZaEwdpWDRctf0lfSoE">
     <meta name="channel-name" content="TV Senado">
@@ -194,6 +194,13 @@
             height: 100%;
             border: none;
             pointer-events: none;
+        }
+        
+        /* [v74-patcher:p2] força TODOS iframes do YouTube a ignorar cliques/hover — esconde controles nativos */
+        .youtube-container iframe,
+        .youtube-container > div > iframe,
+        #youtube-player {
+            pointer-events: none !important;
         }
         
         .custom-controls {
@@ -1271,7 +1278,7 @@
         
  <div class="contact-info">Contato: playtronic@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.4
+            Versão 1.0.0.5
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -1599,7 +1606,7 @@ function cleanupInactiveViewers() {
     
     // Função para calcular dias desde a estreia (PARA TODOS OS MODOS)
     function calcularDiasDesdeEstreiaCanal() {
-        const RELEASE_DATE = "2026-09-29";
+        const RELEASE_DATE = "2026-09-30";
         
         if (!RELEASE_DATE) {
             return 1;
@@ -2455,9 +2462,9 @@ function calculateExpectedTime(duration) {
         const ENABLE_DEBUG = true;
         const IS_ADULT_CONTENT = false;
         
-        const RELEASE_DATE = "2026-09-29";
+        const RELEASE_DATE = "2026-09-30";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.4";
+        const CHANNEL_VERSION = "1.0.0.5";
         const CHANNEL_ID = "5lZaEwdpWDRctf0lfSoE";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -3987,21 +3994,28 @@ function reproduzirComercial() {
         }
 
 // Função para esconder controles específicos do YouTube se necessário
-function ocultarControlesYouTube() {
-    if (youtubeContainer) {
-        const iframe = youtubeContainer.querySelector('iframe');
-        if (iframe) {
-            iframe.style.pointerEvents = 'none';
+function ocultarControlesYouTube() {   /* [v74-patcher:p2] */
+    if (!youtubeContainer) return;
+    try {
+        var iframes = youtubeContainer.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+            iframes[i].style.setProperty('pointer-events', 'none', 'important');
+            iframes[i].setAttribute('tabindex', '-1');
+            iframes[i].setAttribute('aria-hidden', 'true');
         }
-    }
-}
+        var inner = youtubeContainer.querySelectorAll('div, span, a, button');
+        for (var j = 0; j < inner.length; j++) {
+            inner[j].style.setProperty('pointer-events', 'none', 'important');
+        }
+    } catch(e) {}
+}   /* [v75-patcher:p1] */
 
 // ⚡ PERFORMANCE: só roda quando há YouTube ativo, a cada 3s em vez de 1s
 var _ocultarYtInterval = setInterval(function() {
     if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo) {
         ocultarControlesYouTube();
     }
-}, 3000);
+}, 500);   /* [v74-patcher:p2] era 3000ms */
         
         function hideControls() {
             if (customControls) {
@@ -6154,6 +6168,7 @@ init();
   var lastState = -1;
   var titleCache = {};
   var _liveStatusUnsub = null;
+  var _seekInterval = null;   /* [v76-patcher:p1] */
 
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
@@ -6191,6 +6206,52 @@ init();
     var ov = document.getElementById("autoplayOverlay");
     if (ov) ov.classList.add("hidden");
   }
+
+  /* [v67-patcher:p1] mostra a tela "Fora do Ar" quando o canal optou por isso */
+  function mostrarOfflineLiveTpl(){
+    var off = document.getElementById("__liveOffline");
+    if (off) return;
+    var yc = document.getElementById("youtubeContainer");
+    if (yc) yc.style.display = "none";
+    var v = document.getElementById("myVideo");
+    if (v) { try { v.pause(); v.removeAttribute("src"); v.load(); v.style.display = "none"; } catch(e){} }
+    if (youtubePlayer) { try { youtubePlayer.destroy(); } catch(e){} youtubePlayer = null; playerReady = false; isYoutubeVideo = false; }
+
+    var w = document.querySelector(".video-wrapper");
+    if (!w) return;
+
+    var ov = document.createElement("div");
+    ov.id = "__liveOffline";
+    ov.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;";
+
+    var img = document.createElement("img");
+    img.src = "https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png";
+    img.alt = "Canal fora do ar";
+    img.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0.35;";
+    ov.appendChild(img);
+
+    var box = document.createElement("div");
+    box.style.cssText = "position:relative;z-index:2;background:rgba(0,0,0,0.85);padding:26px 30px;border-radius:12px;text-align:center;color:#fff;max-width:440px;border:2px solid rgba(253,187,45,0.4);";
+    box.innerHTML = '<h3 style="margin:0 0 10px 0;font-size:1.4rem;color:#fdbb2d;">Canal Temporariamente Fora do Ar</h3>' + /* [v71-patcher:p1] */
+                    '<p style="font-size:0.95rem;opacity:0.9;margin:0 0 6px 0;">Este canal não está transmitindo agora.</p>' +
+                    '<p style="font-size:0.95rem;opacity:0.9;margin:0;">Reativaremos quando houver nova transmissão.</p>';
+    ov.appendChild(box);
+
+    w.appendChild(ov);
+    setText("currentProgram", "-");
+    setText("nextProgram", "-");
+    setText("afterNextProgram", "-");
+    setLiveBadge(false);
+  }
+
+  /* [v67-patcher:p1] esconde a tela "Fora do Ar" (se estiver visível) */
+  function esconderOfflineLiveTpl(){
+    var ov = document.getElementById("__liveOffline");
+    if (ov) ov.remove();
+    var yc = document.getElementById("youtubeContainer");
+    if (yc) yc.style.display = "block";
+  }
+
   function iniciarWatcherPlayback(){
     if (playbackWatcher) clearInterval(playbackWatcher);
     var inicio = Date.now();
@@ -6277,17 +6338,30 @@ init();
       try { if (youtubePlayer && playerReady) { if (youtubePlayer.getPlayerState() !== 1) youtubePlayer.playVideo(); clearInterval(iv); } } catch(e){ clearInterval(iv); }
     }, 500);
   }
+  /* [v76-patcher:p2] cancela seeks pendentes antes de agendar um novo */
+  function _cancelarSeekPendente(){
+    if (_seekInterval) {
+      clearInterval(_seekInterval);
+      _seekInterval = null;
+    }
+  }
+
   function seekToSlotPosition(seekSec){
+    _cancelarSeekPendente();
     var tries = 0;
-    var iv = setInterval(function(){
+    _seekInterval = setInterval(function(){
       tries++;
-      if (tries > 60) { clearInterval(iv); return; }
+      if (tries > 60) { _cancelarSeekPendente(); return; }
       try {
         if (youtubePlayer && playerReady){
           var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
-          if (dur > 0){ var pos = seekSec % dur; if (pos > 0.5) youtubePlayer.seekTo(pos, true); clearInterval(iv); }
+          if (dur > 0){
+            var pos = seekSec % dur;
+            if (pos > 0.5) youtubePlayer.seekTo(pos, true);
+            _cancelarSeekPendente();
+          }
         }
-      } catch(e){ clearInterval(iv); }
+      } catch(e){ _cancelarSeekPendente(); }
     }, 500);
   }
 
@@ -6311,6 +6385,7 @@ init();
     var url = 'https://www.youtube.com/embed/live_stream' +
               '?channel=' + encodeURIComponent(channelId) +
               '&autoplay=1' +
+              '&controls=0' +   /* [v74-patcher:p3] sem controles nativos */
               '&playsinline=1' +
               '&modestbranding=1' +
               '&rel=0' +
@@ -6337,6 +6412,7 @@ init();
   }
 
   function loadIntoPlayer(videoId, seekSec, autoPlay){
+    _cancelarSeekPendente();   /* [v76-patcher:p3] */
     if (typeof videoId === 'string' && videoId.indexOf('live_stream?channel=') === 0) {
       return carregarLiveStream(videoId);
     }
@@ -6423,6 +6499,12 @@ init();
       var slot2 = computeCurrentSlot();
       playSlot(slot2.idx, slot2.seek);
     }
+
+    // [v67-patcher:p2] Sem live, sem upcoming, sem vídeos → tela "Fora do Ar"
+    if (!isLive && !loadedVideoId && videos.length === 0) {   /* [v70-patcher:p1] upcoming NAO conta como live */
+      esconderCarregando();
+      mostrarOfflineLiveTpl();
+    }
   }
 
   function iniciarListenerFirestore() {
@@ -6502,7 +6584,7 @@ init();
       log("Ligar TV clicado CH=" + CH + " FS=" + FS_CHANNEL_ID);
       userStarted = true;
       try { userStartedPlayback = true; } catch(err){}
-      mostrarCarregando("Verificando transmissao...");
+      mostrarCarregando("Verificando transmissão...");   /* [v72-patcher:p1] */
       iniciarWatcherPlayback();
       refreshManual(true).then(function(){   /* [v65-patcher:p4] */
         iniciarEndWatcher();
