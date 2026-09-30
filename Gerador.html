@@ -7374,12 +7374,30 @@ var _ocultarYtInterval = setInterval(function() {
     // Botão Ligar TV
     if (autoplayButton) {
         autoplayButton.addEventListener('click', function() {
-            // [v64-patcher:p5] em youtube_live delega ao __liveTpl (evita consumo precoce do clique)
+            // [v64.2-patcher:p5] em youtube_live delega ao __liveTpl (usa flag __liveTplHooked)
             if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
-                // Se o hook do __liveTpl já está instalado, ele trata — não fazemos nada
-                if (typeof window.__liveForceRefresh === 'function') {
-                    return;   // __liveTpl cuida do clique
+                // Se o hook do __liveTpl JÁ INSTALOU o click handler, ele trata
+                if (window.__liveTplHooked === true) {
+                    return;
                 }
+                // Fallback: hook ainda não instalado. Chama refreshLiveStatus direto.
+                try {
+                    var _meta = document.querySelector('meta[name="channel-id"]');
+                    var _cid = _meta ? _meta.content : '';
+                    var _url = 'https://us-central1-playtronic-tv.cloudfunctions.net/refreshLiveStatus?fresh=1&_=' + Date.now();
+                    if (_cid) _url += '&channelId=' + encodeURIComponent(_cid);
+                    fetch(_url, { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(d){
+                        if (d && d.success && d.isLive && d.liveVideoId && typeof criarPlayerYouTube === 'function') {
+                            userStartedPlayback = true;
+                            if (autoplayOverlay) autoplayOverlay.classList.add('hidden');
+                            criarPlayerYouTube(d.liveVideoId, 0, true);
+                        }
+                    }).catch(function(){});
+                } catch(e) { console.warn('[p5]', e); }
+                userStartedPlayback = true;
+                if (autoplayOverlay) autoplayOverlay.classList.add('hidden');
+                return;
+            }
                 // Fallback: hook ainda não instalado. Chama refreshLiveStatus direto.
                 try {
                     var _meta = document.querySelector('meta[name="channel-id"]');
@@ -13430,12 +13448,19 @@ window.fetch = function(input, init){
       }, 150);
     } catch(e){ warn("doSeek:", e); }
   }
+  /* [v64.3-patcher:p7] AO VIVO leva ao ponto do slot atual (não ao final) */
   function goToLiveEdge(){
     var p = getPlayer(); if (!p) return;
     try {
       var dur = p.getDuration();
-      if (typeof dur === "number" && isFinite(dur) && dur > 0) doSeek(Math.max(0, dur - 2));
+      if (!(typeof dur === "number" && isFinite(dur) && dur > 0)) return;
+      var slot = computeCurrentSlot();
+      var pct = slot.seek / SLOT_SEC;   // 0..1 dentro do slot atual
+      if (pct < 0) pct = 0; else if (pct > 1) pct = 1;
+      var pos = pct * dur;              // 45% do slot -> 45% do vídeo
+      doSeek(pos);
     } catch(e){ warn("goToLiveEdge:", e); }
+  } catch(e){ warn("goToLiveEdge:", e); }
   }
   function bindBotoes(){
     var r10 = document.getElementById("rewind10Btn");
@@ -13734,6 +13759,7 @@ window.fetch = function(input, init){
       }, LIVE_RECHECK_MS);
     }, true);
     log("hook instalado");
+    window.__liveTplHooked = true;  /* [v64.3-patcher:p8] */
   }
   function boot(){
     if (booted) return;
@@ -13754,7 +13780,7 @@ window.fetch = function(input, init){
       if (_tries > 40) clearInterval(_iv);
     }, 250);
   }
-  setTimeout(boot, 1500);
+  setTimeout(boot, 100);  /* [v64.3-patcher:p8] era 1500ms */
 })();
 </script></template>
 <script>
