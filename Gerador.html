@@ -4559,6 +4559,13 @@ if (slotIndex === currentPlayingSlot) {
             pointer-events: none;
         }
         
+        /* [v74-patcher:p2] força TODOS iframes do YouTube a ignorar cliques/hover — esconde controles nativos */
+        .youtube-container iframe,
+        .youtube-container > div > iframe,
+        #youtube-player {
+            pointer-events: none !important;
+        }
+        
         .custom-controls {
             position: absolute;
             bottom: 0;
@@ -7157,12 +7164,21 @@ function reproduzirComercial() {
         }
 
 // Função para esconder controles específicos do YouTube se necessário
-function ocultarControlesYouTube() {
-    if (youtubeContainer) {
-        const iframe = youtubeContainer.querySelector('iframe');
-        if (iframe) {
-            iframe.style.pointerEvents = 'none';
+function ocultarControlesYouTube() {   /* [v74-patcher:p2] */
+    if (!youtubeContainer) return;
+    try {
+        var iframes = youtubeContainer.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+            iframes[i].style.setProperty('pointer-events', 'none', 'important');
+            iframes[i].setAttribute('tabindex', '-1');
+            iframes[i].setAttribute('aria-hidden', 'true');
         }
+        var inner = youtubeContainer.querySelectorAll('div, span, a, button');
+        for (var j = 0; j < inner.length; j++) {
+            inner[j].style.setProperty('pointer-events', 'none', 'important');
+        }
+    } catch(e) {}
+}
     }
 }
 
@@ -7171,7 +7187,7 @@ var _ocultarYtInterval = setInterval(function() {
     if (typeof isYoutubeVideo !== 'undefined' && isYoutubeVideo) {
         ocultarControlesYouTube();
     }
-}, 3000);
+}, 500);   /* [v74-patcher:p2] era 3000ms */
         
         function hideControls() {
             if (customControls) {
@@ -9959,7 +9975,7 @@ async function iniciarPublicacao() {
             category: dadosNormalizados.category || '',
             isAdultContent: !!dadosNormalizados.isAdultContent,
             logo: dadosNormalizados.logo || DEFAULT_LOGO,
-            url: dadosNormalizados.url || ('https://canaisdetv.online/canais/' + channelId + '.html'),
+            url: (typeof resultado !== 'undefined' && resultado && resultado.url) ? resultado.url : ((typeof tvData !== 'undefined' && tvData && tvData.url) ? tvData.url : dadosNormalizados.url) || ('https://canaisdetv.online/canais/' + channelId + '.html'),   /* [v74-patcher:p1] */
             programmingMode: dadosNormalizados.programmingMode || 'grade',
             releaseDate: releaseDate || dadosNormalizados.releaseDate || '',
             programNames: __programNames,
@@ -13569,6 +13585,7 @@ window.fetch = function(input, init){
     var url = 'https://www.youtube.com/embed/live_stream' +
               '?channel=' + encodeURIComponent(channelId) +
               '&autoplay=1' +
+              '&controls=0' +   /* [v74-patcher:p3] sem controles nativos */
               '&playsinline=1' +
               '&modestbranding=1' +
               '&rel=0' +
