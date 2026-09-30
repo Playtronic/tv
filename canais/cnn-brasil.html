@@ -16,7 +16,7 @@
 
 
  <!-- METADADOS DE VERSÃO E CONTEÚDO ADULTO -->
-    <meta name="version" content="1.0.0.4">
+    <meta name="version" content="1.0.0.5">
     <meta name="channel-category" content="noticias">
     <meta name="channel-id" content="ki9NZioN0QZ0zehnwN1t">
     <meta name="channel-name" content="CNN Brasil">
@@ -1278,7 +1278,7 @@
         
  <div class="contact-info">Contato: acmebrasil@mail.com</div>
         <div style="text-align: center; margin-top: 5px; font-size: 0.75rem; opacity: 0.5;">
-            Versão 1.0.0.4
+            Versão 1.0.0.5
         </div>
     </div> <!-- Fecha container -->
 </div> <!-- Fecha mainContent -->
@@ -2464,7 +2464,7 @@ function calculateExpectedTime(duration) {
         
         const RELEASE_DATE = "2026-09-30";
         const IS_OFFLINE = false;
-        const CHANNEL_VERSION = "1.0.0.4";
+        const CHANNEL_VERSION = "1.0.0.5";
         const CHANNEL_ID = "ki9NZioN0QZ0zehnwN1t";
         // --- Subscription ---
         const SUBSCRIPTION_ENABLED = false;
@@ -6168,6 +6168,7 @@ init();
   var lastState = -1;
   var titleCache = {};
   var _liveStatusUnsub = null;
+  var _seekInterval = null;   /* [v76-patcher:p1] */
 
   function log(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.log.apply(console,a); } catch(e){} }
   function warn(){ try { var a=[].slice.call(arguments); a.unshift("[LIVE]"); console.warn.apply(console,a); } catch(e){} }
@@ -6337,17 +6338,30 @@ init();
       try { if (youtubePlayer && playerReady) { if (youtubePlayer.getPlayerState() !== 1) youtubePlayer.playVideo(); clearInterval(iv); } } catch(e){ clearInterval(iv); }
     }, 500);
   }
+  /* [v76-patcher:p2] cancela seeks pendentes antes de agendar um novo */
+  function _cancelarSeekPendente(){
+    if (_seekInterval) {
+      clearInterval(_seekInterval);
+      _seekInterval = null;
+    }
+  }
+
   function seekToSlotPosition(seekSec){
+    _cancelarSeekPendente();
     var tries = 0;
-    var iv = setInterval(function(){
+    _seekInterval = setInterval(function(){
       tries++;
-      if (tries > 60) { clearInterval(iv); return; }
+      if (tries > 60) { _cancelarSeekPendente(); return; }
       try {
         if (youtubePlayer && playerReady){
           var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
-          if (dur > 0){ var pos = seekSec % dur; if (pos > 0.5) youtubePlayer.seekTo(pos, true); clearInterval(iv); }
+          if (dur > 0){
+            var pos = seekSec % dur;
+            if (pos > 0.5) youtubePlayer.seekTo(pos, true);
+            _cancelarSeekPendente();
+          }
         }
-      } catch(e){ clearInterval(iv); }
+      } catch(e){ _cancelarSeekPendente(); }
     }, 500);
   }
 
@@ -6398,6 +6412,7 @@ init();
   }
 
   function loadIntoPlayer(videoId, seekSec, autoPlay){
+    _cancelarSeekPendente();   /* [v76-patcher:p3] */
     if (typeof videoId === 'string' && videoId.indexOf('live_stream?channel=') === 0) {
       return carregarLiveStream(videoId);
     }
