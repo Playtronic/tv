@@ -7374,44 +7374,8 @@ var _ocultarYtInterval = setInterval(function() {
     // Botão Ligar TV
     if (autoplayButton) {
         autoplayButton.addEventListener('click', function() {
-            // [v64.2-patcher:p5] em youtube_live delega ao __liveTpl (usa flag __liveTplHooked)
+            // [v23 guard LigarTV]
             if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
-                // Se o hook do __liveTpl JÁ INSTALOU o click handler, ele trata
-                if (window.__liveTplHooked === true) {
-                    return;
-                }
-                // Fallback: hook ainda não instalado. Chama refreshLiveStatus direto.
-                try {
-                    var _meta = document.querySelector('meta[name="channel-id"]');
-                    var _cid = _meta ? _meta.content : '';
-                    var _url = 'https://us-central1-playtronic-tv.cloudfunctions.net/refreshLiveStatus?fresh=1&_=' + Date.now();
-                    if (_cid) _url += '&channelId=' + encodeURIComponent(_cid);
-                    fetch(_url, { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(d){
-                        if (d && d.success && d.isLive && d.liveVideoId && typeof criarPlayerYouTube === 'function') {
-                            userStartedPlayback = true;
-                            if (autoplayOverlay) autoplayOverlay.classList.add('hidden');
-                            criarPlayerYouTube(d.liveVideoId, 0, true);
-                        }
-                    }).catch(function(){});
-                } catch(e) { console.warn('[p5]', e); }
-                userStartedPlayback = true;
-                if (autoplayOverlay) autoplayOverlay.classList.add('hidden');
-                return;
-            }
-                // Fallback: hook ainda não instalado. Chama refreshLiveStatus direto.
-                try {
-                    var _meta = document.querySelector('meta[name="channel-id"]');
-                    var _cid = _meta ? _meta.content : '';
-                    var _url = 'https://us-central1-playtronic-tv.cloudfunctions.net/refreshLiveStatus?fresh=1&_=' + Date.now();
-                    if (_cid) _url += '&channelId=' + encodeURIComponent(_cid);
-                    fetch(_url, { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(d){
-                        if (d && d.success && d.isLive && d.liveVideoId && typeof criarPlayerYouTube === 'function') {
-                            userStartedPlayback = true;
-                            if (autoplayOverlay) autoplayOverlay.classList.add('hidden');
-                            criarPlayerYouTube(d.liveVideoId, 0, true);
-                        }
-                    }).catch(function(){});
-                } catch(e) { console.warn('[p5]', e); }
                 userStartedPlayback = true;
                 if (autoplayOverlay) autoplayOverlay.classList.add('hidden');
                 return;
@@ -13358,8 +13322,8 @@ window.fetch = function(input, init){
   var CH = "__YT_CHANNEL_ID__";
   var FS_CHANNEL_ID = (document.querySelector('meta[name="channel-id"]') || {}).content || "";
   var SLOT_SEC = 1500;
-  var TOTAL_SLOTS_DIA = 58;   /* [v64-patcher:p4] */
-  var DIA_INICIO_HORA = 6;    /* [v64-patcher:p4] */
+  var TOTAL_SLOTS_DIA = 58;   /* [v65-patcher:p1] */
+  var DIA_INICIO_HORA = 6;    /* [v65-patcher:p1] */
   var LIVE_RECHECK_MS = 300000; // [v63-patcher:p3] era 120000 — 5min reduz consumo de cota
 
   var videos = [];
@@ -13448,19 +13412,12 @@ window.fetch = function(input, init){
       }, 150);
     } catch(e){ warn("doSeek:", e); }
   }
-  /* [v64.3-patcher:p7] AO VIVO leva ao ponto do slot atual (não ao final) */
   function goToLiveEdge(){
     var p = getPlayer(); if (!p) return;
     try {
       var dur = p.getDuration();
-      if (!(typeof dur === "number" && isFinite(dur) && dur > 0)) return;
-      var slot = computeCurrentSlot();
-      var pct = slot.seek / SLOT_SEC;   // 0..1 dentro do slot atual
-      if (pct < 0) pct = 0; else if (pct > 1) pct = 1;
-      var pos = pct * dur;              // 45% do slot -> 45% do vídeo
-      doSeek(pos);
+      if (typeof dur === "number" && isFinite(dur) && dur > 0) { var slot = computeCurrentSlot(); var pct = slot.seek / SLOT_SEC; if (pct < 0) pct = 0; else if (pct > 1) pct = 1; doSeek(pct * dur); } /* [v65-patcher:p3] */
     } catch(e){ warn("goToLiveEdge:", e); }
-  } catch(e){ warn("goToLiveEdge:", e); }
   }
   function bindBotoes(){
     var r10 = document.getElementById("rewind10Btn");
@@ -13482,30 +13439,20 @@ window.fetch = function(input, init){
   function setLiveBadge(on){ var d = document.getElementById("liveDot"); if (d) { if (on) d.classList.add("active"); else d.classList.remove("active"); } }
   function fixModePanel(){ var m = document.getElementById("programmingModeDisplay"); if (m && m.textContent !== "Live do YouTube") m.textContent = "Live do YouTube"; }
   function ensureVisible(){ var pi = document.querySelector(".program-info"); if (pi) pi.style.display = ""; var di = document.querySelector(".debug-info"); if (di) di.style.display = ""; }
-  /* [v64-patcher:p4] slots do dia: 58 × 25 min, base 6h */
-  function computeCurrentSlot(){
+  function computeCurrentSlot(){   /* [v65-patcher:p2] */
     var agora = new Date();
     var horas = agora.getHours();
-
-    // Hora base: 6h da manhã do dia atual (ou anterior, se antes das 6h)
     var horaBase = new Date(agora);
     if (horas < DIA_INICIO_HORA) {
       horaBase.setDate(horaBase.getDate() - 1);
     }
     horaBase.setHours(DIA_INICIO_HORA, 0, 0, 0);
-
     var elapsedSec = Math.max(0, Math.floor((agora.getTime() - horaBase.getTime()) / 1000));
     var slotIndexDia = Math.floor(elapsedSec / SLOT_SEC);
-
-    // Clamp: se passar de 58, fica no último slot (58) — mesma regra do modo grade
     if (slotIndexDia > TOTAL_SLOTS_DIA - 1) slotIndexDia = TOTAL_SLOTS_DIA - 1;
-
     var seekSec = elapsedSec % SLOT_SEC;
     var n = videos.length || 1;
-
-    // Se tiver menos de 58 vídeos, cicla pelo slot do dia
     var idx = slotIndexDia % n;
-
     return { idx: idx, seek: seekSec };
   }
   function playWhenReady(){
@@ -13743,8 +13690,8 @@ window.fetch = function(input, init){
       try { userStartedPlayback = true; } catch(err){}
       mostrarCarregando("Verificando transmissao...");
       iniciarWatcherPlayback();
-      refreshManual(true).then(function(){
-        iniciarEndWatcher  /* [v64-patcher:p6] */();
+      refreshManual(true).then(function(){   /* [v65-patcher:p4] */
+        iniciarEndWatcher();
         setTimeout(function(){
           if (!loadedVideoId && videos.length && !isLive) {
             var s = computeCurrentSlot();
@@ -13759,7 +13706,6 @@ window.fetch = function(input, init){
       }, LIVE_RECHECK_MS);
     }, true);
     log("hook instalado");
-    window.__liveTplHooked = true;  /* [v64.3-patcher:p8] */
   }
   function boot(){
     if (booted) return;
@@ -13780,7 +13726,7 @@ window.fetch = function(input, init){
       if (_tries > 40) clearInterval(_iv);
     }, 250);
   }
-  setTimeout(boot, 100);  /* [v64.3-patcher:p8] era 1500ms */
+  setTimeout(boot, 100);   /* [v65-patcher:p5] era 1500ms */
 })();
 </script></template>
 <script>
