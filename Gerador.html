@@ -1758,7 +1758,7 @@
                 <button id="addPlaylistVideo">+ Adicionar Novo Vídeo</button>
                 
                 <div class="program-info">
-                    <div>Vídeos na playlist: <span id="playlistCount" class="program-count">0</span></div>
+                    <div>Vídeos na playlist: <span id="playlistCount" class="program-count">0</span> de 7000</div>
                 </div>
             </div>
             
@@ -6219,21 +6219,27 @@ function onYouTubePlayerReady(event) {
     // [v20] seek legado desativado em youtube_live
     if (typeof PROGRAMMING_MODE !== 'undefined' && PROGRAMMING_MODE === 'youtube_live') {
         console.log('[v20] onYouTubePlayerReady: seek ignorado (youtube_live)');
-    } else try {
-        if (event.target && typeof event.target.getDuration === 'function') {
-            const dur = event.target.getDuration();
-            if (dur > 0) {
-                const pct = calcularPercentualSlot();
-                const SLOT_SEC = SLOT_DURATION * 60;
-                const slotElapsed = SLOT_SEC * pct;
-                const videoPos = slotElapsed % dur;
-                event.target.seekTo(videoPos, true);
-                console.log('[YouTube] Seek correto: ' + videoPos.toFixed(1) + 's ' +
-                    '(dur=' + dur.toFixed(1) + 's, slot=' + slotElapsed.toFixed(1) + 's, pct=' + (pct*100).toFixed(1) + '%)');
+    } else if (window.__isFirstVideoLoad) {
+        // ✅ PATCH 2a — só busca a posição do slot no PRIMEIRO vídeo
+        window.__isFirstVideoLoad = false;
+        try {
+            if (event.target && typeof event.target.getDuration === 'function') {
+                const dur = event.target.getDuration();
+                if (dur > 0) {
+                    const pct = calcularPercentualSlot();
+                    const SLOT_SEC = SLOT_DURATION * 60;
+                    const slotElapsed = SLOT_SEC * pct;
+                    const videoPos = slotElapsed % dur;
+                    event.target.seekTo(videoPos, true);
+                    console.log('[YouTube] PRIMEIRO vídeo — seek para ' + videoPos.toFixed(1) + 's (dur=' + dur.toFixed(1) + 's)');
+                }
             }
+        } catch(e) {
+            console.warn('[YouTube] Erro no seek inicial:', e);
         }
-    } catch(e) {
-        console.warn('[YouTube] Erro no seek inicial:', e);
+    } else {
+        // ✅ PATCH 2a — vídeos subsequentes começam do 0s
+        console.log('[YouTube] Vídeo subsequente — início do vídeo (sem seek)');
     }
     
     // 🔇 Desliga legendas na carga
@@ -7611,6 +7617,9 @@ function verificarFimDoVideo() {
         }
 
         function inicializarPlayer() {
+        // ✅ PATCH 2b — marca primeiro carregamento (apenas o 1º vídeo usa a posição do slot)
+        window.__isFirstVideoLoad = true;
+        
         // INICIALIZAR SLOT CORRETAMENTE PARA MODO PLAYLIST
         if (PROGRAMMING_MODE === 'playlist') {
             currentPlayingSlot = calcularSlotAtualPlaylist();
@@ -10989,6 +10998,14 @@ showScreen('screen6');
             
             addPlaylistVideoBtn.style.display = 'block';
             
+            // ✅ PATCH 3a — limite de 7000 vídeos na playlist
+            const LIMITE_PLAYLIST = 7000;
+            if (tvData.playlistVideos.length >= LIMITE_PLAYLIST) {
+                addPlaylistVideoBtn.disabled = true;
+                addPlaylistVideoBtn.textContent = "Limite de " + LIMITE_PLAYLIST + " vídeos atingido";
+                return;
+            }
+            
             if (tvData.playlistVideos.length === 0) {
                 addPlaylistVideoBtn.disabled = false;
                 addPlaylistVideoBtn.textContent = "+ Adicionar Novo Vídeo";
@@ -11889,6 +11906,56 @@ console.log("Preenchendo formulário...");
             return re.test(String(email).toLowerCase());
         }
         
+        // ✅ PATCH 3c — Helper global: carrega URLs de arquivo .txt na playlist (máx 7000)
+        window.carregarUrlsDoArquivo = async function() {
+            const LIMITE_PLAYLIST = 7000;
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.txt,text/plain';
+            fileInput.onchange = async function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                const texto = await file.text();
+                let urls = texto.match(/https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_\-]+/g) || [];
+                urls = [...new Set(urls)];
+                if (urls.length > LIMITE_PLAYLIST) {
+                    console.warn('⚠️ ' + urls.length + ' URLs únicas. Limitado a ' + LIMITE_PLAYLIST + '.');
+                    urls = urls.slice(0, LIMITE_PLAYLIST);
+                }
+                if (urls.length === 0) { alert('Nenhuma URL do YouTube encontrada.'); return; }
+                
+                const modeSelect = document.getElementById('programmingMode');
+                if (modeSelect && modeSelect.value !== 'playlist') {
+                    modeSelect.value = 'playlist';
+                    if (typeof alternarModoProgramacao === 'function') alternarModoProgramacao();
+                }
+                
+                const container = document.getElementById('playlistContainer');
+                if (container) container.innerHTML = '';
+                if (typeof tvData !== 'undefined') tvData.playlistVideos = [];
+                
+                urls.forEach(function(url, i) {
+                    const video = { id: 'playlist-video-' + Date.now() + '-' + i, name: 'Vídeo ' + (i + 1), url: url };
+                    if (typeof addPlaylistVideoCard === 'function') addPlaylistVideoCard(video, i);
+                    if (typeof tvData !== 'undefined') tvData.playlistVideos.push(video);
+                });
+                
+                if (typeof updatePlaylistVideos === 'function') updatePlaylistVideos();
+                if (typeof updateCounters === 'function') updateCounters();
+                if (typeof validateAddPlaylistVideoButton === 'function') validateAddPlaylistVideoButton();
+                if (typeof validateScreen3Navigation === 'function') validateScreen3Navigation();
+                
+                const btn4 = document.getElementById('toScreen4');
+                if (btn4) { btn4.disabled = false; btn4.style.opacity = '1'; btn4.style.cursor = 'pointer'; }
+                
+                console.log('✅ ' + urls.length + ' vídeos adicionados à playlist');
+                alert('✅ ' + urls.length + ' vídeos adicionados à playlist!');
+            };
+            fileInput.click();
+        };
+        
+        console.log('💡 Helper disponível: carregarUrlsDoArquivo() — execute no console da Tela 3 para importar URLs de um .txt (máx 7000)');
+        
         // Função para validar URL do X (Twitter) aceitando twitter.com e x.com
         function isValidSocialMediaUrl(url, platform) {
             if (!url) return true;
@@ -12352,6 +12419,12 @@ releaseDateInput.addEventListener('change', function() {
             
             // Adicionar vídeo (modo playlist)
             addPlaylistVideoBtn.addEventListener('click', function() {
+                // ✅ PATCH 3b — limite de 7000 vídeos
+                const LIMITE_PLAYLIST = 7000;
+                if (tvData.playlistVideos.length >= LIMITE_PLAYLIST) {
+                    alert('Limite de ' + LIMITE_PLAYLIST + ' vídeos atingido.');
+                    return;
+                }
                 const newVideo = {
                     id: `playlist-video-${Date.now()}`,
                     name: '',
