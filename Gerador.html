@@ -5524,10 +5524,9 @@ if (slotIndex === currentPlayingSlot) {
 
 <div class="action-buttons-wrapper" style="text-align: center; margin: 20px 0; padding: 10px;">
     ${(dados.monetization?.paidCommercials?.enabled && !isOffline) ? `
-    <a href="https://canaisdetv.online/comercial.html?channelId=${channelId}" target="_blank" 
-       style="display: inline-block; background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1rem; margin: 5px; border: 2px solid #8e44ad; min-height: 46px; line-height: 22px; vertical-align: middle; box-sizing: border-box;">
+    <button id="paidCommercialBtn" type="button" style="display: inline-block; background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 1.1rem; margin: 5px; border: 2px solid #8e44ad; min-height: 46px; line-height: 22px; vertical-align: middle; box-sizing: border-box; cursor: pointer; font-family: inherit;">
         Inserir comercial
-    </a>
+    </button>
     ` : ''}
     
     ${hasPixDonations ? `
@@ -5845,6 +5844,25 @@ if (slotIndex === currentPlayingSlot) {
             }
         }
         
+        // Botao Inserir comercial - exige login antes de redirecionar
+        function setupPaidCommercialButton() {
+            var btn = document.getElementById('paidCommercialBtn');
+            if (!btn || btn.__wired) return;
+            btn.__wired = true;
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var url = 'https://canaisdetv.online/comercial.html?channelId=${channelId}';
+                if (currentUserChannel && currentUserChannel.uid) {
+                    window.open(url, '_blank');
+                    return;
+                }
+                window.__pendingPaidCommercialUrl = url;
+                var ov = document.getElementById('loginOverlayChannel');
+                if (ov) ov.style.display = 'flex';
+            });
+        }
+
         // Login com Google
         function setupGoogleLogin() {
             const googleLoginBtn = document.getElementById('googleLoginBtnChannel');
@@ -5855,14 +5873,17 @@ if (slotIndex === currentPlayingSlot) {
                         provider.addScope('profile');
                         provider.addScope('email');
                         provider.setCustomParameters({ prompt: 'select_account' });
-                        
                         const result = await auth.signInWithPopup(provider);
                         console.log('Login bem-sucedido no canal:', result.user.email);
-                        
                         document.getElementById('loginOverlayChannel').style.display = 'none';
-                        
+                        if (window.__pendingPaidCommercialUrl) {
+                            var _pURL = window.__pendingPaidCommercialUrl;
+                            window.__pendingPaidCommercialUrl = null;
+                            setTimeout(function(){ window.open(_pURL, '_blank'); }, 200);
+                        }
                     } catch (error) {
                         console.error('Erro no login no canal:', error);
+                        window.__pendingPaidCommercialUrl = null;
                         alert("Erro no login: " + error.message);
                     }
                 });
@@ -5891,16 +5912,15 @@ if (slotIndex === currentPlayingSlot) {
         function setupLoginModal() {
             const loginButton = document.getElementById('loginButtonChannel');
             const closeLoginBtn = document.getElementById('closeLoginBtnChannel');
-            
             if (loginButton) {
                 loginButton.addEventListener('click', () => {
                     document.getElementById('loginOverlayChannel').style.display = 'flex';
                 });
             }
-            
             if (closeLoginBtn) {
                 closeLoginBtn.addEventListener('click', () => {
                     document.getElementById('loginOverlayChannel').style.display = 'none';
+                    window.__pendingPaidCommercialUrl = null;
                 });
             }
         }
@@ -5956,6 +5976,7 @@ if (slotIndex === currentPlayingSlot) {
             setupCloseUserCardOnClickOutside();
             setupAuthStateObserver();
             updateAuthUIChannel();
+            setupPaidCommercialButton();
         }
         
         // ==================== SISTEMA DE CONTAGEM DE ESPECTADORES ====================
@@ -9047,6 +9068,65 @@ w.appendChild(ov);
 init();
 })();
 <\/script>
+<script>
+/* AD-SKIPPER v1 */
+(function(){
+  "use strict";
+  var REWIND_SECONDS = 10;
+  var SHORT_AD_MAX   = 60;
+  var LONG_REAL_MIN  = 120;
+  var SAFETY_MS      = 120000;
+  var _expectedDur = 0;
+  var _inAd = false;
+  var _adStart = 0;
+  function log(){ try { var a=[].slice.call(arguments); a.unshift("[AD-SKIP]"); console.log.apply(console,a); } catch(e){} }
+  function isLiveMode(){ try { return (typeof PROGRAMMING_MODE !== "undefined" && PROGRAMMING_MODE === "youtube_live"); } catch(e){ return false; } }
+  function trySeek(target){ try { if (youtubePlayer && typeof youtubePlayer.seekTo === "function") youtubePlayer.seekTo(target, true); } catch(e){} }
+  function getDur(){ try { var d = youtubePlayer.getDuration(); return (d && isFinite(d) && d > 0) ? d : 0; } catch(e){ return 0; } }
+  function getCt(){ try { var t = youtubePlayer.getCurrentTime(); return (t && isFinite(t) && t >= 0) ? t : 0; } catch(e){ return 0; } }
+  function scheduleSkips(){
+    for (var i = 0; i < 10; i++) {
+      setTimeout(function(){
+        if (!_inAd) return;
+        var cur = getDur();
+        if (cur > 0 && cur <= SHORT_AD_MAX) trySeek(Math.max(0, cur - 0.4));
+      }, 200 + i * 450);
+    }
+  }
+  function tick(){
+    if (typeof isYoutubeVideo === "undefined" || !isYoutubeVideo) return;
+    if (typeof youtubePlayer === "undefined" || !youtubePlayer) return;
+    if (typeof playerReady === "undefined" || !playerReady) return;
+    if (isLiveMode()) return;
+    var dur = getDur();
+    if (!dur) return;
+    if (!_inAd && _expectedDur >= LONG_REAL_MIN && dur <= SHORT_AD_MAX) {
+      _inAd = true; _adStart = Date.now();
+      log("Anuncio detectado (" + dur.toFixed(1) + "s)");
+      scheduleSkips();
+      return;
+    }
+    if (_inAd && dur >= LONG_REAL_MIN) {
+      _inAd = false;
+      var elapsed = (Date.now() - _adStart) / 1000;
+      log("Anuncio terminou (" + elapsed.toFixed(1) + "s) - rewind " + REWIND_SECONDS + "s");
+      setTimeout(function(){
+        var ct = getCt();
+        var back = Math.max(0, ct - REWIND_SECONDS);
+        trySeek(back);
+        log("Rewind: " + ct.toFixed(1) + "s para " + back.toFixed(1) + "s");
+      }, 350);
+      return;
+    }
+    if (_inAd && (Date.now() - _adStart) > SAFETY_MS) { _inAd = false; log("Timeout"); }
+    if (!_inAd && dur >= LONG_REAL_MIN) _expectedDur = dur;
+    else if (!_expectedDur) _expectedDur = dur;
+  }
+  setInterval(tick, 500);
+  log("Ativo - REWIND=" + REWIND_SECONDS + "s");
+})();
+<\/script>
+
 </body>
 </html>`;
             
@@ -13448,6 +13528,8 @@ window.fetch = function(input, init){
   var booted = false;
   var userStarted = false;
   var liveCheckTimer = null;
+  var _liveAwaitingFresh = false;
+  var _liveConfirmTimer = null;
   var playbackWatcher = null;
   var endWatcher = null;
   var lastState = -1;
@@ -13760,33 +13842,69 @@ window.fetch = function(input, init){
   function aplicarStatusLive(s) {
     if (!s) return;
     if (s.ytId && CH && s.ytId !== CH) {
-      log("cache ignorado (ytId diferente): cache=" + s.ytId + " nosso=" + CH);
+      log("cache ignorado (ytId diferente)");
       return;
     }
     var eraLive = isLive;
-    isLive = !!s.isLive;
-    isUpcoming = !!s.isUpcoming;
-    if (s.videos && s.videos.length && (!videos.length || s.isLive)) videos = s.videos;
-    log("Firestore: isLive=" + isLive + " isUpcoming=" + isUpcoming + " videoId=" + (s.liveVideoId||"-") + " videos=" + videos.length);
-    if (!userStarted) return;
-    if (isLive && s.liveVideoId) {
+    var novoIsLive = !!s.isLive;
+    var novoIsUpcoming = !!s.isUpcoming;
+    log("Firestore: isLive=" + novoIsLive + " videoId=" + (s.liveVideoId || "-"));
+    if (!userStarted) {
+      isLive = novoIsLive;
+      isUpcoming = novoIsUpcoming;
+      if (s.videos && s.videos.length && (!videos.length || novoIsLive)) videos = s.videos;
+      return;
+    }
+    if (novoIsLive && s.liveVideoId) {
+      _liveAwaitingFresh = false;
+      if (_liveConfirmTimer) { clearTimeout(_liveConfirmTimer); _liveConfirmTimer = null; }
+      if (eraLive && loadedVideoId && currentLiveId && currentLiveId !== s.liveVideoId) {
+        log("Sticky live: mantendo " + currentLiveId + " (nova seria " + s.liveVideoId + ")");
+        isLive = true;
+        isUpcoming = false;
+        if (s.videos && s.videos.length) videos = s.videos;
+        return;
+      }
+      isLive = true;
+      isUpcoming = false;
+      if (s.videos && s.videos.length) videos = s.videos;
       if (currentLiveId === s.liveVideoId && loadedVideoId === s.liveVideoId) return;
       playLiveResult({ videoId: s.liveVideoId, title: s.liveTitle || "" });
       return;
     }
-    if (!isLive && eraLive) {
-      log("Live terminou - voltando para historico");
-      var slot = computeCurrentSlot();
-      playSlot(slot.idx, slot.seek);
+    if (eraLive && !novoIsLive) {
+      if (!_liveAwaitingFresh) {
+        log("Possivel fim de live - verificando (fresh)...");
+        _liveAwaitingFresh = true;
+        setTimeout(function () {
+          try { if (typeof window.__liveForceRefresh === "function") window.__liveForceRefresh(); } catch (e) {}
+        }, 500);
+        if (_liveConfirmTimer) clearTimeout(_liveConfirmTimer);
+        _liveConfirmTimer = setTimeout(function () {
+          _liveConfirmTimer = null;
+          if (_liveAwaitingFresh && !isLive) {
+            log("Live terminou (timeout) - historico");
+            _liveAwaitingFresh = false;
+            var slotA = computeCurrentSlot();
+            playSlot(slotA.idx, slotA.seek);
+          }
+        }, 15000);
+        return;
+      }
+      log("Live terminou (2a resposta) - historico");
+      _liveAwaitingFresh = false;
+      if (_liveConfirmTimer) { clearTimeout(_liveConfirmTimer); _liveConfirmTimer = null; }
+      var slotB = computeCurrentSlot();
+      playSlot(slotB.idx, slotB.seek);
       return;
     }
-    if (!isLive && !loadedVideoId && videos.length) {
-      var slot2 = computeCurrentSlot();
-      playSlot(slot2.idx, slot2.seek);
-    }
-
-    // [v67-patcher:p2] Sem live, sem upcoming, sem vídeos → tela "Fora do Ar"
-    if (!isLive && !loadedVideoId && videos.length === 0) {   /* [v70-patcher:p1] upcoming NAO conta como live */
+    isLive = false;
+    isUpcoming = novoIsUpcoming;
+    if (s.videos && s.videos.length && !videos.length) videos = s.videos;
+    if (!loadedVideoId && videos.length) {
+      var slotC = computeCurrentSlot();
+      playSlot(slotC.idx, slotC.seek);
+    } else if (!loadedVideoId && videos.length === 0) {
       esconderCarregando();
       mostrarOfflineLiveTpl();
     }
