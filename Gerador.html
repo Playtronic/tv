@@ -13665,23 +13665,77 @@ window.fetch = function(input, init){
       }, 150);
     } catch(e){ warn("doSeek:", e); }
   }
-  /* v64.9-goToLiveEdge */
+  /* v64.10-goToLiveEdgeSync */
+  function mostrarToastLive(msg){
+    var existing = document.getElementById("__liveToast");
+    if (existing) existing.remove();
+    var t = document.createElement("div");
+    t.id = "__liveToast";
+    t.textContent = msg;
+    t.style.cssText = "position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.88);color:#fff;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;z-index:2147483000;box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:none;font-family:Arial,sans-serif;border-left:4px solid #fdbb2d;";
+    document.body.appendChild(t);
+    setTimeout(function(){ if (t.parentNode) t.remove(); }, 2500);
+  }
+  function _calcPctSlotUniversal(){
+    try {
+      var SLOT_SEC = (typeof SLOT_DURATION !== "undefined") ? SLOT_DURATION * 60 : 1500;
+      if (typeof PROGRAMMING_MODE !== "undefined" && PROGRAMMING_MODE === "playlist" && typeof RELEASE_DATE !== "undefined" && RELEASE_DATE) {
+        var relMs = new Date(RELEASE_DATE + "T06:00:00").getTime();
+        if (!isNaN(relMs)) {
+          var e1 = (Date.now() - relMs) / 1000;
+          if (e1 < 0) return 0;
+          return (e1 % SLOT_SEC) / SLOT_SEC;
+        }
+      }
+      var agora = new Date();
+      var base = new Date(agora);
+      if (agora.getHours() < 6) base.setDate(base.getDate() - 1);
+      base.setHours(6, 0, 0, 0);
+      var e2 = (agora.getTime() - base.getTime()) / 1000;
+      if (e2 < 0) return 0;
+      return (e2 % SLOT_SEC) / SLOT_SEC;
+    } catch(e){ return 0; }
+  }
   function goToLiveEdge(){
     var p = getPlayer(); if (!p) return;
-    if (!isLive) {
-      log("Botao AO VIVO: sem live ativa - forcando verificacao");
-      try { if (typeof window.__liveForceRefresh === "function") window.__liveForceRefresh(); } catch(e){}
+    var now = Date.now();
+    if (window.__lastLiveBtnClick && (now - window.__lastLiveBtnClick) < 2000) return;
+    window.__lastLiveBtnClick = now;
+    if (isLive) {
+      try {
+        var durL = p.getDuration();
+        if (typeof durL === "number" && isFinite(durL) && durL > 0) {
+          try { p.seekTo(durL, true); } catch(e) { try { p.playVideo(); } catch(_e){} }
+        } else {
+          try { p.playVideo(); } catch(_e){}
+        }
+      } catch(e){ warn("goToLiveEdge (live):", e); }
       return;
     }
     try {
       var dur = p.getDuration();
-      if (typeof dur === "number" && isFinite(dur) && dur > 0) {
-        try { p.seekTo(dur, true); } catch(e) { try { p.playVideo(); } catch(_e){} }
-      } else {
+      if (typeof dur !== "number" || !isFinite(dur) || dur <= 0) {
         try { p.playVideo(); } catch(_e){}
+        return;
       }
-    } catch(e){ warn("goToLiveEdge:", e); }
+      var ct = p.getCurrentTime();
+      if (typeof ct !== "number" || !isFinite(ct) || ct < 0) return;
+      var pctSlot = _calcPctSlotUniversal();
+      if (pctSlot < 0) pctSlot = 0;
+      if (pctSlot > 1) pctSlot = 1;
+      var pctVideo = ct / dur;
+      if (pctSlot > pctVideo + 0.005) {
+        var targetTime = dur * pctSlot;
+        if (targetTime > dur - 0.5) targetTime = Math.max(0, dur - 1);
+        try { p.seekTo(targetTime, true); } catch(e) {}
+        log("AO VIVO: sincronizando " + (pctVideo*100).toFixed(1) + "% -> " + (pctSlot*100).toFixed(1) + "% do slot");
+      } else {
+        log("AO VIVO: video ja esta adiantado (" + (pctVideo*100).toFixed(1) + "% >= " + (pctSlot*100).toFixed(1) + "%)");
+        try { mostrarToastLive("Video ja esta adiantado em relacao ao horario"); } catch(e){}
+      }
+    } catch(e){ warn("goToLiveEdge (sync):", e); }
   }
+
   function bindBotoes(){
     var r10 = document.getElementById("rewind10Btn");
     var rst = document.getElementById("restartBtn");
