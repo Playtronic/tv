@@ -13904,6 +13904,15 @@ window.fetch = function(input, init){
   }
 
   /* v64.8-clean */
+  function _sortVideosDeterministic(arr){
+    if (!Array.isArray(arr)) return arr;
+    return arr.slice().sort(function(a, b){
+      var da = a.publishedAtMs || 0;
+      var db = b.publishedAtMs || 0;
+      if (da !== db) return da - db;
+      return String(a.id).localeCompare(String(b.id));
+    });
+  }
   function aplicarStatusLive(s) {
     if (!s) return;
     if (s.ytId && CH && s.ytId !== CH) {
@@ -13916,14 +13925,14 @@ window.fetch = function(input, init){
     if (!userStarted) {
       isLive = novoIsLive;
       isUpcoming = novoIsUpcoming;
-      if (s.videos && s.videos.length && (!videos.length || novoIsLive)) videos = s.videos;
+      if (s.videos && s.videos.length && (!videos.length || novoIsLive)) videos = _sortVideosDeterministic(s.videos);
       return;
     }
     // Live ativa — servidor já decide qual é a correta (a mais antiga).
     if (novoIsLive && s.liveVideoId) {
       isLive = true;
       isUpcoming = false;
-      if (s.videos && s.videos.length) videos = s.videos;
+      if (s.videos && s.videos.length) videos = _sortVideosDeterministic(s.videos);
       if (currentLiveId === s.liveVideoId && loadedVideoId === s.liveVideoId) return;
       playLiveResult({ videoId: s.liveVideoId, title: s.liveTitle || "" });
       return;
@@ -13933,7 +13942,7 @@ window.fetch = function(input, init){
       log("Live encerrada - voltando para historico");
       isLive = false;
       isUpcoming = novoIsUpcoming;
-      if (s.videos && s.videos.length) videos = s.videos;
+      if (s.videos && s.videos.length) videos = _sortVideosDeterministic(s.videos);
       var slot = computeCurrentSlot();
       playSlot(slot.idx, slot.seek);
       return;
@@ -13941,7 +13950,7 @@ window.fetch = function(input, init){
     // Sempre foi offline.
     isLive = false;
     isUpcoming = novoIsUpcoming;
-    if (s.videos && s.videos.length && !videos.length) videos = s.videos;
+    if (s.videos && s.videos.length && !videos.length) videos = _sortVideosDeterministic(s.videos);
     if (!loadedVideoId && videos.length) {
       var slotB = computeCurrentSlot();
       playSlot(slotB.idx, slotB.seek);
@@ -14030,7 +14039,7 @@ window.fetch = function(input, init){
       try { userStartedPlayback = true; } catch(err){}
       mostrarCarregando("Verificando transmissão...");   /* [v72-patcher:p1] */
       iniciarWatcherPlayback();
-      refreshManual(true).then(function(){   /* [v65-patcher:p4] */
+      refreshManual(false).then(function(){   /* [v65-patcher:p4] */
         iniciarEndWatcher();
         setTimeout(function(){
           if (!loadedVideoId && videos.length && !isLive) {
