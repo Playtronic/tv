@@ -13839,13 +13839,13 @@ window.fetch = function(input, init){
     });
   }
 
+  /* v64.8-clean */
   function aplicarStatusLive(s) {
     if (!s) return;
     if (s.ytId && CH && s.ytId !== CH) {
       log("cache ignorado (ytId diferente)");
       return;
     }
-    var eraLive = isLive;
     var novoIsLive = !!s.isLive;
     var novoIsUpcoming = !!s.isUpcoming;
     log("Firestore: isLive=" + novoIsLive + " videoId=" + (s.liveVideoId || "-"));
@@ -13855,16 +13855,8 @@ window.fetch = function(input, init){
       if (s.videos && s.videos.length && (!videos.length || novoIsLive)) videos = s.videos;
       return;
     }
+    // Live ativa — servidor já decide qual é a correta (a mais antiga).
     if (novoIsLive && s.liveVideoId) {
-      _liveAwaitingFresh = false;
-      if (_liveConfirmTimer) { clearTimeout(_liveConfirmTimer); _liveConfirmTimer = null; }
-      if (eraLive && loadedVideoId && currentLiveId && currentLiveId !== s.liveVideoId) {
-        log("Sticky live: mantendo " + currentLiveId + " (nova seria " + s.liveVideoId + ")");
-        isLive = true;
-        isUpcoming = false;
-        if (s.videos && s.videos.length) videos = s.videos;
-        return;
-      }
       isLive = true;
       isUpcoming = false;
       if (s.videos && s.videos.length) videos = s.videos;
@@ -13872,38 +13864,23 @@ window.fetch = function(input, init){
       playLiveResult({ videoId: s.liveVideoId, title: s.liveTitle || "" });
       return;
     }
-    if (eraLive && !novoIsLive) {
-      if (!_liveAwaitingFresh) {
-        log("Possivel fim de live - verificando (fresh)...");
-        _liveAwaitingFresh = true;
-        setTimeout(function () {
-          try { if (typeof window.__liveForceRefresh === "function") window.__liveForceRefresh(); } catch (e) {}
-        }, 500);
-        if (_liveConfirmTimer) clearTimeout(_liveConfirmTimer);
-        _liveConfirmTimer = setTimeout(function () {
-          _liveConfirmTimer = null;
-          if (_liveAwaitingFresh && !isLive) {
-            log("Live terminou (timeout) - historico");
-            _liveAwaitingFresh = false;
-            var slotA = computeCurrentSlot();
-            playSlot(slotA.idx, slotA.seek);
-          }
-        }, 15000);
-        return;
-      }
-      log("Live terminou (2a resposta) - historico");
-      _liveAwaitingFresh = false;
-      if (_liveConfirmTimer) { clearTimeout(_liveConfirmTimer); _liveConfirmTimer = null; }
-      var slotB = computeCurrentSlot();
-      playSlot(slotB.idx, slotB.seek);
+    // Live terminou — volta para histórico.
+    if (!novoIsLive && isLive) {
+      log("Live encerrada - voltando para historico");
+      isLive = false;
+      isUpcoming = novoIsUpcoming;
+      if (s.videos && s.videos.length) videos = s.videos;
+      var slot = computeCurrentSlot();
+      playSlot(slot.idx, slot.seek);
       return;
     }
+    // Sempre foi offline.
     isLive = false;
     isUpcoming = novoIsUpcoming;
     if (s.videos && s.videos.length && !videos.length) videos = s.videos;
     if (!loadedVideoId && videos.length) {
-      var slotC = computeCurrentSlot();
-      playSlot(slotC.idx, slotC.seek);
+      var slotB = computeCurrentSlot();
+      playSlot(slotB.idx, slotB.seek);
     } else if (!loadedVideoId && videos.length === 0) {
       esconderCarregando();
       mostrarOfflineLiveTpl();
