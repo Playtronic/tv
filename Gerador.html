@@ -6427,27 +6427,53 @@ function configurarControlesYouTube() {
         });
     }
     
-    // Botão Ao Vivo
-    if (liveBtn && youtubePlayer) {
+    // v25 AO VIVO — sincroniza com % do slot (sem early return, sem tolerancia)
+    if (liveBtn) {
         liveBtn.addEventListener('click', function() {
-            if (!youtubePlayer || !playerReady) return;
-            
-            const percentualSlot = calcularPercentualSlot();
-            const duration = youtubePlayer.getDuration();
-            if (duration > 0) {
-                const novoTime = duration * percentualSlot;
-                youtubePlayer.seekTo(novoTime, true);
-                
-                if (youtubePlayer.getPlayerState() !== 1) { // Não está tocando
-                    youtubePlayer.playVideo();
+            var now = Date.now();
+            if (window.__lastLiveBtnClick && (now - window.__lastLiveBtnClick) < 2000) return;
+            window.__lastLiveBtnClick = now;
+            console.log('=== AO VIVO CLICADO ===');
+            try {
+                var pctSlot = calcularPercentualSlot();
+                if (pctSlot < 0) pctSlot = 0;
+                if (pctSlot > 1) pctSlot = 1;
+                console.log('[AO VIVO] pctSlot = ' + (pctSlot*100).toFixed(1) + '%');
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    var dur = youtubePlayer.getDuration();
+                    if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
+                        var ct = youtubePlayer.getCurrentTime();
+                        var pv = ct / dur;
+                        if (pctSlot > pv + 0.005) {
+                            var t = dur * pctSlot;
+                            if (t > dur - 0.5) t = Math.max(0, dur - 1);
+                            youtubePlayer.seekTo(t, true);
+                            console.log('[AO VIVO] YouTube: ' + (pv*100).toFixed(1) + '% -> ' + (pctSlot*100).toFixed(1) + '%');
+                        } else {
+                            console.log('[AO VIVO] YouTube adiantado (' + (pv*100).toFixed(1) + '% >= ' + (pctSlot*100).toFixed(1) + '%)');
+                        }
+                    }
+                } else if (videoElement && videoElement.readyState >= 1) {
+                    var d2 = videoElement.duration;
+                    if (typeof d2 === 'number' && isFinite(d2) && d2 > 0) {
+                        var ct2 = videoElement.currentTime;
+                        var pv2 = ct2 / d2;
+                        if (pctSlot > pv2 + 0.005) {
+                            var t2 = d2 * pctSlot;
+                            if (t2 > d2 - 0.5) t2 = Math.max(0, d2 - 1);
+                            videoElement.currentTime = t2;
+                            console.log('[AO VIVO] HTML5: ' + (pv2*100).toFixed(1) + '% -> ' + (pctSlot*100).toFixed(1) + '%');
+                        } else {
+                            console.log('[AO VIVO] HTML5 adiantado (' + (pv2*100).toFixed(1) + '% >= ' + (pctSlot*100).toFixed(1) + '%)');
+                        }
+                    }
                 }
-            }
-            
+            } catch(e) { console.warn('[AO VIVO] erro:', e); }
             showControls();
             resetControlsTimer();
         });
     }
-    
+
     // Tela cheia para YouTube
     if (fullscreenBtn && youtubePlayer) {
         fullscreenBtn.addEventListener('click', function() {
