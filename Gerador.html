@@ -12987,6 +12987,43 @@ toScreen3Btn.addEventListener('click', () => {
 
 
 
+
+// v50 - Funcao de regeneracao para o Painel Admin (iframe oculto)
+window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
+  try {
+    if (!firebase.auth().currentUser) {
+      return { success: false, error: 'Admin nao autenticado' };
+    }
+    currentUser = firebase.auth().currentUser;
+    currentChannelId = channelId;
+    editingChannel = true;
+    originalChannelName = channelData.name || '';
+    tvData = Object.assign({}, channelData);
+    tvData.userId = ownerUid;
+    const monetization = await carregarConfiguracoesMonetizacao(channelId);
+    if (monetization) tvData.monetization = monetization;
+    tvData.version = incrementarVersao(tvData.version || '1.0.0.0');
+    const resultado = await publicarCanal(tvData.name, tvData);
+    const now = firebase.firestore.FieldValue.serverTimestamp();
+    const docRef = db.collection('users').doc(ownerUid).collection('channels').doc(channelId);
+    await docRef.update({
+      url: resultado.url,
+      version: tvData.version,
+      updatedAt: now,
+      published: true
+    });
+    await db.collection('channels').doc(channelId).set({
+      url: resultado.url,
+      version: tvData.version,
+      updatedAt: now
+    }, { merge: true });
+    console.log('[Admin regen] OK ' + channelData.name + ' -> ' + resultado.url);
+    return { success: true, url: resultado.url, version: tvData.version };
+  } catch (e) {
+    console.error('[Admin regen] FAIL ' + (channelData.name || channelId), e);
+    return { success: false, error: e.message };
+  }
+};
 </script>
 
                     
