@@ -695,26 +695,46 @@ function escapeHtml(s){
 }
 
 function getCurrentProgram(c){
-  const names = c.programNames;
-  if (!names || names.length === 0) return c.slogan || 'Programação ao vivo';
   const SLOT = 25;
   const now = new Date();
-  let idx = 0;
-  if (c.programmingMode === 'playlist' && c.releaseDate){
+
+  // Modo Live do YouTube: mostra o título da live se disponível
+  if (c.programmingMode === 'youtube_live') {
+    return c.liveTitle || c.slogan || 'Transmissão ao vivo';
+  }
+
+  if (!c.programNames || c.programNames.length === 0) {
+    return c.slogan || 'Programação ao vivo';
+  }
+
+  let slotIndex = 0;
+
+  if (c.programmingMode === 'playlist' && c.releaseDate) {
     const p = String(c.releaseDate).split('-').map(Number);
-    if (p.length === 3 && !isNaN(p[0])){
+    if (p.length === 3 && !isNaN(p[0])) {
       const rel = new Date(p[0], p[1]-1, p[2], 6, 0, 0, 0);
       const d = Math.floor((now.getTime() - rel.getTime()) / 60000);
-      if (d >= 0) idx = Math.floor(d / SLOT);
+      if (d >= 0) slotIndex = Math.floor(d / SLOT);
     }
   } else {
     const a = new Date(now);
     if (a.getHours() < 6) a.setDate(a.getDate() - 1);
-    a.setHours(6,0,0,0);
+    a.setHours(6, 0, 0, 0);
     const d = Math.floor((now.getTime() - a.getTime()) / 60000);
-    idx = Math.floor(d / SLOT);
+    slotIndex = Math.floor(d / SLOT);
   }
-  return names[idx % names.length] || names[0];
+
+  // MODO GRADE: usa a GRADE real salva no Firestore
+  if (c.programmingMode === 'grade' && Array.isArray(c.grade) && c.grade.length > 0) {
+    const totalSlots = c.grade.length;
+    const idx = ((slotIndex % totalSlots) + totalSlots) % totalSlots;
+    const progIdx = c.grade[idx];
+    return c.programNames[progIdx] || c.programNames[0] || c.slogan || 'Programação ao vivo';
+  }
+
+  // MODO PLAYLIST: índice módulo o total de nomes
+  const idxPlaylist = ((slotIndex % c.programNames.length) + c.programNames.length) % c.programNames.length;
+  return c.programNames[idxPlaylist] || c.programNames[0];
 }
 
 function updateHeaderCount(){
@@ -752,6 +772,9 @@ async function loadAll(){
         programmingMode: d.programmingMode || 'grade',
         releaseDate: d.releaseDate || '',
         programNames: Array.isArray(d.programNames) ? d.programNames : [],
+        grade: Array.isArray(d.grade) ? d.grade : [],
+        programDurations: Array.isArray(d.programDurations) ? d.programDurations : [],
+        liveTitle: d.liveTitle || '',
         createdAt: d.createdAt ? (d.createdAt.toMillis ? d.createdAt.toMillis() : Number(d.createdAt)) : 0,
         updatedAt: d.updatedAt ? (d.updatedAt.toMillis ? d.updatedAt.toMillis() : Number(d.updatedAt)) : 0,
         onlineCount: 0, likes: 0, dislikes: 0, totalVotes: 0
