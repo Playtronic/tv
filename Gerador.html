@@ -13007,17 +13007,15 @@ toScreen3Btn.addEventListener('click', () => {
 
 
 // v50 - Funcao de regeneracao para o Painel Admin (iframe oculto)
+// v43 — __regenerateChannel SEM tocar no Firestore
+// O painel admin salva no Firestore depois (com o SDK dele próprio).
 window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
   try {
-    if (!firebase.auth().currentUser) {
-      return { success: false, error: 'Admin nao autenticado' };
-    }
     var raw = channelData || {};
     var normalized;
     try {
       normalized = normalizarDadosCanal(raw);
     } catch (eNorm) {
-      console.warn('[Admin regen] normalizarDadosCanal falhou:', eNorm);
       normalized = Object.assign({
         email: '', name: '', slogan: '', category: '', logo: '', visibility: 'brazil',
         showChannelNameWithLogo: true, showTime: true, enableRewind10: true,
@@ -13033,14 +13031,12 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
       }, raw);
     }
 
-    // Arrays válidos
     if (!Array.isArray(normalized.programs)) normalized.programs = [];
     if (!Array.isArray(normalized.playlistVideos)) normalized.playlistVideos = [];
     if (!Array.isArray(normalized.commercials)) normalized.commercials = [];
     if (!normalized.socialMedia) normalized.socialMedia = { facebook:'', instagram:'', bluesky:'', tiktok:'', twitter:'' };
     if (!normalized.customButton) normalized.customButton = { text:'', url:'' };
 
-    // Ajusta modo
     if (normalized.programmingMode === 'grade' && normalized.programs.length === 0 && normalized.playlistVideos.length > 0) {
       normalized.programmingMode = 'playlist';
     }
@@ -13051,7 +13047,7 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
       return { success: false, error: 'Canal sem programas nem videos' };
     }
 
-    // v39 — Mapeia normalized (inglês) para o formato que publicarCanal espera (português)
+    // Mapeamento para o formato do publicarCanal
     var dadosParaEnvio = {
       name: normalized.name,
       email: normalized.email,
@@ -13070,10 +13066,7 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
         };
       }),
       playlistVideos: (normalized.playlistVideos || []).map(function(video) {
-        return {
-          name: video.name,
-          url: video.url
-        };
+        return { name: video.name, url: video.url };
       }),
       comerciais: normalized.commercials || [],
       release: normalized.releaseDate || '',
@@ -13093,6 +13086,7 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
       monetization: normalized.monetization || null
     };
 
+    // Prepara contexto interno
     currentUser = firebase.auth().currentUser;
     currentChannelId = channelId;
     editingChannel = true;
@@ -13110,73 +13104,34 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
     dadosParaEnvio.version = incrementarVersao(dadosParaEnvio.version || '1.0.0.0');
     tvData.version = dadosParaEnvio.version;
 
+    // ⚠️ IMPORTANTE: Só gera o HTML. Não toca no Firestore.
     var resultado = await publicarCanal(dadosParaEnvio.name, dadosParaEnvio);
 
-    var now = firebase.firestore.FieldValue.serverTimestamp();
-    var docRef = db.collection('users').doc(ownerUid).collection('channels').doc(channelId);
-    await docRef.update({
-      url: resultado.url,
-      version: dadosParaEnvio.version,
-      updatedAt: now,
-      published: true
-    });
-    // v42 — Salva os mesmos metadados do iniciarPublicacao (para a home)
-    // IMPORTANTE: Forcar arrays "crus" (nao do iframe) para o Firestore aceitar
-    var __programNames;
+    // Reúne metadados que o painel admin vai salvar
+    var programNames = [];
     if (dadosParaEnvio.programmingMode === 'playlist') {
-      var __pv = Array.isArray(dadosParaEnvio.playlistVideos) ? dadosParaEnvio.playlistVideos : [];
-      __programNames = [];
-      for (var __i = 0; __i < __pv.length; __i++) {
-        var __v = __pv[__i];
-        __programNames.push((__v && __v.name) ? String(__v.name) : 'Sem nome');
+      var pv = dadosParaEnvio.playlistVideos || [];
+      for (var i = 0; i < pv.length; i++) {
+        programNames.push((pv[i] && pv[i].name) ? pv[i].name : 'Sem nome');
       }
     } else {
-      var __pg = Array.isArray(dadosParaEnvio.programas) ? dadosParaEnvio.programas : [];
-      __programNames = [];
-      for (var __i2 = 0; __i2 < __pg.length; __i2++) {
-        var __p = __pg[__i2];
-        __programNames.push((__p && __p.name) ? String(__p.name) : 'Sem nome');
+      var pg = dadosParaEnvio.programas || [];
+      for (var j = 0; j < pg.length; j++) {
+        programNames.push((pg[j] && pg[j].name) ? pg[j].name : 'Sem nome');
       }
     }
-    var __grade = [];
-    if (dadosParaEnvio.programmingMode === 'grade') {
-      var __g = Array.isArray(dadosParaEnvio.grade) ? dadosParaEnvio.grade : [];
-      for (var __i3 = 0; __i3 < __g.length; __i3++) {
-        __grade.push(Number(__g[__i3]) || 0);
-      }
-    }
-    var __programDurations = [];
-    if (dadosParaEnvio.programmingMode === 'grade') {
-      var __pg2 = Array.isArray(dadosParaEnvio.programas) ? dadosParaEnvio.programas : [];
-      for (var __i4 = 0; __i4 < __grade.length; __i4++) {
-        var __idx = __grade[__i4];
-        var __p2 = __pg2[__idx];
-        var __cnt = (__p2 && Array.isArray(__p2.videos)) ? __p2.videos.length : 1;
-        __programDurations.push(__cnt);
-      }
-    }
-    var __meta = {
-      channelId: String(channelId),
-      ownerId: String(ownerUid),
-      name: String(dadosParaEnvio.name || ''),
-      slogan: String(dadosParaEnvio.slogan || ''),
-      category: String(dadosParaEnvio.category || ''),
-      isAdultContent: !!dadosParaEnvio.isAdultContent,
-      logo: String(dadosParaEnvio.logo || ''),
-      url: String(resultado.url || ''),
-      programmingMode: String(dadosParaEnvio.programmingMode || 'grade'),
-      releaseDate: String(dadosParaEnvio.release || dadosParaEnvio.releaseDate || ''),
-      programNames: __programNames,
-      grade: __grade,
-      programDurations: __programDurations,
-      youtubeChannelId: String(dadosParaEnvio.youtubeChannelId || ''),
-      youtubeOfflineBehavior: String(dadosParaEnvio.youtubeOfflineBehavior || 'videos'),
-      updatedAt: now
-    };
-    await db.collection('channels').doc(channelId).set(__meta, { merge: true });
 
     console.log('[Admin regen] OK ' + dadosParaEnvio.name + ' -> ' + resultado.url);
-    return { success: true, url: resultado.url, version: dadosParaEnvio.version };
+
+    return {
+      success: true,
+      url: resultado.url,
+      version: dadosParaEnvio.version,
+      programmingMode: dadosParaEnvio.programmingMode,
+      releaseDate: dadosParaEnvio.release || '',
+      programNames: programNames,
+      grade: dadosParaEnvio.grade || []
+    };
   } catch (e) {
     console.error('[Admin regen] FAIL ' + ((channelData && channelData.name) || channelId), e);
     return { success: false, error: e.message };
