@@ -13110,11 +13110,36 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
       updatedAt: now,
       published: true
     });
-    await db.collection('channels').doc(channelId).set({
+    // v41 — Salva os mesmos metadados do iniciarPublicacao (para a home)
+    var __programNames = dadosParaEnvio.programmingMode === 'playlist'
+      ? (dadosParaEnvio.playlistVideos || []).map(function(v) { return (v && v.name) || 'Sem nome'; })
+      : (dadosParaEnvio.programas || []).map(function(p) { return (p && p.name) || 'Sem nome'; });
+    var __grade = dadosParaEnvio.programmingMode === 'grade' ? (dadosParaEnvio.grade || []) : [];
+    var __programDurations = dadosParaEnvio.programmingMode === 'grade'
+      ? __grade.map(function(idx) {
+          var p = dadosParaEnvio.programas[idx];
+          return p && p.videos ? p.videos.length : 1;
+        })
+      : [];
+    var __meta = {
+      channelId: channelId,
+      ownerId: ownerUid,
+      name: dadosParaEnvio.name,
+      slogan: dadosParaEnvio.slogan || '',
+      category: dadosParaEnvio.category || '',
+      isAdultContent: !!dadosParaEnvio.isAdultContent,
+      logo: dadosParaEnvio.logo || '',
       url: resultado.url,
-      version: dadosParaEnvio.version,
+      programmingMode: dadosParaEnvio.programmingMode || 'grade',
+      releaseDate: dadosParaEnvio.release || dadosParaEnvio.releaseDate || '',
+      programNames: __programNames,
+      grade: __grade,
+      programDurations: __programDurations,
+      youtubeChannelId: dadosParaEnvio.youtubeChannelId || '',
+      youtubeOfflineBehavior: dadosParaEnvio.youtubeOfflineBehavior || 'videos',
       updatedAt: now
-    }, { merge: true });
+    };
+    await db.collection('channels').doc(channelId).set(__meta, { merge: true });
 
     console.log('[Admin regen] OK ' + dadosParaEnvio.name + ' -> ' + resultado.url);
     return { success: true, url: resultado.url, version: dadosParaEnvio.version };
