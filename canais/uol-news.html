@@ -1576,7 +1576,7 @@ function cleanupInactiveViewers() {
     
     // Função para calcular dias desde a estreia (PARA TODOS OS MODOS)
     function calcularDiasDesdeEstreiaCanal() {
-        const RELEASE_DATE = "2026-10-02";
+        const RELEASE_DATE = "2026-10-03";
         
         if (!RELEASE_DATE) {
             return 1;
@@ -2432,7 +2432,7 @@ function calculateExpectedTime(duration) {
         const ENABLE_DEBUG = true;
         const IS_ADULT_CONTENT = false;
         
-        const RELEASE_DATE = "2026-10-02";
+        const RELEASE_DATE = "2026-10-03";
         const IS_OFFLINE = false;
         const CHANNEL_VERSION = "1.0.1.7";
         const CHANNEL_ID = "nxL0ngx3AUKdXgNnv1vU";
@@ -3201,49 +3201,114 @@ function configurarControlesYouTube() {
         });
     }
     
-    // Botão -10s
-    if (rewind10Btn && youtubePlayer) {
-        rewind10Btn.addEventListener('click', function() {
-            if (!youtubePlayer || !playerReady) return;
-            
-            const currentTime = youtubePlayer.getCurrentTime();
-            if (currentTime > 10) {
-                youtubePlayer.seekTo(currentTime - 10, true);
+// Botões -10s / Início / Ao Vivo — v33
+    // Só esconde -10s/Início quando for live rodando há mais de X horas
+    // (nas primeiras horas o DVR ainda cobre o início, então seek funciona)
+    var LIVE_HIDE_THRESHOLD_SEC = 3 * 3600; // 3h
+    function _isLongLiveV33() {
+        try {
+            if (!isYoutubeVideo || !youtubePlayer || !playerReady) return false;
+            var vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null;
+            if (!vd || vd.isLive !== true) return false;
+            var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
+            if (typeof dur !== 'number' || !isFinite(dur) || dur <= 0) return false;
+            return dur > LIVE_HIDE_THRESHOLD_SEC;
+        } catch(e){ return false; }
+    }
+    function _updateButtonsState() {
+        var hide = _isLongLiveV33();
+        var btns = [rewind10Btn, restartBtn];
+        for (var i = 0; i < btns.length; i++) {
+            var b = btns[i];
+            if (!b) continue;
+            if (hide) {
+                b.style.display = 'none';
             } else {
-                youtubePlayer.seekTo(0, true);
+                b.style.display = 'block';
             }
-            showControls();
-            resetControlsTimer();
-        });
+        }
     }
-    
-    // Botão Início
-    if (restartBtn && youtubePlayer) {
-        restartBtn.addEventListener('click', function() {
-            if (!youtubePlayer || !playerReady) return;
-            
-            youtubePlayer.seekTo(0, true);
-            showControls();
-            resetControlsTimer();
-        });
-    }
-    
-    // Botão Ao Vivo
-    if (liveBtn && youtubePlayer) {
-        liveBtn.addEventListener('click', function() {
-            if (!youtubePlayer || !playerReady) return;
-            
-            const percentualSlot = calcularPercentualSlot();
-            const duration = youtubePlayer.getDuration();
-            if (duration > 0) {
-                const novoTime = duration * percentualSlot;
-                youtubePlayer.seekTo(novoTime, true);
-                
-                if (youtubePlayer.getPlayerState() !== 1) { // Não está tocando
-                    youtubePlayer.playVideo();
+    setInterval(_updateButtonsState, 1500);
+    setTimeout(_updateButtonsState, 800);
+    setTimeout(_updateButtonsState, 2500);
+
+    if (rewind10Btn) {
+        rewind10Btn.addEventListener('click', function() {
+            try {
+                var ct = 0;
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    ct = youtubePlayer.getCurrentTime() || 0;
+                    youtubePlayer.seekTo(Math.max(0, ct - 10), true);
+                    console.log('[BTN] -10s: ' + ct.toFixed(1) + ' -> ' + Math.max(0, ct - 10).toFixed(1));
+                } else if (videoElement && videoElement.readyState >= 1) {
+                    ct = videoElement.currentTime || 0;
+                    videoElement.currentTime = Math.max(0, ct - 10);
+                    console.log('[BTN] -10s: ' + ct.toFixed(1) + ' -> ' + Math.max(0, ct - 10).toFixed(1));
                 }
-            }
-            
+            } catch(e) { console.warn('[BTN] -10s erro:', e); }
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    if (restartBtn) {
+        restartBtn.addEventListener('click', function() {
+            try {
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    youtubePlayer.seekTo(0, true);
+                } else if (videoElement) {
+                    videoElement.currentTime = 0;
+                }
+                console.log('[BTN] Inicio: seek 0');
+            } catch(e) { console.warn('[BTN] Inicio erro:', e); }
+            showControls();
+            resetControlsTimer();
+        });
+    }
+    if (liveBtn) {
+        liveBtn.addEventListener('click', function() {
+            var now = Date.now();
+            if (window.__lastLiveBtnClick && (now - window.__lastLiveBtnClick) < 1500) return;
+            window.__lastLiveBtnClick = now;
+            console.log('[BTN] AO VIVO clicado');
+            try {
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    var vd = null;
+                    try { vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null; } catch(e){}
+                    var isActuallyLive = !!(vd && vd.isLive === true);
+                    var vidId = vd && vd.video_id ? vd.video_id : null;
+                    if (isActuallyLive && vidId) {
+                        console.log('[BTN] AO VIVO: recriando player para live edge');
+                        try {
+                            if (typeof criarPlayerYouTube === 'function') {
+                                criarPlayerYouTube(vidId, 0, true);
+                            } else if (typeof youtubePlayer.loadVideoById === 'function') {
+                                youtubePlayer.loadVideoById(vidId);
+                            }
+                        } catch(e) { console.warn('[BTN] recriar falhou:', e); }
+                    } else {
+                        var dur = youtubePlayer.getDuration();
+                        if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
+                            var pctSlot = calcularPercentualSlot();
+                            if (pctSlot < 0) pctSlot = 0;
+                            if (pctSlot > 1) pctSlot = 1;
+                            var target = dur * pctSlot;
+                            if (target > dur - 0.5) target = Math.max(0, dur - 1);
+                            youtubePlayer.seekTo(target, true);
+                            console.log('[BTN] AO VIVO: ' + (pctSlot*100).toFixed(1) + '% -> ' + target.toFixed(1) + 's');
+                        }
+                    }
+                } else if (videoElement && videoElement.readyState >= 1) {
+                    var d2 = videoElement.duration;
+                    if (typeof d2 === 'number' && isFinite(d2) && d2 > 0) {
+                        var pctSlot2 = calcularPercentualSlot();
+                        if (pctSlot2 < 0) pctSlot2 = 0;
+                        if (pctSlot2 > 1) pctSlot2 = 1;
+                        var t2 = d2 * pctSlot2;
+                        if (t2 > d2 - 0.5) t2 = Math.max(0, d2 - 1);
+                        videoElement.currentTime = t2;
+                    }
+                }
+            } catch(e) { console.warn('[BTN] AO VIVO erro:', e); }
             showControls();
             resetControlsTimer();
         });
@@ -4085,115 +4150,130 @@ var _ocultarYtInterval = setInterval(function() {
         }
     }
     
-    // Botão -10s
+// Botões -10s / Início / Ao Vivo — v34 (debug + CSS injetado)
+    var LIVE_HIDE_THRESHOLD_SEC = 3 * 3600;
+    var __btnDebugCount = 0;
+    function _isLongLiveV34() {
+        try {
+            if (typeof isYoutubeVideo === 'undefined' || !isYoutubeVideo) return {live:false, dur:0, reason:'not-yt'};
+            if (typeof youtubePlayer === 'undefined' || !youtubePlayer) return {live:false, dur:0, reason:'no-player'};
+            if (typeof playerReady === 'undefined' || !playerReady) return {live:false, dur:0, reason:'not-ready'};
+            var vd = null;
+            try { vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null; } catch(e){ return {live:false, dur:0, reason:'getVideoData-error:'+e.message}; }
+            var isLive = !!(vd && vd.isLive === true);
+            var dur = 0;
+            try { dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0; } catch(e){ dur = 0; }
+            if (typeof dur !== 'number' || !isFinite(dur) || dur <= 0) return {live:isLive, dur:0, reason:'bad-dur'};
+            var hide = isLive && dur > LIVE_HIDE_THRESHOLD_SEC;
+            return {live:isLive, dur:dur, hide:hide, reason:'ok'};
+        } catch(e){ return {live:false, dur:0, reason:'outer-catch:'+e.message}; }
+    }
+    function _applyBtnVisibility() {
+        var st = _isLongLiveV34();
+        var btn10 = document.getElementById('rewind10Btn');
+        var btnRst = document.getElementById('restartBtn');
+        if (__btnDebugCount % 4 === 1) {
+            console.log('[BTN-DEBUG] isLive=' + st.live + ' dur=' + (st.dur?st.dur.toFixed(0):'0') + 's hide=' + !!st.hide + ' reason=' + st.reason + ' btn10=' + (btn10?'found':'null') + ' btnRst=' + (btnRst?'found':'null'));
+        }
+        __btnDebugCount++;
+        var hide = !!st.hide;
+        if (btn10) {
+            if (hide) {
+                btn10.style.setProperty('display','none','important');
+            } else {
+                btn10.style.removeProperty('display');
+            }
+        }
+        if (btnRst) {
+            if (hide) {
+                btnRst.style.setProperty('display','none','important');
+            } else {
+                btnRst.style.removeProperty('display');
+            }
+        }
+    }
+    setInterval(_applyBtnVisibility, 1500);
+    setTimeout(_applyBtnVisibility, 500);
+    setTimeout(_applyBtnVisibility, 2000);
+    setTimeout(_applyBtnVisibility, 5000);
+
     if (rewind10Btn) {
         rewind10Btn.addEventListener('click', function() {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                const currentTime = youtubePlayer.getCurrentTime();
-                if (currentTime > 10) {
-                    youtubePlayer.seekTo(currentTime - 10, true);
-                } else {
-                    youtubePlayer.seekTo(0, true);
+            try {
+                var ct = 0;
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    ct = youtubePlayer.getCurrentTime() || 0;
+                    youtubePlayer.seekTo(Math.max(0, ct - 10), true);
+                    console.log('[BTN] -10s: ' + ct.toFixed(1) + ' -> ' + Math.max(0, ct - 10).toFixed(1));
+                } else if (videoElement && videoElement.readyState >= 1) {
+                    ct = videoElement.currentTime || 0;
+                    videoElement.currentTime = Math.max(0, ct - 10);
+                    console.log('[BTN] -10s: ' + ct.toFixed(1) + ' -> ' + Math.max(0, ct - 10).toFixed(1));
                 }
-            } else if (videoElement) {
-                if (videoElement.currentTime > 10) {
-                    videoElement.currentTime -= 10;
-                } else {
-                    videoElement.currentTime = 0;
-                }
-            }
+            } catch(e) { console.warn('[BTN] -10s erro:', e); }
             showControls();
             resetControlsTimer();
         });
     }
-    
-    // Botão Início
     if (restartBtn) {
         restartBtn.addEventListener('click', function() {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                youtubePlayer.seekTo(0, true);
-            } else if (videoElement) {
-                videoElement.currentTime = 0;
-            }
+            try {
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    youtubePlayer.seekTo(0, true);
+                } else if (videoElement) {
+                    videoElement.currentTime = 0;
+                }
+                console.log('[BTN] Inicio: seek 0');
+            } catch(e) { console.warn('[BTN] Inicio erro:', e); }
             showControls();
             resetControlsTimer();
         });
     }
-    
-    // Botão Ao Vivo — SÓ AVANÇA, nunca retrocede, nunca recarrega
     if (liveBtn) {
         liveBtn.addEventListener('click', function() {
-            console.log('=== BOTÃO AO VIVO CLICADO ===');
-
-            // 1) Descobre o slot real e o percentual do momento
-            let slotRealAgora;
-            if (PROGRAMMING_MODE === 'grade') {
-                slotRealAgora = calcularSlotAtualGrade();
-            } else {
-                slotRealAgora = calcularSlotAtualPlaylist();
-            }
-            const percentualSlot = calcularPercentualSlot();
-            const TOLERANCIA_SEGUNDOS = 2;
-
-            console.log('Slot atual:', currentPlayingSlot, '| Slot real:', slotRealAgora, '| Percentual do slot:', (percentualSlot * 100).toFixed(1) + '%');
-
-            // 2) Determina se o slot real está À FRENTE ou ATRÁS
-            const totalSlots = (PROGRAMMING_MODE === 'grade') ? TOTAL_SLOTS : TV_PLAYLIST.length;
-            const diffSlots = (slotRealAgora - currentPlayingSlot + totalSlots) % totalSlots;
-
-            // diffSlots = 0           → mesmo slot
-            // diffSlots <= metade     → real à frente  → AVANÇA
-            // diffSlots >  metade     → real atrás     → NÃO FAZ NADA
-            const mesmoSlot = (currentPlayingSlot === slotRealAgora);
-            const realEstaAFrente = (!mesmoSlot && diffSlots > 0 && diffSlots <= totalSlots / 2);
-            const realEstaAtras = (!mesmoSlot && diffSlots > totalSlots / 2);
-
-            if (realEstaAtras) {
-                console.log('⏸ Slot real (' + slotRealAgora + ') está ATRÁS do atual (' + currentPlayingSlot + '). Não retrocede.');
-                showControls();
-                resetControlsTimer();
-                return;
-            }
-
-            if (realEstaAFrente) {
-                console.log('⏩ Slot real (' + slotRealAgora + ') está À FRENTE. Trocando de programa.');
-                currentPlayingSlot = slotRealAgora;
-                reproduzirPrograma(slotRealAgora, percentualSlot);
-                showControls();
-                resetControlsTimer();
-                return;
-            }
-
-            // 3) Mesmo slot → só avança o ponto se estiver atrás
-            console.log('▶ Mesmo slot. Verificando ponto do vídeo.');
-
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                const duration = youtubePlayer.getDuration();
-                if (duration > 0) {
-                    const tempoAtual = youtubePlayer.getCurrentTime();
-                    const tempoCorreto = duration * percentualSlot;
-                    const diff = tempoCorreto - tempoAtual;
-                    if (diff > TOLERANCIA_SEGUNDOS) {
-                        console.log('Avançando ' + diff.toFixed(1) + 's (' + tempoAtual.toFixed(1) + ' → ' + tempoCorreto.toFixed(1) + ')');
-                        youtubePlayer.seekTo(tempoCorreto, true);
+            var now = Date.now();
+            if (window.__lastLiveBtnClick && (now - window.__lastLiveBtnClick) < 1500) return;
+            window.__lastLiveBtnClick = now;
+            console.log('[BTN] AO VIVO clicado');
+            try {
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    var vd = null;
+                    try { vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null; } catch(e){}
+                    var isActuallyLive = !!(vd && vd.isLive === true);
+                    var vidId = vd && vd.video_id ? vd.video_id : null;
+                    if (isActuallyLive && vidId) {
+                        console.log('[BTN] AO VIVO: recriando player para live edge');
+                        try {
+                            if (typeof criarPlayerYouTube === 'function') {
+                                criarPlayerYouTube(vidId, 0, true);
+                            } else if (typeof youtubePlayer.loadVideoById === 'function') {
+                                youtubePlayer.loadVideoById(vidId);
+                            }
+                        } catch(e) { console.warn('[BTN] recriar falhou:', e); }
                     } else {
-                        console.log('Já está no ponto certo (diff: ' + diff.toFixed(1) + 's). Nada a fazer.');
+                        var dur = youtubePlayer.getDuration();
+                        if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
+                            var pctSlot = calcularPercentualSlot();
+                            if (pctSlot < 0) pctSlot = 0;
+                            if (pctSlot > 1) pctSlot = 1;
+                            var target = dur * pctSlot;
+                            if (target > dur - 0.5) target = Math.max(0, dur - 1);
+                            youtubePlayer.seekTo(target, true);
+                            console.log('[BTN] AO VIVO: ' + (pctSlot*100).toFixed(1) + '% -> ' + target.toFixed(1) + 's');
+                        }
+                    }
+                } else if (videoElement && videoElement.readyState >= 1) {
+                    var d2 = videoElement.duration;
+                    if (typeof d2 === 'number' && isFinite(d2) && d2 > 0) {
+                        var pctSlot2 = calcularPercentualSlot();
+                        if (pctSlot2 < 0) pctSlot2 = 0;
+                        if (pctSlot2 > 1) pctSlot2 = 1;
+                        var t2 = d2 * pctSlot2;
+                        if (t2 > d2 - 0.5) t2 = Math.max(0, d2 - 1);
+                        videoElement.currentTime = t2;
                     }
                 }
-            } else if (videoElement && videoElement.readyState >= 1) {
-                if (videoElement.duration > 0) {
-                    const tempoAtual = videoElement.currentTime;
-                    const tempoCorreto = videoElement.duration * percentualSlot;
-                    const diff = tempoCorreto - tempoAtual;
-                    if (diff > TOLERANCIA_SEGUNDOS) {
-                        console.log('Avançando ' + diff.toFixed(1) + 's (' + tempoAtual.toFixed(1) + ' → ' + tempoCorreto.toFixed(1) + ')');
-                        videoElement.currentTime = Math.min(tempoCorreto, videoElement.duration - 1);
-                    } else {
-                        console.log('Já está no ponto certo (diff: ' + diff.toFixed(1) + 's). Nada a fazer.');
-                    }
-                }
-            }
-
+            } catch(e) { console.warn('[BTN] AO VIVO erro:', e); }
             showControls();
             resetControlsTimer();
         });
@@ -6142,7 +6222,51 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 })();
 </script>
-
+<script id="__suspension_check__">
+(function(){
+var chId=(typeof CHANNEL_ID!=="undefined")?CHANNEL_ID:"";
+if(!chId)return;
+function init(){
+if(typeof firebase==="undefined"||!firebase.firestore)return setTimeout(init,500);
+firebase.firestore().collection("channels").doc(chId).onSnapshot(function(s){
+if(!s.exists)return;
+var d=s.data()||{};
+var susp=d.suspended===true||d.accountSuspended===true;
+var ov=document.getElementById("__offlineOverlay");
+if(!susp){if(ov)ov.remove();return;}
+if(ov)return;
+try{var v=document.getElementById("myVideo");if(v)v.pause();}catch(e){}
+try{if(window.youtubePlayer&&youtubePlayer.pauseVideo)youtubePlayer.pauseVideo();}catch(e){}
+var w=document.querySelector(".video-wrapper");
+if(!w)return;
+var ov=document.createElement("div");
+ov.id="__offlineOverlay";
+ov.style.cssText="position:absolute;top:0;left:0;right:0;bottom:0;background:#000;z-index:2147483600;display:flex;flex-direction:column;align-items:center;justify-content:center;";
+var img=document.createElement("img");
+img.className="offline-image";
+img.src="https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png";
+img.alt="Canal fora do ar";
+ov.appendChild(img);
+var msg=document.createElement("div");
+msg.className="offline-message";
+var h3=document.createElement("h3");
+h3.textContent="Canal Temporariamente Fora do Ar";
+msg.appendChild(h3);
+var p1=document.createElement("p");
+p1.style.fontSize="0.9rem";
+p1.textContent="Este canal esta passando por manutencao.";
+msg.appendChild(p1);
+var p2=document.createElement("p");
+p2.style.fontSize="0.9rem";
+p2.textContent="Tente novamente mais tarde.";
+msg.appendChild(p2);
+ov.appendChild(msg);
+w.appendChild(ov);
+},function(e){console.warn("[Susp]",e.message);});
+}
+init();
+})();
+</script>
 <script>
 /* AD-SKIPPER v1 */
 (function(){
@@ -6759,21 +6883,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 250);
   }
   setTimeout(boot, 100);   /* [v65-patcher:p5] era 1500ms */
-})();
-</script>
-
-
-<script id="__suspension_check__">
-(function(){
-var chId=(typeof CHANNEL_ID!=='undefined')?CHANNEL_ID:'';
-if(!chId)return;
-var OFFLINE_IMG='https://raw.githubusercontent.com/Playtronic/tv/refs/heads/main/template/TesteDeCores.png';
-var applied=false;
-function pauseAll(){try{var v=document.getElementById('myVideo');if(v){v.pause();try{v.src='';}catch(e){}}}catch(e){}try{if(typeof youtubePlayer!=='undefined'&&youtubePlayer&&youtubePlayer.pauseVideo)youtubePlayer.pauseVideo();}catch(e){}}
-function hideAll(){var sels=['.program-info','.debug-info','.custom-controls','.like-dislike-container','.autoplay-overlay','.commercial-indicator','.action-buttons-wrapper','.social-media-links','.contact-info'];for(var i=0;i<sels.length;i++){var els=document.querySelectorAll(sels[i]);for(var j=0;j<els.length;j++)els[j].style.display='none';}}
-function showOffline(){if(applied)return;applied=true;pauseAll();hideAll();var vw=document.querySelector('.video-wrapper');if(!vw)return;var h='';h+='<img src="'+OFFLINE_IMG+'" style="width:100%;height:100%;object-fit:cover;">';h+='<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:24px;border-radius:10px;text-align:center;color:#fff;max-width:420px;">';h+='<h3 style="margin-bottom:10px;">Canal Temporariamente Fora do Ar</h3>';h+='<p style="font-size:0.9rem;opacity:0.9;">Este canal esta passando por manutencao.</p>';h+='<p style="font-size:0.9rem;opacity:0.9;">Tente novamente mais tarde.</p>';h+='</div>';vw.innerHTML=h;}
-function init(){if(typeof firebase==='undefined'||!firebase.firestore){setTimeout(init,500);return;}firebase.firestore().collection('channels').doc(chId).onSnapshot(function(snap){if(!snap.exists)return;var d=snap.data()||{};if(d.suspended===true||d.accountSuspended===true)showOffline();else if(applied)location.reload();},function(err){console.warn('[Susp]',err.message);});}
-init();
 })();
 </script>
 </body>
