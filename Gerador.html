@@ -7349,7 +7349,7 @@ var _ocultarYtInterval = setInterval(function() {
         });
     }
     
-// Botão Ao Vivo — v27 (live edge se dur > 2h, senão pctSlot)
+// Botão Ao Vivo — v28 (recria player em lives, pctSlot em vídeos)
     if (liveBtn) {
         liveBtn.addEventListener('click', function() {
             var now = Date.now();
@@ -7361,22 +7361,41 @@ var _ocultarYtInterval = setInterval(function() {
                 var acted = false;
                 if (isYoutubeVideo && youtubePlayer && playerReady) {
                     var dur = youtubePlayer.getDuration();
-                    if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
-                        if (dur > LONG_LIMIT) {
-                            var edge = Math.max(0, dur - 10);
-                            youtubePlayer.seekTo(edge, true);
-                            console.log('[BTN] AO VIVO (live longa ' + (dur/3600).toFixed(1) + 'h): -> ' + edge.toFixed(1) + 's');
-                        } else {
-                            var pctSlot = calcularPercentualSlot();
-                            if (pctSlot < 0) pctSlot = 0;
-                            if (pctSlot > 1) pctSlot = 1;
-                            var ct = youtubePlayer.getCurrentTime() || 0;
-                            var pv = ct / dur;
-                            var target = dur * pctSlot;
-                            if (target > dur - 0.5) target = Math.max(0, dur - 1);
-                            youtubePlayer.seekTo(target, true);
-                            console.log('[BTN] AO VIVO YouTube: ' + (pv*100).toFixed(1) + '% -> ' + (pctSlot*100).toFixed(1) + '%');
-                        }
+                    var vd = null;
+                    try { vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null; } catch(e){}
+                    var isActuallyLive = !!(vd && vd.isLive === true);
+                    var vidId = vd && vd.video_id ? vd.video_id : null;
+                    console.log('[BTN] info: dur=' + (dur||0).toFixed(1) + 's isLive=' + isActuallyLive + ' vid=' + (vidId||'?'));
+
+                    if (isActuallyLive && vidId) {
+                        // Live real: recria player para ir ao live edge
+                        console.log('[BTN] AO VIVO: recriando player para live edge');
+                        try { if (typeof window.showControls === 'function') window.showControls(); } catch(e){}
+                        try {
+                            if (typeof criarPlayerYouTube === 'function') {
+                                criarPlayerYouTube(vidId, 0, true);
+                            } else if (typeof youtubePlayer.loadVideoById === 'function') {
+                                youtubePlayer.loadVideoById(vidId);
+                            }
+                        } catch(e) { console.warn('[BTN] recriar player falhou:', e); }
+                        acted = true;
+                    } else if (typeof dur === 'number' && isFinite(dur) && dur > LONG_LIMIT) {
+                        // Vídeo muito longo mas não marcado como live: tenta seek para o fim
+                        var edge = Math.max(0, dur - 10);
+                        youtubePlayer.seekTo(edge, true);
+                        console.log('[BTN] AO VIVO (longa ' + (dur/3600).toFixed(1) + 'h): -> ' + edge.toFixed(1) + 's');
+                        acted = true;
+                    } else if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
+                        // Vídeo normal: aplica pctSlot
+                        var pctSlot = calcularPercentualSlot();
+                        if (pctSlot < 0) pctSlot = 0;
+                        if (pctSlot > 1) pctSlot = 1;
+                        var ct = youtubePlayer.getCurrentTime() || 0;
+                        var pv = ct / dur;
+                        var target = dur * pctSlot;
+                        if (target > dur - 0.5) target = Math.max(0, dur - 1);
+                        youtubePlayer.seekTo(target, true);
+                        console.log('[BTN] AO VIVO YouTube: ' + (pv*100).toFixed(1) + '% -> ' + (pctSlot*100).toFixed(1) + '%');
                         acted = true;
                     }
                 }
@@ -7386,7 +7405,7 @@ var _ocultarYtInterval = setInterval(function() {
                         if (d2 > LONG_LIMIT) {
                             var e2 = Math.max(0, d2 - 10);
                             videoElement.currentTime = e2;
-                            console.log('[BTN] AO VIVO (live longa HTML5): -> ' + e2.toFixed(1));
+                            console.log('[BTN] AO VIVO (HTML5 longa): -> ' + e2.toFixed(1));
                         } else {
                             var pctSlot2 = calcularPercentualSlot();
                             if (pctSlot2 < 0) pctSlot2 = 0;
