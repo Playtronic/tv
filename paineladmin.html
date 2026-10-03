@@ -91,6 +91,9 @@ h1{color:#fdbb2d;font-size:1.6rem}
 .btn-cancel{background:rgba(255,255,255,.15);color:#fff}
 .btn-save{background:#2ecc71;color:#000}
 
+/* Iframe oculto para o Gerador */
+#regenFrame{position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;top:-9999px;left:-9999px;border:0}
+
 @media(max-width:768px){
   .card{grid-template-columns:60px 1fr;grid-template-rows:auto auto}
   .card-logo{width:60px;height:60px}
@@ -116,6 +119,9 @@ h1{color:#fdbb2d;font-size:1.6rem}
 </script>
 </head>
 <body>
+
+<!-- Iframe oculto que carrega o Gerador -->
+<iframe id="regenFrame" src="https://canaisdetv.online/Gerador.html"></iframe>
 
 <div class="login-screen" id="loginScreen" style="display:none">
   <h1>🛡️ Painel Admin</h1>
@@ -247,12 +253,12 @@ const firebaseConfig = {
 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const CF = 'https://us-central1-playtronic-tv.cloudfunctions.net';
-const GERADOR_URL = 'https://canaisdetv.online/Gerador';
 
 let currentUser = null;
 let allChannels = [];
 let allUsers = [];
 let activeTab = 'channels';
+let regenFrameReady = false;
 
 const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const fmtDate = ms => ms ? new Date(ms).toLocaleString('pt-BR') : '—';
@@ -268,6 +274,51 @@ async function callCF(name, body){
   const d = await r.json().catch(()=>null);
   if (!r.ok || !d || !d.success) throw new Error((d && d.error) || ('HTTP ' + r.status));
   return d;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IFRAME OCULTO — carrega o Gerador e expõe __regenerateChannel
+// ═══════════════════════════════════════════════════════════════
+const regenFrame = document.getElementById('regenFrame');
+
+function waitForRegenFrame() {
+  return new Promise((resolve) => {
+    if (regenFrameReady) return resolve(true);
+
+    const check = () => {
+      try {
+        const win = regenFrame.contentWindow;
+        if (win && typeof win.__regenerateChannel === 'function') {
+          regenFrameReady = true;
+          console.log('[Admin] Iframe do Gerador pronto.');
+          resolve(true);
+        } else {
+          setTimeout(check, 500);
+        }
+      } catch (e) {
+        setTimeout(check, 500);
+      }
+    };
+    check();
+  });
+}
+
+async function regenerarCanalComIframe(channelId, ownerUid, channelData) {
+  await waitForRegenFrame();
+  const win = regenFrame.contentWindow;
+
+  // Precisamos garantir que o admin logado também está logado no iframe.
+  // Como é same-origin, o iframe compartilha a sessão do Firebase Auth? Não automaticamente.
+  // O iframe vai carregar o Gerador, que tem seu próprio onAuthStateChanged.
+  // Se o admin estiver logado no domínio principal, o iframe também estará (mesmo domínio).
+  // Vamos apenas chamar a função; se não estiver logado, ela retornará erro.
+
+  try {
+    const result = await win.__regenerateChannel(channelId, ownerUid, channelData);
+    return result;
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 }
 
 auth.onAuthStateChanged(async u => {
@@ -440,9 +491,32 @@ async function onAction(e){
   if (act === 'view' && ch) { window.open(ch.url, '_blank'); return; }
 
   if (act === 'republish' && ch) {
-    if (!confirm('Republicar apenas "'+ch.name+'"?\n\nO Gerador vai regenerar este canal com o código mais recente e republicar.')) return;
-    const url = GERADOR_URL + '?republishAll=1&onlyChannel=' + encodeURIComponent(ch.channelId);
-    window.open(url, '_blank');
+    if (!confirm('Republicar apenas "'+ch.name+'"?\n\nO Gerador vai regenerar este canal com o código mais recente.')) return;
+    b.disabled = true;
+    b.textContent = '...';
+    try {
+      const full = await callCF('adminGetChannelFull', { channelId: ch.channelId, ownerUid: ch.ownerUid });
+      const channelData = full.channel;
+      const result = await regenerarCanalComIframe(ch.channelId, ch.ownerUid, channelData);
+      if (result.success) {
+        b.textContent = 'OK';
+        b.style.background = '#2ecc71';
+        ch.url = result.url;
+        ch.version = result.version;
+        setTimeout(() => {
+          b.textContent = '🔄 Republicar';
+          b.style.background = '#e67e22';
+          b.disabled = false;
+        }, 2000);
+      } else {
+        throw new Error(result.error || 'Erro desconhecido');
+      }
+    } catch (err) {
+      alert('Erro ao republicar: ' + err.message);
+      b.textContent = '🔄 Republicar';
+      b.disabled = false;
+      b.style.background = '#e67e22';
+    }
     return;
   }
 
@@ -508,17 +582,71 @@ async function onAction(e){
   }
 }
 
-// Botão "Republicar Todos" → abre o Gerador com ?republishAll=1
-document.getElementById('btnRepublishAll').addEventListener('click', function(){
+// ═══════════════════════════════════════════════════════════════
+// Republicar Todos — usa o iframe oculto, sem abrir abas
+// ═══════════════════════════════════════════════════════════════
+document.getElementById('btnRepublishAll').addEventListener('click', async function(){
   if (!confirm(
     'Republicar TODOS os canais com o código ATUAL do Gerador?\n\n' +
-    'Vai abrir o Gerador em outra aba e regenerar cada canal a partir do Firestore.\n\n' +
+    'A regeneração será feita em segundo plano, dentro desta própria página.\n\n' +
     'Isso PODE DEMORAR bastante se houver muitos canais.'
   )) return;
-  var statusEl = document.getElementById('rpStatusInline');
-  statusEl.textContent = 'Abrindo Gerador...';
-  window.open(GERADOR_URL + '?republishAll=1', '_blank');
-  setTimeout(function(){ statusEl.textContent = ''; }, 4000);
+
+  const btn = this;
+  const statusEl = document.getElementById('rpStatusInline');
+  btn.disabled = true;
+  statusEl.textContent = 'Iniciando...';
+
+  try {
+    // Garante que o iframe está pronto
+    await waitForRegenFrame();
+    statusEl.textContent = 'Gerador carregado. Obtendo lista...';
+
+    const d = await callCF('adminListAllChannels', {});
+    const list = d.channels || [];
+    statusEl.textContent = list.length + ' canais encontrados. Regenerando...';
+
+    let ok = 0, fail = 0, skip = 0;
+
+    for (let i = 0; i < list.length; i++) {
+      const ch = list[i];
+      statusEl.textContent = `(${i+1}/${list.length}) ${ch.name}`;
+
+      if (!ch.url) { skip++; continue; }
+
+      try {
+        // Pega os dados completos do canal
+        const full = await callCF('adminGetChannelFull', { channelId: ch.channelId, ownerUid: ch.ownerUid });
+        const channelData = full.channel;
+
+        // Chama a regeneração no iframe
+        const result = await regenerarCanalComIframe(ch.channelId, ch.ownerUid, channelData);
+
+        if (result.success) {
+          console.log(`[Admin] OK ${ch.name} → ${result.url}`);
+          // Atualiza a lista local
+          ch.url = result.url;
+          ch.version = result.version;
+          ok++;
+        } else {
+          console.error(`[Admin] FALHA ${ch.name}:`, result.error);
+          fail++;
+        }
+      } catch (err) {
+        console.error(`[Admin] ERRO ${ch.name}:`, err.message);
+        fail++;
+      }
+    }
+
+    statusEl.textContent = `Concluído! OK: ${ok} | Falhas: ${fail} | Sem URL: ${skip}`;
+    renderChannels(); // Re-renderiza para mostrar os novos URLs
+  } catch (e) {
+    alert('Erro fatal: ' + e.message);
+    statusEl.textContent = 'Erro';
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { statusEl.textContent = ''; }, 8000);
+  }
 });
 
 document.getElementById('btnSaveEdit').addEventListener('click', async function(){
