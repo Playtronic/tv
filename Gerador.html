@@ -12994,13 +12994,12 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
     if (!firebase.auth().currentUser) {
       return { success: false, error: 'Admin nao autenticado' };
     }
-    // v38 - Blindagem contra dados incompletos do Firestore
     var raw = channelData || {};
     var normalized;
     try {
       normalized = normalizarDadosCanal(raw);
     } catch (eNorm) {
-      console.warn('[Admin regen] normalizarDadosCanal falhou, usando fallback:', eNorm);
+      console.warn('[Admin regen] normalizarDadosCanal falhou:', eNorm);
       normalized = Object.assign({
         email: '', name: '', slogan: '', category: '', logo: '', visibility: 'brazil',
         showChannelNameWithLogo: true, showTime: true, enableRewind10: true,
@@ -13015,28 +13014,66 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
         version: '1.0.0.0', monetization: null
       }, raw);
     }
-    // Garante arrays válidos
+
+    // Arrays válidos
     if (!Array.isArray(normalized.programs)) normalized.programs = [];
     if (!Array.isArray(normalized.playlistVideos)) normalized.playlistVideos = [];
     if (!Array.isArray(normalized.commercials)) normalized.commercials = [];
-    if (!normalized.socialMedia || typeof normalized.socialMedia !== 'object') {
-      normalized.socialMedia = { facebook:'', instagram:'', bluesky:'', tiktok:'', twitter:'' };
-    }
-    if (!normalized.customButton || typeof normalized.customButton !== 'object') {
-      normalized.customButton = { text:'', url:'' };
-    }
-    // Fallback de segurança: playlist vazia mas grade com programas, ou vice-versa
+    if (!normalized.socialMedia) normalized.socialMedia = { facebook:'', instagram:'', bluesky:'', tiktok:'', twitter:'' };
+    if (!normalized.customButton) normalized.customButton = { text:'', url:'' };
+
+    // Ajusta modo
     if (normalized.programmingMode === 'grade' && normalized.programs.length === 0 && normalized.playlistVideos.length > 0) {
-      console.warn('[Admin regen] modo grade sem programas — alternando para playlist');
       normalized.programmingMode = 'playlist';
     }
     if (normalized.programmingMode === 'playlist' && normalized.playlistVideos.length === 0 && normalized.programs.length > 0) {
-      console.warn('[Admin regen] modo playlist sem vídeos — alternando para grade');
       normalized.programmingMode = 'grade';
     }
     if (normalized.programmingMode !== 'youtube_live' && normalized.programs.length === 0 && normalized.playlistVideos.length === 0) {
-      return { success: false, error: 'Canal sem programas nem videos na playlist' };
+      return { success: false, error: 'Canal sem programas nem videos' };
     }
+
+    // v39 — Mapeia normalized (inglês) para o formato que publicarCanal espera (português)
+    var dadosParaEnvio = {
+      name: normalized.name,
+      email: normalized.email,
+      slogan: normalized.slogan,
+      category: normalized.category || '',
+      logo: normalized.logo || '',
+      visibility: normalized.visibility,
+      showChannelNameWithLogo: normalized.showChannelNameWithLogo,
+      programmingMode: normalized.programmingMode,
+      youtubeChannelId: normalized.youtubeChannelId || '',
+      youtubeOfflineBehavior: normalized.youtubeOfflineBehavior || 'videos',
+      programas: (normalized.programs || []).map(function(program) {
+        return {
+          name: program.name,
+          videos: Array.isArray(program.videos) ? program.videos : []
+        };
+      }),
+      playlistVideos: (normalized.playlistVideos || []).map(function(video) {
+        return {
+          name: video.name,
+          url: video.url
+        };
+      }),
+      comerciais: normalized.commercials || [],
+      release: normalized.releaseDate || '',
+      showTime: normalized.showTime,
+      enableRewind10: normalized.enableRewind10,
+      enableRestart: normalized.enableRestart,
+      enableLive: normalized.enableLive,
+      enableDebug: normalized.enableDebug,
+      enableCommercials: normalized.enableCommercials,
+      commercialsPerBreak: normalized.commercialsPerBreak,
+      commercialsOrder: normalized.commercialsOrder,
+      isOffline: normalized.isOffline || false,
+      isAdultContent: normalized.isAdultContent || false,
+      socialMedia: normalized.socialMedia,
+      customButton: normalized.customButton,
+      version: normalized.version,
+      monetization: normalized.monetization || null
+    };
 
     currentUser = firebase.auth().currentUser;
     currentChannelId = channelId;
@@ -13047,28 +13084,32 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
 
     var monetization = null;
     try { monetization = await carregarConfiguracoesMonetizacao(channelId); } catch(eM) {}
-    if (monetization) tvData.monetization = monetization;
+    if (monetization) {
+      dadosParaEnvio.monetization = monetization;
+      tvData.monetization = monetization;
+    }
 
-    tvData.version = incrementarVersao(tvData.version || '1.0.0.0');
+    dadosParaEnvio.version = incrementarVersao(dadosParaEnvio.version || '1.0.0.0');
+    tvData.version = dadosParaEnvio.version;
 
-    var resultado = await publicarCanal(tvData.name, tvData);
+    var resultado = await publicarCanal(dadosParaEnvio.name, dadosParaEnvio);
 
     var now = firebase.firestore.FieldValue.serverTimestamp();
     var docRef = db.collection('users').doc(ownerUid).collection('channels').doc(channelId);
     await docRef.update({
       url: resultado.url,
-      version: tvData.version,
+      version: dadosParaEnvio.version,
       updatedAt: now,
       published: true
     });
     await db.collection('channels').doc(channelId).set({
       url: resultado.url,
-      version: tvData.version,
+      version: dadosParaEnvio.version,
       updatedAt: now
     }, { merge: true });
 
-    console.log('[Admin regen] OK ' + normalized.name + ' -> ' + resultado.url);
-    return { success: true, url: resultado.url, version: tvData.version };
+    console.log('[Admin regen] OK ' + dadosParaEnvio.name + ' -> ' + resultado.url);
+    return { success: true, url: resultado.url, version: dadosParaEnvio.version };
   } catch (e) {
     console.error('[Admin regen] FAIL ' + ((channelData && channelData.name) || channelId), e);
     return { success: false, error: e.message };
