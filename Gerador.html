@@ -12994,18 +12994,67 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
     if (!firebase.auth().currentUser) {
       return { success: false, error: 'Admin nao autenticado' };
     }
+    // v38 - Blindagem contra dados incompletos do Firestore
+    var raw = channelData || {};
+    var normalized;
+    try {
+      normalized = normalizarDadosCanal(raw);
+    } catch (eNorm) {
+      console.warn('[Admin regen] normalizarDadosCanal falhou, usando fallback:', eNorm);
+      normalized = Object.assign({
+        email: '', name: '', slogan: '', category: '', logo: '', visibility: 'brazil',
+        showChannelNameWithLogo: true, showTime: true, enableRewind10: true,
+        enableRestart: true, enableLive: true, enableDebug: true,
+        customReleaseDate: false, releaseDate: '', programmingMode: 'grade',
+        programs: [], playlistVideos: [], commercials: [],
+        enableCommercials: false, commercialsPerBreak: 2,
+        commercialsOrder: 'sequential', isOffline: false, isAdultContent: false,
+        socialMedia: { facebook:'', instagram:'', bluesky:'', tiktok:'', twitter:'' },
+        customButton: { text:'', url:'' }, url: '', published: false,
+        userId: '', createdAt: null, updatedAt: null,
+        version: '1.0.0.0', monetization: null
+      }, raw);
+    }
+    // Garante arrays válidos
+    if (!Array.isArray(normalized.programs)) normalized.programs = [];
+    if (!Array.isArray(normalized.playlistVideos)) normalized.playlistVideos = [];
+    if (!Array.isArray(normalized.commercials)) normalized.commercials = [];
+    if (!normalized.socialMedia || typeof normalized.socialMedia !== 'object') {
+      normalized.socialMedia = { facebook:'', instagram:'', bluesky:'', tiktok:'', twitter:'' };
+    }
+    if (!normalized.customButton || typeof normalized.customButton !== 'object') {
+      normalized.customButton = { text:'', url:'' };
+    }
+    // Fallback de segurança: playlist vazia mas grade com programas, ou vice-versa
+    if (normalized.programmingMode === 'grade' && normalized.programs.length === 0 && normalized.playlistVideos.length > 0) {
+      console.warn('[Admin regen] modo grade sem programas — alternando para playlist');
+      normalized.programmingMode = 'playlist';
+    }
+    if (normalized.programmingMode === 'playlist' && normalized.playlistVideos.length === 0 && normalized.programs.length > 0) {
+      console.warn('[Admin regen] modo playlist sem vídeos — alternando para grade');
+      normalized.programmingMode = 'grade';
+    }
+    if (normalized.programmingMode !== 'youtube_live' && normalized.programs.length === 0 && normalized.playlistVideos.length === 0) {
+      return { success: false, error: 'Canal sem programas nem videos na playlist' };
+    }
+
     currentUser = firebase.auth().currentUser;
     currentChannelId = channelId;
     editingChannel = true;
-    originalChannelName = channelData.name || '';
-    tvData = Object.assign({}, channelData);
+    originalChannelName = normalized.name || '';
+    tvData = Object.assign({}, normalized);
     tvData.userId = ownerUid;
-    const monetization = await carregarConfiguracoesMonetizacao(channelId);
+
+    var monetization = null;
+    try { monetization = await carregarConfiguracoesMonetizacao(channelId); } catch(eM) {}
     if (monetization) tvData.monetization = monetization;
+
     tvData.version = incrementarVersao(tvData.version || '1.0.0.0');
-    const resultado = await publicarCanal(tvData.name, tvData);
-    const now = firebase.firestore.FieldValue.serverTimestamp();
-    const docRef = db.collection('users').doc(ownerUid).collection('channels').doc(channelId);
+
+    var resultado = await publicarCanal(tvData.name, tvData);
+
+    var now = firebase.firestore.FieldValue.serverTimestamp();
+    var docRef = db.collection('users').doc(ownerUid).collection('channels').doc(channelId);
     await docRef.update({
       url: resultado.url,
       version: tvData.version,
@@ -13017,10 +13066,11 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
       version: tvData.version,
       updatedAt: now
     }, { merge: true });
-    console.log('[Admin regen] OK ' + channelData.name + ' -> ' + resultado.url);
+
+    console.log('[Admin regen] OK ' + normalized.name + ' -> ' + resultado.url);
     return { success: true, url: resultado.url, version: tvData.version };
   } catch (e) {
-    console.error('[Admin regen] FAIL ' + (channelData.name || channelId), e);
+    console.error('[Admin regen] FAIL ' + ((channelData && channelData.name) || channelId), e);
     return { success: false, error: e.message };
   }
 };
