@@ -6400,64 +6400,36 @@ function configurarControlesYouTube() {
         });
     }
     
-// Botão -10s / Início / Ao Vivo — v30 (seek + recreate fallback)
-    function _isPlayerLiveV30() {
+// Botões -10s / Início / Ao Vivo — v33
+    // Só esconde -10s/Início quando for live rodando há mais de X horas
+    // (nas primeiras horas o DVR ainda cobre o início, então seek funciona)
+    var LIVE_HIDE_THRESHOLD_SEC = 3 * 3600; // 3h
+    function _isLongLiveV33() {
         try {
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                var vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null;
-                return !!(vd && vd.isLive === true);
+            if (!isYoutubeVideo || !youtubePlayer || !playerReady) return false;
+            var vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null;
+            if (!vd || vd.isLive !== true) return false;
+            var dur = youtubePlayer.getDuration ? youtubePlayer.getDuration() : 0;
+            if (typeof dur !== 'number' || !isFinite(dur) || dur <= 0) return false;
+            return dur > LIVE_HIDE_THRESHOLD_SEC;
+        } catch(e){ return false; }
+    }
+    function _updateButtonsState() {
+        var hide = _isLongLiveV33();
+        var btns = [rewind10Btn, restartBtn];
+        for (var i = 0; i < btns.length; i++) {
+            var b = btns[i];
+            if (!b) continue;
+            if (hide) {
+                b.style.display = 'none';
+            } else {
+                b.style.display = 'block';
             }
-        } catch(e){}
-        return false;
-    }
-    function _toastBtnsV30(msg){
-        var id = '__btnToastV30';
-        var old = document.getElementById(id);
-        if (old) old.remove();
-        var d = document.createElement('div');
-        d.id = id;
-        d.textContent = msg;
-        d.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);color:#fff;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:600;z-index:2147483000;box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:none;font-family:Arial,sans-serif;border-left:4px solid #fdbb2d;';
-        document.body.appendChild(d);
-        setTimeout(function(){ if (d.parentNode) d.remove(); }, 3000);
-    }
-    function _forceSeekTo(target) {
-        target = Math.max(0, Math.floor(target));
-        if (isYoutubeVideo && youtubePlayer && playerReady) {
-            var ctBefore = 0;
-            try { ctBefore = youtubePlayer.getCurrentTime() || 0; } catch(e){}
-            try { youtubePlayer.seekTo(target, true); } catch(e){ console.warn('[BTN] seekTo erro:', e); }
-            console.log('[BTN] forceSeekTo: ' + ctBefore.toFixed(1) + ' -> ' + target + ' (aguardando confirmacao)');
-            setTimeout(function(){
-                var ctAfter = 0;
-                try { ctAfter = youtubePlayer.getCurrentTime() || 0; } catch(e){}
-                var moved = Math.abs(ctAfter - ctBefore) > 2;
-                if (moved) {
-                    console.log('[BTN] seekTo OK: agora em ' + ctAfter.toFixed(1) + 's');
-                    return;
-                }
-                // Seek ignorado — tenta recriar player
-                console.log('[BTN] seekTo ignorado pelo YT (' + ctAfter.toFixed(1) + 's) — recriando player em ' + target + 's');
-                var vd = null;
-                try { vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null; } catch(e){}
-                var vid = vd && vd.video_id;
-                if (vid && typeof criarPlayerYouTube === 'function') {
-                    try {
-                        criarPlayerYouTube(vid, target, true);
-                    } catch(e) { console.warn('[BTN] recriar player falhou:', e); }
-                } else {
-                    _toastBtnsV30('Não é possível alterar a posição nesta transmissão');
-                }
-            }, 800);
-        } else if (videoElement && videoElement.readyState >= 1) {
-            try {
-                var d2 = videoElement.duration || 0;
-                if (target > d2 - 0.5) target = Math.max(0, d2 - 1);
-                videoElement.currentTime = target;
-                console.log('[BTN] HTML5 seek: -> ' + target + 's');
-            } catch(e) { console.warn('[BTN] HTML5 seek erro:', e); }
         }
     }
+    setInterval(_updateButtonsState, 1500);
+    setTimeout(_updateButtonsState, 800);
+    setTimeout(_updateButtonsState, 2500);
 
     if (rewind10Btn) {
         rewind10Btn.addEventListener('click', function() {
@@ -6465,12 +6437,13 @@ function configurarControlesYouTube() {
                 var ct = 0;
                 if (isYoutubeVideo && youtubePlayer && playerReady) {
                     ct = youtubePlayer.getCurrentTime() || 0;
+                    youtubePlayer.seekTo(Math.max(0, ct - 10), true);
+                    console.log('[BTN] -10s: ' + ct.toFixed(1) + ' -> ' + Math.max(0, ct - 10).toFixed(1));
                 } else if (videoElement && videoElement.readyState >= 1) {
                     ct = videoElement.currentTime || 0;
+                    videoElement.currentTime = Math.max(0, ct - 10);
+                    console.log('[BTN] -10s: ' + ct.toFixed(1) + ' -> ' + Math.max(0, ct - 10).toFixed(1));
                 }
-                var target = Math.max(0, ct - 10);
-                console.log('[BTN] -10s clicado: ' + ct.toFixed(1) + ' -> ' + target.toFixed(1));
-                _forceSeekTo(target);
             } catch(e) { console.warn('[BTN] -10s erro:', e); }
             showControls();
             resetControlsTimer();
@@ -6479,8 +6452,12 @@ function configurarControlesYouTube() {
     if (restartBtn) {
         restartBtn.addEventListener('click', function() {
             try {
-                console.log('[BTN] Inicio clicado');
-                _forceSeekTo(0);
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    youtubePlayer.seekTo(0, true);
+                } else if (videoElement) {
+                    videoElement.currentTime = 0;
+                }
+                console.log('[BTN] Inicio: seek 0');
             } catch(e) { console.warn('[BTN] Inicio erro:', e); }
             showControls();
             resetControlsTimer();
@@ -6493,7 +6470,6 @@ function configurarControlesYouTube() {
             window.__lastLiveBtnClick = now;
             console.log('[BTN] AO VIVO clicado');
             try {
-                var acted = false;
                 if (isYoutubeVideo && youtubePlayer && playerReady) {
                     var vd = null;
                     try { vd = youtubePlayer.getVideoData ? youtubePlayer.getVideoData() : null; } catch(e){}
@@ -6508,7 +6484,6 @@ function configurarControlesYouTube() {
                                 youtubePlayer.loadVideoById(vidId);
                             }
                         } catch(e) { console.warn('[BTN] recriar falhou:', e); }
-                        acted = true;
                     } else {
                         var dur = youtubePlayer.getDuration();
                         if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
@@ -6517,12 +6492,11 @@ function configurarControlesYouTube() {
                             if (pctSlot > 1) pctSlot = 1;
                             var target = dur * pctSlot;
                             if (target > dur - 0.5) target = Math.max(0, dur - 1);
-                            _forceSeekTo(target);
-                            acted = true;
+                            youtubePlayer.seekTo(target, true);
+                            console.log('[BTN] AO VIVO: ' + (pctSlot*100).toFixed(1) + '% -> ' + target.toFixed(1) + 's');
                         }
                     }
-                }
-                if (!acted && videoElement && videoElement.readyState >= 1) {
+                } else if (videoElement && videoElement.readyState >= 1) {
                     var d2 = videoElement.duration;
                     if (typeof d2 === 'number' && isFinite(d2) && d2 > 0) {
                         var pctSlot2 = calcularPercentualSlot();
@@ -6530,7 +6504,7 @@ function configurarControlesYouTube() {
                         if (pctSlot2 > 1) pctSlot2 = 1;
                         var t2 = d2 * pctSlot2;
                         if (t2 > d2 - 0.5) t2 = Math.max(0, d2 - 1);
-                        _forceSeekTo(t2);
+                        videoElement.currentTime = t2;
                     }
                 }
             } catch(e) { console.warn('[BTN] AO VIVO erro:', e); }
