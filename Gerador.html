@@ -7349,84 +7349,63 @@ var _ocultarYtInterval = setInterval(function() {
         });
     }
     
-    // Botão Ao Vivo — SÓ AVANÇA, nunca retrocede, nunca recarrega
+// Botão Ao Vivo — v27 (live edge se dur > 2h, senão pctSlot)
     if (liveBtn) {
         liveBtn.addEventListener('click', function() {
-            console.log('=== BOTÃO AO VIVO CLICADO ===');
-
-            // 1) Descobre o slot real e o percentual do momento
-            let slotRealAgora;
-            if (PROGRAMMING_MODE === 'grade') {
-                slotRealAgora = calcularSlotAtualGrade();
-            } else {
-                slotRealAgora = calcularSlotAtualPlaylist();
-            }
-            const percentualSlot = calcularPercentualSlot();
-            const TOLERANCIA_SEGUNDOS = 2;
-
-            console.log('Slot atual:', currentPlayingSlot, '| Slot real:', slotRealAgora, '| Percentual do slot:', (percentualSlot * 100).toFixed(1) + '%');
-
-            // 2) Determina se o slot real está À FRENTE ou ATRÁS
-            const totalSlots = (PROGRAMMING_MODE === 'grade') ? TOTAL_SLOTS : TV_PLAYLIST.length;
-            const diffSlots = (slotRealAgora - currentPlayingSlot + totalSlots) % totalSlots;
-
-            // diffSlots = 0           → mesmo slot
-            // diffSlots <= metade     → real à frente  → AVANÇA
-            // diffSlots >  metade     → real atrás     → NÃO FAZ NADA
-            const mesmoSlot = (currentPlayingSlot === slotRealAgora);
-            const realEstaAFrente = (!mesmoSlot && diffSlots > 0 && diffSlots <= totalSlots / 2);
-            const realEstaAtras = (!mesmoSlot && diffSlots > totalSlots / 2);
-
-            if (realEstaAtras) {
-                console.log('⏸ Slot real (' + slotRealAgora + ') está ATRÁS do atual (' + currentPlayingSlot + '). Não retrocede.');
-                showControls();
-                resetControlsTimer();
-                return;
-            }
-
-            if (realEstaAFrente) {
-                console.log('⏩ Slot real (' + slotRealAgora + ') está À FRENTE. Trocando de programa.');
-                currentPlayingSlot = slotRealAgora;
-                reproduzirPrograma(slotRealAgora, percentualSlot);
-                showControls();
-                resetControlsTimer();
-                return;
-            }
-
-            // 3) Mesmo slot → só avança o ponto se estiver atrás
-            console.log('▶ Mesmo slot. Verificando ponto do vídeo.');
-
-            if (isYoutubeVideo && youtubePlayer && playerReady) {
-                const duration = youtubePlayer.getDuration();
-                if (duration > 0) {
-                    const tempoAtual = youtubePlayer.getCurrentTime();
-                    const tempoCorreto = duration * percentualSlot;
-                    const diff = tempoCorreto - tempoAtual;
-                    if (diff > TOLERANCIA_SEGUNDOS) {
-                        console.log('Avançando ' + diff.toFixed(1) + 's (' + tempoAtual.toFixed(1) + ' → ' + tempoCorreto.toFixed(1) + ')');
-                        youtubePlayer.seekTo(tempoCorreto, true);
-                    } else {
-                        console.log('Já está no ponto certo (diff: ' + diff.toFixed(1) + 's). Nada a fazer.');
+            var now = Date.now();
+            if (window.__lastLiveBtnClick && (now - window.__lastLiveBtnClick) < 1500) return;
+            window.__lastLiveBtnClick = now;
+            console.log('[BTN] AO VIVO clicado');
+            try {
+                var LONG_LIMIT = 7200;
+                var acted = false;
+                if (isYoutubeVideo && youtubePlayer && playerReady) {
+                    var dur = youtubePlayer.getDuration();
+                    if (typeof dur === 'number' && isFinite(dur) && dur > 0) {
+                        if (dur > LONG_LIMIT) {
+                            var edge = Math.max(0, dur - 10);
+                            youtubePlayer.seekTo(edge, true);
+                            console.log('[BTN] AO VIVO (live longa ' + (dur/3600).toFixed(1) + 'h): -> ' + edge.toFixed(1) + 's');
+                        } else {
+                            var pctSlot = calcularPercentualSlot();
+                            if (pctSlot < 0) pctSlot = 0;
+                            if (pctSlot > 1) pctSlot = 1;
+                            var ct = youtubePlayer.getCurrentTime() || 0;
+                            var pv = ct / dur;
+                            var target = dur * pctSlot;
+                            if (target > dur - 0.5) target = Math.max(0, dur - 1);
+                            youtubePlayer.seekTo(target, true);
+                            console.log('[BTN] AO VIVO YouTube: ' + (pv*100).toFixed(1) + '% -> ' + (pctSlot*100).toFixed(1) + '%');
+                        }
+                        acted = true;
                     }
                 }
-            } else if (videoElement && videoElement.readyState >= 1) {
-                if (videoElement.duration > 0) {
-                    const tempoAtual = videoElement.currentTime;
-                    const tempoCorreto = videoElement.duration * percentualSlot;
-                    const diff = tempoCorreto - tempoAtual;
-                    if (diff > TOLERANCIA_SEGUNDOS) {
-                        console.log('Avançando ' + diff.toFixed(1) + 's (' + tempoAtual.toFixed(1) + ' → ' + tempoCorreto.toFixed(1) + ')');
-                        videoElement.currentTime = Math.min(tempoCorreto, videoElement.duration - 1);
-                    } else {
-                        console.log('Já está no ponto certo (diff: ' + diff.toFixed(1) + 's). Nada a fazer.');
+                if (!acted && videoElement && videoElement.readyState >= 1) {
+                    var d2 = videoElement.duration;
+                    if (typeof d2 === 'number' && isFinite(d2) && d2 > 0) {
+                        if (d2 > LONG_LIMIT) {
+                            var e2 = Math.max(0, d2 - 10);
+                            videoElement.currentTime = e2;
+                            console.log('[BTN] AO VIVO (live longa HTML5): -> ' + e2.toFixed(1));
+                        } else {
+                            var pctSlot2 = calcularPercentualSlot();
+                            if (pctSlot2 < 0) pctSlot2 = 0;
+                            if (pctSlot2 > 1) pctSlot2 = 1;
+                            var ct2 = videoElement.currentTime || 0;
+                            var t2 = d2 * pctSlot2;
+                            if (t2 > d2 - 0.5) t2 = Math.max(0, d2 - 1);
+                            videoElement.currentTime = t2;
+                            console.log('[BTN] AO VIVO HTML5: ' + (ct2/d2*100).toFixed(1) + '% -> ' + (pctSlot2*100).toFixed(1) + '%');
+                        }
                     }
                 }
-            }
-
+                if (!acted) console.warn('[BTN] AO VIVO: nenhum player ativo');
+            } catch(e) { console.warn('[BTN] AO VIVO erro:', e); }
             showControls();
             resetControlsTimer();
         });
     }
+    
     
     // Tela cheia
     if (fullscreenBtn && videoWrapper) {
