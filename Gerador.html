@@ -12999,15 +12999,11 @@ toScreen3Btn.addEventListener('click', () => {
 // v50 - Funcao de regeneracao para o Painel Admin (iframe oculto)
 window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
   try {
-    if (!firebase.auth().currentUser) {
-      return { success: false, error: 'Admin nao autenticado' };
-    }
     var raw = channelData || {};
     var normalized;
     try {
       normalized = normalizarDadosCanal(raw);
     } catch (eNorm) {
-      console.warn('[Admin regen] normalizarDadosCanal falhou:', eNorm);
       normalized = Object.assign({
         email: '', name: '', slogan: '', category: '', logo: '', visibility: 'brazil',
         showChannelNameWithLogo: true, showTime: true, enableRewind10: true,
@@ -13023,14 +13019,12 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
       }, raw);
     }
 
-    // Arrays válidos
     if (!Array.isArray(normalized.programs)) normalized.programs = [];
     if (!Array.isArray(normalized.playlistVideos)) normalized.playlistVideos = [];
     if (!Array.isArray(normalized.commercials)) normalized.commercials = [];
     if (!normalized.socialMedia) normalized.socialMedia = { facebook:'', instagram:'', bluesky:'', tiktok:'', twitter:'' };
     if (!normalized.customButton) normalized.customButton = { text:'', url:'' };
 
-    // Ajusta modo
     if (normalized.programmingMode === 'grade' && normalized.programs.length === 0 && normalized.playlistVideos.length > 0) {
       normalized.programmingMode = 'playlist';
     }
@@ -13041,7 +13035,6 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
       return { success: false, error: 'Canal sem programas nem videos' };
     }
 
-    // v39 — Mapeia normalized (inglês) para o formato que publicarCanal espera (português)
     var dadosParaEnvio = {
       name: normalized.name,
       email: normalized.email,
@@ -13054,16 +13047,10 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
       youtubeChannelId: normalized.youtubeChannelId || '',
       youtubeOfflineBehavior: normalized.youtubeOfflineBehavior || 'videos',
       programas: (normalized.programs || []).map(function(program) {
-        return {
-          name: program.name,
-          videos: Array.isArray(program.videos) ? program.videos : []
-        };
+        return { name: program.name, videos: Array.isArray(program.videos) ? program.videos : [] };
       }),
       playlistVideos: (normalized.playlistVideos || []).map(function(video) {
-        return {
-          name: video.name,
-          url: video.url
-        };
+        return { name: video.name, url: video.url };
       }),
       comerciais: normalized.commercials || [],
       release: normalized.releaseDate || '',
@@ -13102,52 +13089,35 @@ window.__regenerateChannel = async function(channelId, ownerUid, channelData) {
 
     var resultado = await publicarCanal(dadosParaEnvio.name, dadosParaEnvio);
 
-    var now = firebase.firestore.FieldValue.serverTimestamp();
-    var docRef = db.collection('users').doc(ownerUid).collection('channels').doc(channelId);
-    await docRef.update({
-      url: resultado.url,
-      version: dadosParaEnvio.version,
-      updatedAt: now,
-      published: true
-    });
-    // v41 — Salva os mesmos metadados do iniciarPublicacao (para a home)
-    var __programNames = dadosParaEnvio.programmingMode === 'playlist'
-      ? (dadosParaEnvio.playlistVideos || []).map(function(v) { return (v && v.name) || 'Sem nome'; })
-      : (dadosParaEnvio.programas || []).map(function(p) { return (p && p.name) || 'Sem nome'; });
-    var __grade = dadosParaEnvio.programmingMode === 'grade' ? (dadosParaEnvio.grade || []) : [];
-    var __programDurations = dadosParaEnvio.programmingMode === 'grade'
-      ? __grade.map(function(idx) {
-          var p = dadosParaEnvio.programas[idx];
-          return p && p.videos ? p.videos.length : 1;
-        })
-      : [];
-    var __meta = {
-      channelId: channelId,
-      ownerId: ownerUid,
-      name: dadosParaEnvio.name,
-      slogan: dadosParaEnvio.slogan || '',
-      category: dadosParaEnvio.category || '',
-      isAdultContent: !!dadosParaEnvio.isAdultContent,
-      logo: dadosParaEnvio.logo || '',
-      url: resultado.url,
-      programmingMode: dadosParaEnvio.programmingMode || 'grade',
-      releaseDate: dadosParaEnvio.release || dadosParaEnvio.releaseDate || '',
-      programNames: __programNames,
-      grade: __grade,
-      programDurations: __programDurations,
-      youtubeChannelId: dadosParaEnvio.youtubeChannelId || '',
-      youtubeOfflineBehavior: dadosParaEnvio.youtubeOfflineBehavior || 'videos',
-      updatedAt: now
-    };
-    await db.collection('channels').doc(channelId).set(__meta, { merge: true });
+    var programNames = [];
+    if (dadosParaEnvio.programmingMode === 'playlist') {
+      var pv = dadosParaEnvio.playlistVideos || [];
+      for (var i = 0; i < pv.length; i++) {
+        programNames.push((pv[i] && pv[i].name) ? pv[i].name : 'Sem nome');
+      }
+    } else {
+      var pg = dadosParaEnvio.programas || [];
+      for (var j = 0; j < pg.length; j++) {
+        programNames.push((pg[j] && pg[j].name) ? pg[j].name : 'Sem nome');
+      }
+    }
 
     console.log('[Admin regen] OK ' + dadosParaEnvio.name + ' -> ' + resultado.url);
-    return { success: true, url: resultado.url, version: dadosParaEnvio.version };
+
+    return {
+      success: true,
+      url: resultado.url,
+      version: dadosParaEnvio.version,
+      programmingMode: dadosParaEnvio.programmingMode,
+      releaseDate: dadosParaEnvio.release || '',
+      programNames: programNames,
+      grade: dadosParaEnvio.grade || []
+    };
   } catch (e) {
     console.error('[Admin regen] FAIL ' + ((channelData && channelData.name) || channelId), e);
     return { success: false, error: e.message };
   }
-};
+};;
 </script>
 
                     
