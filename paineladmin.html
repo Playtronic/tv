@@ -466,7 +466,52 @@ async function regenerarCanalComIframe(channelId, ownerUid, channelData){
   await waitForRegenFrame();
   const win = regenFrame.contentWindow;
   try {
-    return await win.__regenerateChannel(channelId, ownerUid, channelData);
+    // 1) Chama o iframe só para gerar o HTML
+    const result = await win.__regenerateChannel(channelId, ownerUid, channelData);
+    if (!result.success) return result;
+
+    // 2) Salva metadados no Firestore — do contexto do painel admin (SDK próprio)
+    const now = firebase.firestore.FieldValue.serverTimestamp();
+
+    // Calcula as durações por programa
+    const programDurations = Array.isArray(result.grade)
+      ? result.grade.map(function(idx){
+          const p = (channelData.programs || [])[idx];
+          return p && Array.isArray(p.videos) ? p.videos.length : 1;
+        })
+      : [];
+
+    // users/{uid}/channels/{cid}
+    await dbAdmin.collection('users').doc(ownerUid)
+      .collection('channels').doc(channelId)
+      .set({
+        url: result.url,
+        version: result.version,
+        updatedAt: now,
+        published: true
+      }, { merge: true });
+
+    // channels/{cid} (doc público — usado pela home)
+    await dbAdmin.collection('channels').doc(channelId).set({
+      channelId: channelId,
+      ownerId: ownerUid,
+      name: channelData.name || '',
+      slogan: channelData.slogan || '',
+      category: channelData.category || '',
+      isAdultContent: !!channelData.isAdultContent,
+      logo: channelData.logo || '',
+      url: result.url,
+      programmingMode: result.programmingMode || 'grade',
+      releaseDate: result.releaseDate || '',
+      programNames: result.programNames || [],
+      grade: Array.isArray(result.grade) ? result.grade : [],
+      programDurations: programDurations,
+      youtubeChannelId: channelData.youtubeChannelId || '',
+      youtubeOfflineBehavior: channelData.youtubeOfflineBehavior || 'videos',
+      updatedAt: now
+    }, { merge: true });
+
+    return result;
   } catch (e) {
     return { success: false, error: e.message };
   }
