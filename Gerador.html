@@ -11667,6 +11667,150 @@ showScreen('screen6');
         async function editChannel(channelId) {
     console.log("Iniciando edição do canal:", channelId);
 
+    // [NO-BACKUP-PATCH-1] Em modo adminEdit, busca canal via Cloud Function
+    // A leitura original do Firestore foi removida do bloco abaixo.
+    if (window.__adminEditMode && window.__adminEditMode.channelId === channelId) {
+        if (!currentUser) { alert("Faça login"); return; }
+        try {
+            console.log('[NO-BACKUP-PATCH-1] Carregando via CF adminGetChannelFull...');
+            const __token = await currentUser.getIdToken(true);
+            const __r = await fetch('https://us-central1-playtronic-tv.cloudfunctions.net/adminGetChannelFull', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + __token },
+                body: JSON.stringify({
+                    channelId: window.__adminEditMode.channelId,
+                    ownerUid: window.__adminEditMode.ownerUid
+                })
+            });
+            const __data = await __r.json();
+            if (!__r.ok || !__data.success) throw new Error(__data.error || 'falha');
+            const channel = __data.channel || {};
+            console.log('[NO-BACKUP-PATCH-1] Canal carregado via CF:', channel.name);
+
+            const dadosNormalizados = normalizarDadosCanal(channel);
+            tvData = { ...dadosNormalizados };
+
+            const monetizationData = await carregarConfiguracoesMonetizacao(channelId);
+            if (monetizationData) { tvData.monetization = monetizationData; }
+
+            currentChannelId = channelId;
+            editingChannel = true;
+            originalChannelName = dadosNormalizados.name;
+
+            // Preencher tela 1
+            document.getElementById('tvEmail').value = tvData.email;
+            document.getElementById('tvName').value = tvData.name;
+            document.getElementById('tvSlogan').value = tvData.slogan;
+            document.getElementById('tvCategory').value = tvData.category || '';
+
+            if (tvData.logo === DEFAULT_LOGO || !tvData.logo) {
+                document.getElementById('tvLogo').value = '';
+                document.getElementById('logoPreview').src = DEFAULT_LOGO;
+            } else {
+                document.getElementById('tvLogo').value = tvData.logo;
+                document.getElementById('logoPreview').src = tvData.logo;
+            }
+
+            document.getElementById('tvNameCounter').textContent = (tvData.name.length) + '/50';
+            document.getElementById('tvSloganCounter').textContent = (tvData.slogan.length) + '/100';
+
+            // Tela 2
+            document.getElementById('visibilitySelect').value = tvData.visibility;
+            document.getElementById('visibilityInfo').textContent = tvData.visibility === 'brazil'
+                ? 'Seu canal será acessível apenas no Brasil'
+                : 'Seu canal será acessível de qualquer país (Mundo)';
+            document.getElementById('showChannelNameWithLogo').checked = tvData.showChannelNameWithLogo;
+            document.getElementById('showTime').checked = tvData.showTime;
+            document.getElementById('enableRewind10').checked = tvData.enableRewind10;
+            document.getElementById('enableRestart').checked = tvData.enableRestart;
+            document.getElementById('enableLive').checked = tvData.enableLive;
+            document.getElementById('enableDebug').checked = tvData.enableDebug;
+            document.getElementById('customReleaseDate').checked = tvData.customReleaseDate;
+
+            const releaseDateInput = document.getElementById('releaseDate');
+            if (tvData.customReleaseDate && tvData.releaseDate) {
+                releaseDateInput.min = '2025-01-01';
+                releaseDateInput.max = new Date().toISOString().split('T')[0];
+                releaseDateInput.value = tvData.releaseDate;
+                document.getElementById('releaseDateContainer').style.display = 'block';
+            } else {
+                document.getElementById('releaseDateContainer').style.display = 'none';
+            }
+            updateLogoPreview();
+
+            // Tela 3
+            const programmingModeSelect = document.getElementById('programmingMode');
+            programmingModeSelect.value = tvData.programmingMode;
+            alternarModoProgramacao();
+
+            try {
+                window.__v53_id = tvData.youtubeChannelId || '';
+                var _ytU = document.getElementById('youtubeChannelUrl');
+                var _ytE = document.getElementById('youtubeChannelError');
+                var _ytS = document.getElementById('youtubeChannelStatus');
+                if (tvData.youtubeChannelId) {
+                    if (_ytU) _ytU.value = 'https://www.youtube.com/channel/' + tvData.youtubeChannelId;
+                    if (_ytE) _ytE.style.display = 'none';
+                    if (_ytS) { _ytS.textContent = 'Canal detectado: ' + tvData.youtubeChannelId; _ytS.style.display = 'block'; }
+                }
+                var _yr = document.getElementsByName('ytOfflineBehavior');
+                for (var _yj = 0; _yj < _yr.length; _yj++) { _yr[_yj].checked = (_yr[_yj].value === (tvData.youtubeOfflineBehavior || 'videos')); }
+            } catch(_ye) {}
+
+            const programsContainer = document.getElementById('programsContainer');
+            programsContainer.innerHTML = '';
+            const playlistContainer = document.getElementById('playlistContainer');
+            playlistContainer.innerHTML = '';
+
+            if (tvData.programs && tvData.programs.length > 0 && tvData.programmingMode === 'grade') {
+                tvData.programs.forEach((p, i) => addProgramCard(p, i));
+            }
+            if (tvData.playlistVideos && tvData.playlistVideos.length > 0 && tvData.programmingMode === 'playlist') {
+                tvData.playlistVideos.forEach((v, i) => addPlaylistVideoCard(v, i));
+            }
+
+            // Tela 4
+            const commercialsContainer = document.getElementById('commercialsContainer');
+            commercialsContainer.innerHTML = '';
+            if (tvData.commercials && tvData.commercials.length > 0) {
+                tvData.commercials.forEach((com, i) => {
+                    const obj = typeof com === 'string' ? { name: 'Comercial ' + (i+1), url: com } : com;
+                    addCommercialCard(obj, i);
+                });
+            }
+            document.getElementById('enableCommercials').checked = tvData.enableCommercials;
+            document.getElementById('commercialsPerBreak').value = tvData.commercialsPerBreak;
+            document.getElementById('commercialsOrder').value = tvData.commercialsOrder || 'sequential';
+            toggleCommercialsVisibility();
+
+            // Tela 5
+            document.getElementById('facebookUrl').value = tvData.socialMedia.facebook || '';
+            document.getElementById('instagramUrl').value = tvData.socialMedia.instagram || '';
+            document.getElementById('blueskyUrl').value = tvData.socialMedia.bluesky || '';
+            document.getElementById('tiktokUrl').value = tvData.socialMedia.tiktok || '';
+            document.getElementById('twitterUrl').value = tvData.socialMedia.twitter || '';
+            document.getElementById('customButtonText').value = tvData.customButton.text || '';
+            document.getElementById('customButtonUrl').value = tvData.customButton.url || '';
+            document.getElementById('customButtonTextCounter').textContent = ((tvData.customButton.text?.length) || 0) + '/20';
+
+            updateCounters();
+            validateAddProgramButton();
+            validateAddPlaylistVideoButton();
+            validateAddCommercialButton();
+            validateScreen3Navigation();
+            validateScreen4Navigation();
+
+            console.log('[NO-BACKUP-PATCH-1] Formulário preenchido. Indo pra tela 1.');
+            showScreen('screen1');
+        } catch (__err) {
+            console.error('[NO-BACKUP-PATCH-1] Erro:', __err);
+            alert('Erro ao carregar canal em modo admin: ' + __err.message);
+        }
+        return;
+    }
+
+    // ─── FLUXO NORMAL (não-admin) — mantém o código original abaixo ───
+
     // [v66-patcher:p1] Limpa estado de YT ANTES de qualquer coisa — evita vazamento
     // entre edições consecutivas de canais diferentes.
     try {
