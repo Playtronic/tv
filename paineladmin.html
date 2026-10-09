@@ -202,6 +202,13 @@ h1{color:#fdbb2d;font-size:1.6rem}
         <option value="acc-suspended">Conta suspensa</option>
         <option value="adult">Adulto (18+)</option>
       </select>
+      <select id="fSort" title="Ordenar por...">
+        <option value="created-desc">📅 Mais recentes primeiro</option>
+        <option value="created-asc">📅 Mais antigos primeiro</option>
+        <option value="updated-desc">🔄 Atualizados recentemente</option>
+        <option value="name-asc">🔤 Nome (A–Z)</option>
+        <option value="name-desc">🔤 Nome (Z–A)</option>
+      </select>
     </div>
 
     <div class="toolbar">
@@ -778,7 +785,10 @@ async function loadUsers(){
 function filterChannels(){
   const q = document.getElementById('fSearch').value.trim().toLowerCase();
   const st = document.getElementById('fStatus').value;
-  return allChannels.filter(c => {
+  const sortEl = document.getElementById('fSort');
+  const sort = sortEl ? sortEl.value : 'created-desc';
+
+  const filtrado = allChannels.filter(c => {
     if (q) {
       const h = (c.name + ' ' + c.ownerEmail + ' ' + c.ownerName + ' ' + c.slogan).toLowerCase();
       if (h.indexOf(q) === -1) return false;
@@ -790,6 +800,21 @@ function filterChannels(){
     if (st === 'adult' && !c.isAdultContent) return false;
     return true;
   });
+
+  // [ADMIN-SORT v1] Ordenação configurável
+  const num = v => Number(v) || 0;
+  const str = v => String(v || '').toLowerCase();
+  filtrado.sort((a, b) => {
+    switch (sort) {
+      case 'created-desc':  return num(b.createdAt) - num(a.createdAt);
+      case 'created-asc':   return num(a.createdAt) - num(b.createdAt);
+      case 'updated-desc':  return num(b.updatedAt) - num(a.updatedAt);
+      case 'name-asc':      return str(a.name).localeCompare(str(b.name), 'pt-BR');
+      case 'name-desc':     return str(b.name).localeCompare(str(a.name), 'pt-BR');
+      default:              return 0;
+    }
+  });
+  return filtrado;
 }
 
 function renderChannels(){
@@ -849,6 +874,13 @@ function renderUsers(){
   const list = document.getElementById('listUsers');
   const q = document.getElementById('fSearchUser').value.trim().toLowerCase();
   const f = allUsers.filter(u => !q || (u.email + ' ' + u.name).toLowerCase().indexOf(q) !== -1);
+
+  // [ADMIN-SORT v1] Usuários ordenados por data de criação (mais recentes no topo)
+  f.sort((a, b) => {
+    const ta = a.created ? Date.parse(a.created) : 0;
+    const tb = b.created ? Date.parse(b.created) : 0;
+    return tb - ta;
+  });
 
   document.getElementById('statsUsers').innerHTML =
     '<span>Total: <b>'+allUsers.length+'</b></span>' +
@@ -1007,6 +1039,7 @@ document.getElementById('btnConfirmSuspendAccount').addEventListener('click', as
 
 document.getElementById('fSearch').addEventListener('input', renderChannels);
 document.getElementById('fStatus').addEventListener('change', renderChannels);
+document.getElementById('fSort').addEventListener('change', renderChannels);
 document.getElementById('fSearchUser').addEventListener('input', renderUsers);
 
 document.querySelectorAll('.modal-overlay').forEach(m => {
