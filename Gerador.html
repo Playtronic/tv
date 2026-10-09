@@ -10071,6 +10071,25 @@ async function iniciarPublicacao() {
     } catch(_e) { console.warn('[v14] capture err:', _e); }
     const dadosNormalizados = normalizarDadosCanal(tvData);
     
+    // 🔥 [LOGO-FIX v1] Belt & suspenders — se URL personalizada não carregar, usa padrão
+    try {
+        const __logoRaw = (tvData.logo || '').trim();
+        if (__logoRaw && __logoRaw !== DEFAULT_LOGO) {
+            const __logoOk = await validarImagemUrl(__logoRaw);
+            if (!__logoOk) {
+                console.warn('[Logo-Fix] URL personalizada inválida, usando logo padrão:', __logoRaw);
+                dadosNormalizados.logo = '';
+                tvData.logo = '';
+            } else {
+                dadosNormalizados.logo = __logoOk;
+                tvData.logo = __logoOk;
+            }
+        } else {
+            dadosNormalizados.logo = '';
+            tvData.logo = '';
+        }
+    } catch(_e) { console.warn('[Logo-Fix] validação final falhou:', _e); }
+    
     // Carregar monetização se existir
     if (editingChannel && currentChannelId) {
         const monetizationData = await carregarConfiguracoesMonetizacao(currentChannelId);
@@ -11688,12 +11707,22 @@ console.log("Preenchendo formulário...");
                 document.getElementById('tvSlogan').value = tvData.slogan;
                 document.getElementById('tvCategory').value = tvData.category || '';
                 
-                if (tvData.logo === DEFAULT_LOGO || !tvData.logo) {
+                // 🔥 [LOGO-FIX v1] Valida a logo salva antes de exibir no formulário
+                if (tvData.logo && tvData.logo !== DEFAULT_LOGO) {
+                    const logoValida = await validarImagemUrl(tvData.logo);
+                    if (logoValida) {
+                        document.getElementById('tvLogo').value = logoValida;
+                        document.getElementById('logoPreview').src = logoValida;
+                        tvData.logo = logoValida;
+                    } else {
+                        document.getElementById('tvLogo').value = '';
+                        document.getElementById('logoPreview').src = DEFAULT_LOGO;
+                        tvData.logo = '';
+                    }
+                } else {
                     document.getElementById('tvLogo').value = '';
                     document.getElementById('logoPreview').src = DEFAULT_LOGO;
-                } else {
-                    document.getElementById('tvLogo').value = tvData.logo;
-                    document.getElementById('logoPreview').src = tvData.logo;
+                    tvData.logo = '';
                 }
                 
                 document.getElementById('tvNameCounter').textContent = `${tvData.name.length}/50`;
@@ -12106,31 +12135,68 @@ console.log("Preenchendo formulário...");
 
         // ==================== FUNÇÕES AUXILIARES GLOBAIS ====================
         
-        // Função para atualizar o preview da logo
-        function updateLogoPreview() {
+        // 🔥 [LOGO-FIX v1] Valida se uma URL é realmente uma imagem carregável
+        async function validarImagemUrl(url) {
+            if (!url || typeof url !== 'string') return '';
+            const u = url.trim();
+            if (!u) return '';
+            if (!/^https?:\/\//i.test(u)) return '';
+            return new Promise((resolve) => {
+                const img = new Image();
+                let done = false;
+                const finalizar = (result) => {
+                    if (done) return;
+                    done = true;
+                    img.onload = img.onerror = null;
+                    resolve(result);
+                };
+                const timer = setTimeout(() => finalizar(''), 6000);
+                img.onload = () => {
+                    clearTimeout(timer);
+                    finalizar(img.naturalWidth > 0 && img.naturalHeight > 0 ? u : '');
+                };
+                img.onerror = () => {
+                    clearTimeout(timer);
+                    finalizar('');
+                };
+                try { img.src = u; } catch (e) { clearTimeout(timer); finalizar(''); }
+            });
+        }
+
+        // 🔥 [LOGO-FIX v1] Função para atualizar o preview da logo (agora async e valida a URL)
+        let __logoValidateSeq = 0;
+        async function updateLogoPreview() {
             const tvLogoInput = document.getElementById('tvLogo');
             const logoPreview = document.getElementById('logoPreview');
             const logoError = document.getElementById('logoError');
-            
-            const logoUrl = tvLogoInput.value;
-            if (logoUrl) {
-                logoPreview.src = logoUrl;
-                tvData.logo = logoUrl;
-                logoError.style.display = 'none';
-                
-                logoPreview.onerror = function() {
-                    logoPreview.src = DEFAULT_LOGO;
-                    logoError.textContent = 'Não foi possível carregar a imagem. Verifique a URL.';
-                    logoError.style.display = 'block';
-                };
-                
-                logoPreview.onload = function() {
-                    logoError.style.display = 'none';
-                };
+            if (!tvLogoInput || !logoPreview) return;
+
+            const seq = ++__logoValidateSeq;
+            const logoUrl = (tvLogoInput.value || '').trim();
+
+            if (!logoUrl) {
+                logoPreview.src = DEFAULT_LOGO;
+                tvData.logo = '';
+                if (logoError) logoError.style.display = 'none';
+                return;
+            }
+
+            if (logoError) logoError.style.display = 'none';
+
+            const urlValida = await validarImagemUrl(logoUrl);
+            if (seq !== __logoValidateSeq) return; // resposta obsoleta — usuário continuou digitando
+
+            if (urlValida) {
+                logoPreview.src = urlValida;
+                tvData.logo = urlValida;
+                if (logoError) logoError.style.display = 'none';
             } else {
                 logoPreview.src = DEFAULT_LOGO;
                 tvData.logo = '';
-                logoError.style.display = 'none';
+                if (logoError) {
+                    logoError.textContent = 'URL de logo inválida ou não corresponde a uma imagem. Será usada a logo padrão.';
+                    logoError.style.display = 'block';
+                }
             }
         }
         
@@ -12728,14 +12794,39 @@ releaseDateInput.addEventListener('change', function() {
                 }
                 
                 if (isValid) {
-                    tvData.email = email;
-                    tvData.name = nome;
-                    tvData.slogan = slogan;
-                    tvData.category = category;
-                    tvData.isAdultContent = (category === 'adulto');
-                    tvData.logo = tvLogoInput.value.trim() || '';
-                    
-                    showScreen('screen2');
+                    // 🔥 [LOGO-FIX v1] Valida a URL da logo antes de avançar
+                    (async () => {
+                        tvData.email = email;
+                        tvData.name = nome;
+                        tvData.slogan = slogan;
+                        tvData.category = category;
+                        tvData.isAdultContent = (category === 'adulto');
+
+                        const logoRaw = (tvLogoInput.value || '').trim();
+                        const logoError = document.getElementById('logoError');
+
+                        if (logoRaw) {
+                            const logoValida = await validarImagemUrl(logoRaw);
+                            if (logoValida) {
+                                tvData.logo = logoValida;
+                                tvLogoInput.value = logoValida;
+                                if (logoError) logoError.style.display = 'none';
+                            } else {
+                                tvData.logo = '';
+                                tvLogoInput.value = '';
+                                const preview = document.getElementById('logoPreview');
+                                if (preview) preview.src = DEFAULT_LOGO;
+                                if (logoError) {
+                                    logoError.textContent = 'URL de logo inválida ou não corresponde a uma imagem. Será usada a logo padrão.';
+                                    logoError.style.display = 'block';
+                                }
+                            }
+                        } else {
+                            tvData.logo = '';
+                        }
+
+                        showScreen('screen2');
+                    })();
                 }
             });
             
